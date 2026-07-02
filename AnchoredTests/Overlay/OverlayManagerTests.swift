@@ -1,0 +1,134 @@
+import XCTest
+@testable import Anchored
+
+final class OverlayManagerTests: XCTestCase {
+    
+    private var mockActivityMonitor: TestActivityMonitor!
+    private var distractionListManager: DistractionListManager!
+    private var sessionStore: SessionStore!
+    private var focusEngine: FocusEngine!
+    private var overlayManager: OverlayManager!
+    private var tempStoreURL: URL!
+    
+    override func setUp() {
+        super.setUp()
+        
+        let testDefaults = UserDefaults(suiteName: "com.varun.Anchored.overlaytests")!
+        testDefaults.removePersistentDomain(forName: "com.varun.Anchored.overlaytests")
+        distractionListManager = DistractionListManager(defaults: testDefaults)
+        
+        let tempDirectory = FileManager.default.temporaryDirectory
+        tempStoreURL = tempDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("json")
+        sessionStore = SessionStore(fileURL: tempStoreURL)
+        
+        mockActivityMonitor = TestActivityMonitor()
+        
+        focusEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            focusThreshold: 600.0
+        )
+        
+        overlayManager = OverlayManager(focusEngine: focusEngine)
+        focusEngine.delegate = overlayManager
+    }
+    
+    override func tearDown() {
+        overlayManager.sessionDidEnd()
+        focusEngine.stop()
+        overlayManager = nil
+        focusEngine = nil
+        mockActivityMonitor = nil
+        
+        if FileManager.default.fileExists(atPath: tempStoreURL.path) {
+            try? FileManager.default.removeItem(at: tempStoreURL)
+        }
+        super.tearDown()
+    }
+    
+    func testCountdownDurationClamping() {
+        overlayManager.countdownDuration = 10
+        XCTAssertEqual(overlayManager.countdownDuration, 10)
+        
+        overlayManager.countdownDuration = 2
+        XCTAssertEqual(overlayManager.countdownDuration, 5, "Should clamp to minimum of 5 seconds")
+        
+        overlayManager.countdownDuration = 25
+        XCTAssertEqual(overlayManager.countdownDuration, 20, "Should clamp to maximum of 20 seconds")
+    }
+    
+    func testDidRequestExitTriggerShowsPanel() {
+        XCTAssertNil(overlayManager.exitTriggerPanel)
+        
+        overlayManager.didRequestExitTrigger(duration: 300, appName: "Xcode")
+        
+        XCTAssertNotNil(overlayManager.exitTriggerPanel)
+    }
+    
+    func testOnlyOneExitTriggerPanelAtATime() {
+        XCTAssertNil(overlayManager.exitTriggerPanel)
+        
+        overlayManager.didRequestExitTrigger(duration: 300, appName: "Xcode")
+        let firstPanel = overlayManager.exitTriggerPanel
+        XCTAssertNotNil(firstPanel)
+        
+        overlayManager.didRequestExitTrigger(duration: 600, appName: "Figma")
+        let secondPanel = overlayManager.exitTriggerPanel
+        XCTAssertNotNil(secondPanel)
+        
+        XCTAssertTrue(firstPanel !== secondPanel, "Should replace the existing panel instance")
+    }
+    
+    func testDidDetectDistractionShowsCountdownPill() {
+        XCTAssertNil(overlayManager.countdownPillPanel)
+        
+        overlayManager.didDetectDistraction(bundleID: "com.hnc.Discord")
+        
+        XCTAssertNotNil(overlayManager.countdownPillPanel)
+    }
+    
+    func testOnlyOneCountdownPillPanelAtATime() {
+        XCTAssertNil(overlayManager.countdownPillPanel)
+        
+        overlayManager.didDetectDistraction(bundleID: "com.hnc.Discord")
+        let firstPill = overlayManager.countdownPillPanel
+        XCTAssertNotNil(firstPill)
+        
+        overlayManager.didDetectDistraction(bundleID: "com.apple.MobileSMS")
+        let secondPill = overlayManager.countdownPillPanel
+        
+        XCTAssertTrue(firstPill === secondPill, "Should not replace or create a new countdown pill if one is active")
+    }
+    
+    func testDidReturnToWorkCancelsCountdownPill() {
+        overlayManager.didDetectDistraction(bundleID: "com.hnc.Discord")
+        XCTAssertNotNil(overlayManager.countdownPillPanel)
+        
+        overlayManager.didReturnToWork()
+        
+        XCTAssertNil(overlayManager.countdownPillPanel)
+    }
+    
+    func testSessionDidEndHidesEverything() {
+        overlayManager.didRequestExitTrigger(duration: 300, appName: "Xcode")
+        overlayManager.didDetectDistraction(bundleID: "com.hnc.Discord")
+        
+        XCTAssertNotNil(overlayManager.exitTriggerPanel)
+        XCTAssertNotNil(overlayManager.countdownPillPanel)
+        
+        overlayManager.sessionDidEnd()
+        
+        XCTAssertNil(overlayManager.exitTriggerPanel)
+        XCTAssertNil(overlayManager.countdownPillPanel)
+        XCTAssertTrue(overlayManager.dimWindows.isEmpty)
+    }
+}
+
+// MARK: - TestActivityMonitor
+private class TestActivityMonitor: ActivityMonitor {
+    var onContextChange: ((_ bundleID: String, _ url: URL?) -> Void)?
+    
+    func start() {}
+    func stop() {}
+}

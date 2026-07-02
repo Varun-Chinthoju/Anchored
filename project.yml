@@ -1,0 +1,30 @@
+name: Anchored
+options:
+  bundleIdPrefix: com.varun
+targets:
+  Anchored:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Anchored
+    settings:
+      base:
+        INFOPLIST_FILE: Anchored/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.varun.Anchored
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: "5.7"
+  AnchoredTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: AnchoredTests
+    dependencies:
+      - target: Anchored
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.varun.AnchoredTests
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: "5.7"
+        GENERATE_INFOPLIST_FILE: YES

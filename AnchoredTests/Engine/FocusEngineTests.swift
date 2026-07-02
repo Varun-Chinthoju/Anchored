@@ -1,0 +1,359 @@
+import XCTest
+@testable import Anchored
+
+final class FocusEngineTests: XCTestCase {
+    
+    private var mockActivityMonitor: MockActivityMonitor!
+    private var distractionListManager: DistractionListManager!
+    private var sessionStore: SessionStore!
+    private var mockDelegate: MockFocusEngineDelegate!
+    private var engine: FocusEngine!
+    private var tempStoreURL: URL!
+    
+    override func setUp() {
+        super.setUp()
+        
+        // Setup isolated UserDefaults
+        let testDefaults = UserDefaults(suiteName: "com.varun.Anchored.tests")!
+        testDefaults.removePersistentDomain(forName: "com.varun.Anchored.tests")
+        distractionListManager = DistractionListManager(defaults: testDefaults)
+        
+        // Setup isolated SessionStore
+        let tempDirectory = FileManager.default.temporaryDirectory
+        tempStoreURL = tempDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("json")
+        sessionStore = SessionStore(fileURL: tempStoreURL)
+        
+        // Setup mock ActivityMonitor and Delegate
+        mockActivityMonitor = MockActivityMonitor()
+        mockDelegate = MockFocusEngineDelegate()
+        
+        // Initialize FocusEngine (default threshold = 10 minutes)
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            focusThreshold: 600.0
+        )
+        engine.delegate = mockDelegate
+        
+        // Use a short distraction countdown for testing
+        engine.distractionCountdownThreshold = 0.05
+    }
+    
+    override func tearDown() {
+        engine.stop()
+        if FileManager.default.fileExists(atPath: tempStoreURL.path) {
+            try? FileManager.default.removeItem(at: tempStoreURL)
+        }
+        super.tearDown()
+    }
+    
+    // MARK: - Initial State
+    
+    func testInitialState() {
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertNil(engine.currentApp)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertNil(engine.activeSession)
+        XCTAssertFalse(engine.isDimming)
+    }
+    
+    // MARK: - Non-Distraction Transitions
+    
+    func testNonDistractionAppSwitchSetsWorkSessionStart() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        
+        XCTAssertEqual(engine.currentApp, "com.apple.dt.Xcode")
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertNotNil(engine.workSessionStart)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
+    }
+    
+    func testSwitchingBetweenNonDistractionAppsDoesNotResetWorkSessionStart() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        let firstStart = engine.workSessionStart
+        
+        // Wait slightly to verify start date doesn't advance
+        Thread.sleep(forTimeInterval: 0.01)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Terminal")
+        
+        XCTAssertEqual(engine.currentApp, "com.apple.Terminal")
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertEqual(engine.workSessionStart, firstStart)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.Terminal")
+    }
+    
+    // MARK: - Distraction Transitions (No Session)
+    
+    func testDistractionAppSwitchResetsWorkSessionStartIfUnderThreshold() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        XCTAssertNotNil(engine.workSessionStart)
+        
+        // Switch to distraction (default distractions list includes Spotify)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
+    }
+    
+    func testDistractionAppSwitchTriggersExitCapsuleIfOverThreshold() {
+        engine.focusThreshold = 0.1 // Use very short focus threshold for testing
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        XCTAssertNotNil(engine.workSessionStart)
+        
+        // Sleep to exceed threshold
+        Thread.sleep(forTimeInterval: 0.15)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertEqual(mockDelegate.exitTriggers.count, 1)
+        XCTAssertEqual(mockDelegate.exitTriggers.first?.appName, "Xcode")
+        XCTAssertGreaterThan(mockDelegate.exitTriggers.first?.duration ?? 0, 0.1)
+    }
+    
+    // MARK: - Capsule Actions
+    
+    func testAnchorSessionCreatesActiveSessionRetroactively() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        let start = engine.workSessionStart!
+        
+        engine.anchorSession(duration: 1500.0) // 25 minutes
+        
+        XCTAssertEqual(engine.state, .anchored)
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertEqual(engine.activeSession?.startDate, start)
+        XCTAssertEqual(engine.activeSession?.anchoredDuration, 1500.0)
+        XCTAssertEqual(engine.activeSession?.appName, "Xcode")
+        
+        // Verify database log
+        let recent = sessionStore.recentSessions(limit: 5)
+        // Wait, recent sessions filters by .sessionEnd. But let's check events directly if we can,
+        // or let's read the JSON file to verify session start is logged.
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.type, .sessionStart)
+        XCTAssertEqual(events.first?.action, .anchored)
+        XCTAssertEqual(events.first?.sessionDurationSeconds, 1500)
+    }
+    
+    func testDismissTriggerResetsWorkSessionStart() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        XCTAssertNotNil(engine.workSessionStart)
+        
+        engine.dismissTrigger()
+        
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .idle)
+    }
+    
+    // MARK: - Distraction Transitions (With Active Session)
+    
+    func testDistractionAppSwitchDuringActiveSessionTriggersCountdownAndLog() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.spotify.client"])
+        
+        // Verify distraction detected event logged
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.count, 2) // sessionStart + distractionDetected
+        XCTAssertEqual(events.last?.type, .distractionDetected)
+        XCTAssertEqual(events.last?.distractionAppBundleID, "com.spotify.client")
+    }
+    
+    func testReturnToWorkBeforeDistractionTimerExpiresCancelsTimer() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        
+        // Switch back immediately (well before 0.05s)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        
+        // Wait to verify timer doesn't fire and transition to dimming
+        Thread.sleep(forTimeInterval: 0.1)
+        
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertEqual(mockDelegate.returnsToWork, 0)
+        
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.count, 2) // sessionStart + distractionDetected (no escalationTriggered)
+    }
+    
+    func testDistractionTimerExpirationTriggersEscalationAndLog() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        
+        // Wait for distraction countdown timer (0.05s threshold) to fire
+        let expectation = XCTestExpectation(description: "Wait for distraction countdown timer")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 0.5)
+        
+        XCTAssertTrue(engine.isDimming)
+        
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.count, 3) // sessionStart + distractionDetected + escalationTriggered
+        XCTAssertEqual(events.last?.type, .escalationTriggered)
+        XCTAssertEqual(events.last?.action, .escalated)
+    }
+    
+    func testReturnToWorkAfterEscalationLiftsOverlay() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        
+        // Manually fire distraction expiration to simulate countdown ending instantly
+        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
+        
+        XCTAssertTrue(engine.isDimming)
+        
+        // Switch back to work
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+    
+    // MARK: - Session Expiration & Termination
+    
+    func testSessionTimerExpirationAutoEndsSession() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        
+        // Anchor for 0.05 seconds
+        engine.anchorSession(duration: 0.05)
+        XCTAssertEqual(engine.state, .anchored)
+        
+        // Wait for session timer to expire
+        let expectation = XCTestExpectation(description: "Wait for session timer expiration")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 0.5)
+        
+        XCTAssertNil(engine.activeSession)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertEqual(mockDelegate.endedSessions, 1)
+        
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.count, 2) // sessionStart + sessionEnd
+        XCTAssertEqual(events.last?.type, .sessionEnd)
+        XCTAssertEqual(events.last?.action, .timeout)
+    }
+    
+    func testManualEndSessionTerminatesSessionWithDismissedAction() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        engine.endSession(action: .dismissed)
+        
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertEqual(mockDelegate.endedSessions, 1)
+        
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.count, 2) // sessionStart + sessionEnd
+        XCTAssertEqual(events.last?.type, .sessionEnd)
+        XCTAssertEqual(events.last?.action, .dismissed)
+    }
+    
+    func testStartStopForwarding() {
+        engine.start()
+        XCTAssertTrue(mockActivityMonitor.isStarted)
+        
+        engine.stop()
+        XCTAssertTrue(mockActivityMonitor.isStopped)
+    }
+    
+    func testSelfAppExclusion() {
+        // Start watching a work app
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        XCTAssertEqual(engine.currentApp, "com.apple.dt.Xcode")
+        XCTAssertEqual(engine.state, .watching)
+        
+        // Switch to Anchored's own bundle ID
+        mockActivityMonitor.simulateContextChange(bundleID: "com.varun.Anchored")
+        
+        // It should be completely ignored: currentApp, state, and lastWorkAppBundleID should remain unchanged
+        XCTAssertEqual(engine.currentApp, "com.apple.dt.Xcode")
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func loadEventsFromDisk() -> [SessionEvent] {
+        // Since SessionStore writes asynchronously on a background queue,
+        // we can fetch recentSessions limit 100 which runs sync on the same queue,
+        // ensuring all preceding writes have completed.
+        let endEvents = sessionStore.recentSessions(limit: 100)
+        
+        // But recentSessions only returns .sessionEnd events. To get ALL events,
+        // we read directly from the file synchronously. Since we want to ensure
+        // background queue completes its write before we read, we can perform a dummy
+        // call to recentSessions first to flush the queue!
+        _ = sessionStore.recentSessions(limit: 1)
+        
+        guard let data = try? Data(contentsOf: tempStoreURL) else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([SessionEvent].self, from: data)) ?? []
+    }
+}
+
+// MARK: - Mock Classes
+
+class MockActivityMonitor: ActivityMonitor {
+    var onContextChange: ((_ bundleID: String, _ url: URL?) -> Void)?
+    var isStarted = false
+    var isStopped = false
+    
+    func start() {
+        isStarted = true
+    }
+    
+    func stop() {
+        isStopped = true
+    }
+    
+    func simulateContextChange(bundleID: String, url: URL? = nil) {
+        onContextChange?(bundleID, url)
+    }
+}
+
+class MockFocusEngineDelegate: FocusEngineDelegate {
+    var exitTriggers: [(duration: TimeInterval, appName: String)] = []
+    var detectedDistractions: [String] = []
+    var returnsToWork = 0
+    var endedSessions = 0
+    
+    func didRequestExitTrigger(duration: TimeInterval, appName: String) {
+        exitTriggers.append((duration: duration, appName: appName))
+    }
+    
+    func didDetectDistraction(bundleID: String) {
+        detectedDistractions.append(bundleID)
+    }
+    
+    func didReturnToWork() {
+        returnsToWork += 1
+    }
+    
+    func sessionDidEnd() {
+        endedSessions += 1
+    }
+}
