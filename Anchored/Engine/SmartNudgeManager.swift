@@ -24,7 +24,15 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
     
     private func setupNudgeCallback() {
         shadowEngine.onThresholdCrossed = { [weak self] in
-            self?.sendSmartNudge()
+            guard let self = self else { return }
+            
+            // Automatically anchor the focus session!
+            let duration = self.preferencesManager.focusThreshold
+            let activeProfileName = ProfileManager.shared.activeProfile.name
+            self.focusEngine.anchorSession(duration: duration, category: activeProfileName, goal: "Auto-chartered Voyage")
+            
+            // Alert the user via a local notification
+            self.sendAutoAnchorNotification()
         }
     }
     
@@ -38,12 +46,12 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
     
-    private func sendSmartNudge() {
+    private func sendAutoAnchorNotification() {
         let content = UNMutableNotificationContent()
-        content.title = "Time to Focus?"
-        content.body = "You've been working for 5 minutes. Ready to anchor your session?"
+        content.title = "Voyage Automatically Anchored"
+        content.body = "Ye have sailed for 5 minutes, so Anchored has automatically dropped anchor to protect yer momentum!"
         content.sound = UNNotificationSound.default
-        content.categoryIdentifier = "com.varun.Anchored.nudge"
+        content.categoryIdentifier = "com.varun.Anchored.autoanchor"
         
         let request = UNNotificationRequest(
             identifier: "com.varun.Anchored.smartnudge",
@@ -65,15 +73,8 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.content.categoryIdentifier == "com.varun.Anchored.nudge" {
-            // Clicking the notification starts a Focus Session via FocusEngine
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                // Anchor session for the user's default focus threshold
-                let duration = self.preferencesManager.focusThreshold
-                self.focusEngine.anchorSession(duration: duration)
-                print("SmartNudgeManager: Programmatically started focus session for \(duration)s")
-                
+        if response.notification.request.content.categoryIdentifier == "com.varun.Anchored.autoanchor" {
+            DispatchQueue.main.async {
                 // Bring app to front or activate if needed
                 NSApp.activate(ignoringOtherApps: true)
             }

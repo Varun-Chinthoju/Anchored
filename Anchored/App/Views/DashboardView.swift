@@ -11,18 +11,24 @@ struct DashboardView: View {
     
     private let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     
+    // Pirate Theme colors
+    private let goldColor = Color(red: 0.9, green: 0.75, blue: 0.3)
+    private let parchmentWhite = Color(red: 0.95, green: 0.95, blue: 0.9)
+    private let deepOceanDark = Color(red: 0.08, green: 0.06, blue: 0.05)
+    private let secondaryDeepOcean = Color(red: 0.04, green: 0.03, blue: 0.02)
+    
     var body: some View {
         VStack(spacing: 16) {
             // Header stats
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Focus Dashboard")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.primary)
+                    Text("Captain's Log & Focus Loot")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(goldColor)
                     
-                    Text("Session insights and distraction analysis")
+                    Text("Plunder metrics and distraction sea monster analysis")
                         .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(parchmentWhite.opacity(0.6))
                 }
                 
                 Spacer()
@@ -30,15 +36,15 @@ struct DashboardView: View {
                 // Today's total focus time
                 HStack(spacing: 12) {
                     DashboardStatCard(
-                        title: "Today's Focus",
+                        title: "Sand in Hourglass",
                         value: formatDuration(todayFocusTime),
-                        icon: "timer",
-                        color: .green
+                        icon: "hourglass",
+                        color: goldColor
                     )
                     
                     DashboardStatCard(
-                        title: "Current Streak",
-                        value: "\(streak) day\(streak == 1 ? "" : "s")",
+                        title: "Voyage Streak",
+                        value: "\(streak) sun\(streak == 1 ? "" : "s")",
                         icon: "flame.fill",
                         color: .orange
                     )
@@ -50,19 +56,19 @@ struct DashboardView: View {
             // Timeline View (Task 15)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("Today's Timeline")
+                    Text("Today's Sea Route")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.primary)
+                        .foregroundColor(goldColor)
                     Spacer()
                     if let hovered = hoveredBlock {
                         Text(formatHoveredBlock(hovered))
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(parchmentWhite.opacity(0.8))
                             .transition(.opacity)
                     } else {
-                        Text("Hover over blocks for details")
+                        Text("Scan the horizon (hover over segments) for details")
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(parchmentWhite.opacity(0.5))
                     }
                 }
                 .padding(.horizontal)
@@ -76,35 +82,49 @@ struct DashboardView: View {
             HStack(spacing: 16) {
                 // Left: Weekly History Chart
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Weekly History")
+                    Text("Past Fortnight's Log")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.primary)
+                        .foregroundColor(goldColor)
                     
                     WeeklyHistoryView(history: weeklyHistory)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white.opacity(0.03))
+                .background(Color.black.opacity(0.2))
                 .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(goldColor.opacity(0.15), lineWidth: 1)
+                )
                 
                 // Right: Top Distractions List
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Top Distractions")
+                    Text("Sirens & Sea Monsters")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.primary)
+                        .foregroundColor(goldColor)
                     
                     TopDistractionsView(distractions: topDistractions)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white.opacity(0.03))
+                .background(Color.black.opacity(0.2))
                 .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(goldColor.opacity(0.15), lineWidth: 1)
+                )
             }
             .padding(.horizontal)
             .padding(.bottom, 16)
         }
         .frame(width: 600, height: 480)
-        .background(Color(NSColor.windowBackgroundColor))
+        .background(
+            LinearGradient(
+                colors: [deepOceanDark, secondaryDeepOcean],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
         .onAppear(perform: loadData)
         .onReceive(timer) { _ in
             loadData()
@@ -158,10 +178,10 @@ struct DashboardView: View {
         let endStr = formatter.string(from: block.endDate)
         
         if block.type == .focus {
-            return "Focusing on \(block.appName) | \(durationStr) (\(startStr)-\(endStr))"
+            return "Sailing smoothly on \(block.appName) | \(durationStr) (\(startStr)-\(endStr))"
         } else {
             let label = block.distractionDomain ?? block.appName
-            return "Distracted by \(label) | \(durationStr) (\(startStr)-\(endStr))"
+            return "Boarded by Siren \(label) | \(durationStr) (\(startStr)-\(endStr))"
         }
     }
     
@@ -194,20 +214,20 @@ struct DashboardStatCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color(red: 0.95, green: 0.95, blue: 0.9).opacity(0.6))
                 
                 Text(value)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.primary)
+                    .foregroundColor(Color(red: 0.95, green: 0.95, blue: 0.9))
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.white.opacity(0.03))
+        .background(Color.black.opacity(0.25))
         .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                .stroke(Color(red: 0.9, green: 0.75, blue: 0.3).opacity(0.15), lineWidth: 1)
         )
     }
 }

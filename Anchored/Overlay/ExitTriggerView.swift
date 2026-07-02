@@ -1,22 +1,15 @@
 import SwiftUI
 
-struct VisualEffectView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .hudWindow
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-    
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
-
 public struct ExitTriggerView: View {
     let formattedDuration: String
     let appName: String
     let onAnchor: (TimeInterval) -> Void
     let onDismiss: () -> Void
+    
+    // Pirate colors
+    private let goldColor = Color(red: 0.9, green: 0.75, blue: 0.3)
+    private let parchmentWhite = Color(red: 0.95, green: 0.95, blue: 0.9)
+    private let darkWood = Color(red: 0.12, green: 0.09, blue: 0.07)
     
     public init(
         formattedDuration: String,
@@ -32,57 +25,94 @@ public struct ExitTriggerView: View {
     
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top, spacing: 16) {
-                // macOS Application Icon
-                Image(nsImage: NSApplication.shared.applicationIconImage ?? NSImage())
-                    .resizable()
-                    .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Hold Fast Yer Momentum!")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(goldColor)
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Protect Focus Momentum")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.primary)
-                    
-                    Text("You just locked in \(formattedDuration) of focused time in \(appName). Want to protect this momentum?")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text("Ye just logged \(formattedDuration) of focus plunder in \(appName). Will ye guard this treasure?")
+                    .font(.system(size: 13))
+                    .foregroundColor(parchmentWhite.opacity(0.8))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             
             HStack {
-                Button("Taking a Break", action: onDismiss)
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
+                Button(action: onDismiss) {
+                    Text("Adrift (Take a Break)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(parchmentWhite.opacity(0.8))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.red.opacity(0.25))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.red.opacity(0.4), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
                 
                 Spacer()
                 
                 HStack(spacing: 8) {
-                    Button("15m") {
-                        onAnchor(900)
+                    Button(action: { onAnchor(900) }) {
+                        Text("15 Bells")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(parchmentWhite)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(goldColor.opacity(0.3), lineWidth: 1)
+                            )
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
+                    .buttonStyle(.plain)
                     
-                    Button("25m") {
-                        onAnchor(1500)
+                    Button(action: { onAnchor(1500) }) {
+                        Text("25 Bells")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(parchmentWhite)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(goldColor.opacity(0.3), lineWidth: 1)
+                            )
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
+                    .buttonStyle(.plain)
                     
-                    Button("45m") {
-                        onAnchor(2700)
+                    Button(action: { onAnchor(2700) }) {
+                        Text("45 Bells")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(darkWood)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(goldColor)
+                            .cornerRadius(6)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-                    .controlSize(.large)
+                    .buttonStyle(.plain)
                 }
             }
         }
         .padding(24)
         .frame(width: 480)
-        .background(VisualEffectView().cornerRadius(12))
-        .shadow(color: Color.black.opacity(0.3), radius: 16, x: 0, y: 8)
+        .background(
+            LinearGradient(
+                colors: [Color(red: 0.15, green: 0.12, blue: 0.1), Color(red: 0.08, green: 0.07, blue: 0.06)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .cornerRadius(12)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(goldColor.opacity(0.2), lineWidth: 1.5)
+        )
+        .shadow(color: Color.black.opacity(0.4), radius: 16, x: 0, y: 8)
     }
 }

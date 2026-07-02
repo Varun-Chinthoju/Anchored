@@ -4,22 +4,22 @@ import AppKit
 // MARK: - Section Enum
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general = "General"
-    case focusApps = "Focus Apps"
-    case distractions = "Distractions"
-    case stats = "Stats"
-    case analytics = "Analytics"
-    case about = "About"
+    case general = "Rigging"
+    case focusApps = "Ports of Call"
+    case distractions = "Siren List"
+    case stats = "Hourglass"
+    case analytics = "Voyage Logs"
+    case about = "Crew Info"
 
     var id: String { rawValue }
 
     var iconName: String {
         switch self {
-        case .general:      return "gearshape.fill"
-        case .focusApps:    return "target"
+        case .general:      return "helm"
+        case .focusApps:    return "anchor"
         case .distractions: return "shield.fill"
-        case .stats:        return "flame.fill"
-        case .analytics:    return "chart.bar.xaxis"
+        case .stats:        return "hourglass"
+        case .analytics:    return "map.fill"
         case .about:        return "info.circle.fill"
         }
     }
@@ -204,7 +204,7 @@ struct SettingsView: View {
                                     .background(Color.accentColor)
                                     .clipShape(Circle())
                                 
-                                Text("Add Profile")
+                                Text("Commission Flagship")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(.accentColor)
                             }
@@ -212,12 +212,12 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                         .padding(.vertical, 4)
                     } header: {
-                        Text("Work Profiles")
+                        Text("Flagship Fleets")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
                     }
 
-                    Section("System Settings") {
+                    Section("Rigging Settings") {
                         ForEach(filteredSections) { section in
                             Label(section.rawValue, systemImage: section.iconName)
                                 .tag(sidebarItem(for: section))
@@ -227,10 +227,10 @@ struct SettingsView: View {
                 }
                 .listStyle(.sidebar)
             }
-            .alert("New Profile", isPresented: $showAddAlert) {
-                TextField("Profile Name", text: $newProfileName)
+            .alert("New Flagship", isPresented: $showAddAlert) {
+                TextField("Flagship Title", text: $newProfileName)
                 Button("Cancel", role: .cancel) { }
-                Button("Create") {
+                Button("Commission") {
                     let trimmed = newProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
                         let newProfile = WorkProfile(name: trimmed)
@@ -409,16 +409,16 @@ struct GeneralSettingsPane: View {
     private let countdowns = [5, 10, 15, 20]
 
     var body: some View {
-        SettingsPane(title: "General") {
+        SettingsPane(title: "Rigging") {
             // Focus Behavior
             VStack(alignment: .leading, spacing: 6) {
-                Text("Focus Behavior")
+                Text("Voyage Behavior")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.leading, 2)
 
                 SettingsGroup {
-                    SettingsRow(label: "Focus Threshold", description: "How long you must work before triggering an anchor prompt.") {
+                    SettingsRow(label: "Voyage Threshold", description: "How long ye must sail before dropping anchor.") {
                         Picker("", selection: $prefs.focusThreshold) {
                             ForEach(thresholds, id: \.0) { value, label in
                                 Text(label).tag(value)
@@ -428,7 +428,7 @@ struct GeneralSettingsPane: View {
                         .frame(width: 100)
                     }
 
-                    SettingsRow(label: "Distraction Warning Countdown", description: "Seconds on a distraction app before screen dimming starts.", showDivider: false) {
+                    SettingsRow(label: "Siren Warning Countdown", description: "Seconds on a distraction app before the fog dims yer screen.", showDivider: false) {
                         Picker("", selection: $prefs.countdownDuration) {
                             ForEach(countdowns, id: \.self) { value in
                                 Text("\(value)s").tag(value)
@@ -442,17 +442,17 @@ struct GeneralSettingsPane: View {
 
             // System
             VStack(alignment: .leading, spacing: 6) {
-                Text("System")
+                Text("Ship Deck")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.leading, 2)
 
                 SettingsGroup {
-                    SettingsRow(label: "Launch at Login", description: "Automatically start Anchored when you log in.", showDivider: true) {
+                    SettingsRow(label: "Launch on Ship Start", description: "Automatically start Anchored when ye boot yer Mac.", showDivider: true) {
                         Toggle("", isOn: $prefs.launchAtLogin)
                     }
                     
-                    SettingsRow(label: "Enable Smart Nudges", description: "Enable background app tracking for Smart Nudges.", showDivider: false) {
+                    SettingsRow(label: "Smart Sirens Warning", description: "Enable ambient tracking to warn ye when ye go astray.", showDivider: false) {
                         Toggle("", isOn: $prefs.enableSmartNudges)
                     }
                 }
@@ -469,20 +469,20 @@ struct FocusAppsSettingsPane: View {
     @State private var suggestions: [(bundleID: String, name: String)] = []
 
     var body: some View {
-        SettingsPane(title: "Focus Apps") {
-            Text("Only these apps will accumulate focus time. Switching to unlisted apps won't trigger session logic.")
+        SettingsPane(title: "Ports of Call") {
+            Text("Only these apps count as smooth sailing. Straying to other apps won't build yer streak.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
 
             // Active apps
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Active")
+                    Text("Safe Harbors")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
                     Spacer()
                     Button(action: selectCustomFocusApp) {
-                        Label("Add App...", systemImage: "plus")
+                        Label("Charter Port...", systemImage: "plus")
                             .font(.system(size: 11, weight: .semibold))
                     }
                     .buttonStyle(.borderless)
@@ -490,7 +490,7 @@ struct FocusAppsSettingsPane: View {
                 .padding(.leading, 2)
 
                 if focusApps.isEmpty {
-                    emptyState("No focus apps added yet.")
+                    emptyState("No safe harbors charted yet.")
                 } else {
                     SettingsGroup {
                         ForEach(focusApps.indices, id: \.self) { i in
@@ -527,7 +527,7 @@ struct FocusAppsSettingsPane: View {
             // Suggestions
             if !suggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Suggestions (Installed)")
+                    Text("Suggested Ports")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
@@ -606,14 +606,14 @@ struct ProfileAppsSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPane(title: "\(profile.name) Profile") {
+        SettingsPane(title: "\(profile.name) Flagship") {
             // Rename Profile Section
             VStack(alignment: .leading, spacing: 6) {
-                Text("Profile Name")
+                Text("Flagship Title")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
 
-                TextField("Profile Name", text: Binding(
+                TextField("Flagship Title", text: Binding(
                     get: { profile.name },
                     set: { newName in
                         guard !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -627,19 +627,19 @@ struct ProfileAppsSettingsPane: View {
                 .frame(maxWidth: 300)
             }
 
-            Text("These apps will trigger the dimming overlay when opened during a focus session in this profile.")
+            Text("These apps will bring the dark fog if ye visit them during a voyage.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
 
             // Blocked Apps
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Blocked Apps")
+                    Text("Distraction Sirens")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
                     Spacer()
                     Button(action: addCustomDistraction) {
-                        Label("Add App...", systemImage: "plus")
+                        Label("Add Siren...", systemImage: "plus")
                             .font(.system(size: 11, weight: .semibold))
                     }
                     .buttonStyle(.borderless)
@@ -647,7 +647,7 @@ struct ProfileAppsSettingsPane: View {
                 .padding(.leading, 2)
 
                 if profile.distractionApps.isEmpty {
-                    emptyState("No distraction apps added yet.")
+                    emptyState("No sirens sighted yet.")
                 } else {
                     SettingsGroup {
                         let sortedApps = sortedDistractionApps
@@ -687,7 +687,7 @@ struct ProfileAppsSettingsPane: View {
             let listSuggestions = filteredSuggestions
             if !listSuggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Suggestions (Installed on your Mac)")
+                    Text("Suggested Sirens")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
@@ -777,17 +777,17 @@ struct StatsSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPane(title: "Stats") {
+        SettingsPane(title: "Hourglass") {
             // Summary cards
             HStack(spacing: 12) {
-                statCard("Today's Focus", value: formatDuration(vm.stats.focusedTimeToday), icon: "hourglass", color: .blue)
-                statCard("Sessions", value: "\(vm.stats.sessionCountToday)", icon: "checkmark.circle", color: .green)
-                statCard("Streak", value: "\(vm.stats.streakDays)d", icon: "flame.fill", color: .orange)
+                statCard("Sand Gathered", value: formatDuration(vm.stats.focusedTimeToday), icon: "hourglass", color: .blue)
+                statCard("Voyages", value: "\(vm.stats.sessionCountToday)", icon: "checkmark.circle", color: .green)
+                statCard("Sea Streak", value: "\(vm.stats.streakDays)d", icon: "flame.fill", color: .orange)
             }
 
             // Progress ring
             VStack(alignment: .leading, spacing: 6) {
-                Text("Daily Goal")
+                Text("Voyage Target")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.leading, 2)
@@ -809,9 +809,9 @@ struct StatsSettingsPane: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Goal: 2 hours of focused work")
+                        Text("Target: 2 hours of smooth sailing")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("\(Int(vm.stats.focusedTimeToday / 60)) of 120 minutes logged today")
+                        Text("\(Int(vm.stats.focusedTimeToday / 60)) of 120 minutes logged this sun")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
@@ -896,16 +896,16 @@ struct AnalyticsSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPane(title: "Analytics") {
+        SettingsPane(title: "Voyage Logs") {
             // App breakdown
             VStack(alignment: .leading, spacing: 6) {
-                Text("Focus Time by Application")
+                Text("Sailing Time by Port")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.leading, 2)
 
                 if appBreakdown.isEmpty {
-                    emptyState("No analytics recorded yet.")
+                    emptyState("No logs recorded yet.")
                 } else {
                     let total = totalDuration
                     VStack(spacing: 0) {
@@ -925,13 +925,13 @@ struct AnalyticsSettingsPane: View {
 
             // Session history
             VStack(alignment: .leading, spacing: 6) {
-                Text("Today's Sessions")
+                Text("Today's Voyages")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.leading, 2)
 
                 if vm.recentSessions.isEmpty {
-                    emptyState("No sessions logged today.")
+                    emptyState("No voyages logged this sun.")
                 } else {
                     SettingsGroup {
                         ForEach(vm.recentSessions.indices, id: \.self) { i in
@@ -980,7 +980,7 @@ struct AnalyticsSettingsPane: View {
 
 struct AboutSettingsPane: View {
     var body: some View {
-        SettingsPane(title: "About") {
+        SettingsPane(title: "Crew Info") {
             HStack(spacing: 20) {
                 Image(nsImage: NSApplication.shared.applicationIconImage ?? NSImage())
                     .resizable()
@@ -992,7 +992,7 @@ struct AboutSettingsPane: View {
                     Text("Version 1.0.0 (Build 1)")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
-                    Text("Zero-setup momentum preservation for macOS.")
+                    Text("Zero-setup focus momentum preservation for macOS, fit for the high seas.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
@@ -1004,12 +1004,12 @@ struct AboutSettingsPane: View {
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.07), lineWidth: 1))
 
             SettingsGroup {
-                SettingsRow(label: "Check for Updates", showDivider: true) {
-                    Button("Check Now") {}
+                SettingsRow(label: "Scan for Upgrades", showDivider: true) {
+                    Button("Scan Now") {}
                         .buttonStyle(.borderless)
                         .font(.system(size: 12))
                 }
-                SettingsRow(label: "Privacy Policy", showDivider: false) {
+                SettingsRow(label: "Pirate Code (Privacy)", showDivider: false) {
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)

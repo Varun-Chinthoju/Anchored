@@ -117,10 +117,12 @@ class FocusListManager {
                                            categoryLower.contains("photography") ||
                                            categoryLower.contains("business")
                 
-                // Keyword match lists for IDEs, video editors, 3D platforms, and developer utilities
+                // Keyword match lists for IDEs, video editors, 3D platforms, developer utilities, note taking, and music apps
                 let matchesKeywords = nameLower.contains("xcode") ||
                                       nameLower.contains("vscode") ||
                                       nameLower.contains("cursor") ||
+                                      nameLower.contains("windsurf") ||
+                                      nameLower.contains("zed") ||
                                       nameLower.contains("studio") ||
                                       nameLower.contains("intellij") ||
                                       nameLower.contains("rider") ||
@@ -130,6 +132,7 @@ class FocusListManager {
                                       nameLower.contains("textmate") ||
                                       nameLower.contains("terminal") ||
                                       nameLower.contains("iterm") ||
+                                      nameLower.contains("warp") ||
                                       nameLower.contains("figma") ||
                                       nameLower.contains("blender") ||
                                       nameLower.contains("photoshop") ||
@@ -141,8 +144,25 @@ class FocusListManager {
                                       nameLower.contains("unity") ||
                                       nameLower.contains("unreal") ||
                                       nameLower.contains("notion") ||
-                                      nameLower.contains("obsidian")
-                
+                                      nameLower.contains("obsidian") ||
+                                      nameLower.contains("bear") ||
+                                      nameLower.contains("craft") ||
+                                      nameLower.contains("drafts") ||
+                                      nameLower.contains("onenote") ||
+                                      nameLower.contains("slack") ||
+                                      nameLower.contains("spotify") ||
+                                      nameLower.contains("music") ||
+                                      nameLower.contains("deezer") ||
+                                      nameLower.contains("tidal") ||
+                                      nameLower.contains("postman") ||
+                                      nameLower.contains("bruno") ||
+                                      nameLower.contains("insomnia") ||
+                                      nameLower.contains("brave") ||
+                                      nameLower.contains("chrome") ||
+                                      nameLower.contains("safari") ||
+                                      nameLower.contains("arc") ||
+                                      nameLower.contains("firefox")
+                 
                 if isProductiveCategory || matchesKeywords {
                     discovered.append((bundleID, name, category))
                 }

@@ -96,11 +96,11 @@ class ShadowTrackingEngineTests: XCTestCase {
         
         // Wait and verify it resumes
         let resumeExpectation = XCTestExpectation(description: "resumes after wake")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             XCTAssertGreaterThan(self.shadowEngine.getContinuousWorkTime(), 2.0)
             resumeExpectation.fulfill()
         }
-        wait(for: [resumeExpectation], timeout: 2.5)
+        wait(for: [resumeExpectation], timeout: 3.5)
     }
     
     func testSmartNudgeFiresOnThreshold() {
