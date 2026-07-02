@@ -46,7 +46,6 @@ class MenuBarViewModel: ObservableObject {
     
     func refresh() {
         self.activeSession = focusEngine.activeSession
-        self.stats = sessionStore.getStats()
         self.recentSessions = sessionStore.recentSessions(limit: 5)
         self.updateTime()
     }
@@ -55,18 +54,19 @@ class MenuBarViewModel: ObservableObject {
         // In case the session state changed externally in the engine, keep in sync
         if focusEngine.activeSession != self.activeSession {
             self.activeSession = focusEngine.activeSession
-            self.stats = sessionStore.getStats()
             self.recentSessions = sessionStore.recentSessions(limit: 5)
         }
         
+        let rawStats = sessionStore.getStats()
+        
         guard let session = activeSession else {
+            self.stats = rawStats
             remainingTimeFormatted = "00:00"
             progress = 0.0
             return
         }
         
-        let now = Date()
-        let elapsed = now.timeIntervalSince(session.startDate)
+        let elapsed = focusEngine.currentSessionFocusedTime()
         let total = session.anchoredDuration
         let remaining = max(0, total - elapsed)
         
@@ -75,6 +75,12 @@ class MenuBarViewModel: ObservableObject {
         remainingTimeFormatted = String(format: "%02d:%02d", minutes, seconds)
         
         progress = total > 0 ? Double(elapsed) / Double(total) : 1.0
+        
+        self.stats = SessionStats(
+            focusedTimeToday: rawStats.focusedTimeToday + elapsed,
+            sessionCountToday: rawStats.sessionCountToday + 1,
+            streakDays: rawStats.streakDays
+        )
     }
     
     func endSession() {

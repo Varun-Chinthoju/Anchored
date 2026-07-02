@@ -354,6 +354,41 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
     }
     
+    func testIdleTimeDeductionFromSession() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        
+        // Anchor for 25 minutes (1500 seconds)
+        engine.anchorSession(duration: 1500.0)
+        XCTAssertEqual(engine.state, .anchored)
+        
+        // Backdate the session start date to simulate 1000 seconds elapsed
+        if let session = engine.activeSession {
+            let backdatedSession = ActiveSession(
+                startDate: Date().addingTimeInterval(-1000.0),
+                anchoredDuration: session.anchoredDuration,
+                appName: session.appName
+            )
+            engine.activeSession = backdatedSession
+        }
+        
+        // Simulate 300 seconds of idle time
+        engine.totalIdleTime = 300.0
+        
+        // Verify currentSessionFocusedTime
+        let elapsed = engine.currentSessionFocusedTime()
+        XCTAssertEqual(elapsed, 700.0, accuracy: 1.0)
+        
+        // End the session
+        engine.endSession(action: .timeout)
+        
+        XCTAssertNil(engine.activeSession)
+        
+        // Verify logged event has the deducted duration (1000 - 300 = 700)
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.last?.type, .sessionEnd)
+        XCTAssertEqual(events.last?.sessionDurationSeconds, 700)
+    }
+    
     // MARK: - Helper Methods
     
     private func loadEventsFromDisk() -> [SessionEvent] {

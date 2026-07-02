@@ -15,10 +15,10 @@ final class FocusEngine {
     private(set) var currentApp: String?
     
     /// The start date of the current work session (focused time).
-    private(set) var workSessionStart: Date?
+    var workSessionStart: Date?
     
     /// The active session if the user has anchored.
-    private(set) var activeSession: ActiveSession?
+    var activeSession: ActiveSession?
     
     /// The bundle identifier of the last work/neutral app in the foreground.
     private(set) var lastWorkAppBundleID: String?
@@ -35,6 +35,10 @@ final class FocusEngine {
     // Timers
     private var distractionTimer: Timer?
     private var sessionTimer: Timer?
+    
+    // Idle tracking
+    var totalIdleTime: TimeInterval = 0.0
+    private var idleTimer: Timer?
     
     /// The date when the user entered a distraction app.
     private var distractionStartDate: Date?
@@ -90,6 +94,7 @@ final class FocusEngine {
         activityMonitor.stop()
         cancelSessionTimer()
         cancelDistractionTimer()
+        cancelIdleTimer()
     }
     
     private func isDistractionApp(_ bundleID: String) -> Bool {
@@ -247,6 +252,10 @@ final class FocusEngine {
         )
         self.activeSession = session
         
+        // Reset idle tracking
+        self.totalIdleTime = 0.0
+        self.startIdleTimer()
+        
         // Log sessionStart event
         let focusDuration = now.timeIntervalSince(start)
         let event = SessionEvent(
@@ -280,8 +289,10 @@ final class FocusEngine {
     func endSession(action: SessionAction) {
         guard let session = activeSession else { return }
         
+        cancelIdleTimer()
+        
         let now = Date()
-        let duration = now.timeIntervalSince(session.startDate)
+        let duration = max(0, now.timeIntervalSince(session.startDate) - totalIdleTime)
         
         // Log sessionEnd event
         let event = SessionEvent(
@@ -306,6 +317,44 @@ final class FocusEngine {
         delegate?.sessionDidEnd()
         
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
+    }
+    
+    /// Returns the net focused time for the active session (subtracting idle time).
+    func currentSessionFocusedTime() -> TimeInterval {
+        guard let session = activeSession else { return 0.0 }
+        let now = Date()
+        let rawDuration = now.timeIntervalSince(session.startDate)
+        return max(0, rawDuration - totalIdleTime)
+    }
+    
+    private func startIdleTimer() {
+        cancelIdleTimer()
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkIdleTime()
+        }
+    }
+    
+    private func cancelIdleTimer() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+    }
+    
+    private func checkIdleTime() {
+        let anyInputEventType = CGEventType(rawValue: ~0)!
+        let idleTime = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInputEventType)
+        
+        if idleTime >= 60.0 {
+            totalIdleTime += 1.0
+            
+            // Postpone the session end timer
+            if let session = activeSession {
+                let now = Date()
+                let elapsed = now.timeIntervalSince(session.startDate)
+                let netElapsed = max(0, elapsed - totalIdleTime)
+                let remaining = max(0, session.anchoredDuration - netElapsed)
+                scheduleSessionTimer(duration: remaining)
+            }
+        }
     }
     
     // MARK: - Timer Helpers
