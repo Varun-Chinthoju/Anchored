@@ -8,6 +8,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
     private var onboardingWindow: OnboardingWindow?
     private var preferencesCancellables = Set<AnyCancellable>()
+    private var shadowTrackingEngine: ShadowTrackingEngine?
+    private var smartNudgeManager: SmartNudgeManager?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
@@ -52,6 +54,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         engine.delegate = overlay
         
         menuBarController = MenuBarController(focusEngine: engine)
+        
+        let shadowEngine = ShadowTrackingEngine(focusEngine: engine, preferencesManager: prefs)
+        self.shadowTrackingEngine = shadowEngine
+        self.smartNudgeManager = SmartNudgeManager(shadowEngine: shadowEngine, focusEngine: engine, preferencesManager: prefs)
         
         engine.start()
         print("FocusEngine started (focusThreshold: \(prefs.focusThreshold)s, countdown: \(prefs.countdownDuration)s)")

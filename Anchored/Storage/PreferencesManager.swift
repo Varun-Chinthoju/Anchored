@@ -22,6 +22,7 @@ public final class PreferencesManager: ObservableObject {
         public static let countdownDuration = "com.varun.Anchored.countdownDuration"
         public static let focusThreshold = "com.varun.Anchored.focusThreshold"
         public static let launchAtLogin = "com.varun.Anchored.launchAtLogin"
+        public static let enableSmartNudges = "com.varun.Anchored.enableSmartNudges"
     }
     
     // Default values
@@ -54,6 +55,13 @@ public final class PreferencesManager: ObservableObject {
         }
     }
     
+    /// Whether background app tracking for Smart Nudges is enabled.
+    @Published public var enableSmartNudges: Bool {
+        didSet {
+            defaults.set(enableSmartNudges, forKey: Keys.enableSmartNudges)
+        }
+    }
+    
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
     ///   - defaults: The `UserDefaults` instance to use (defaults to `.standard`).
@@ -68,6 +76,9 @@ public final class PreferencesManager: ObservableObject {
         
         // Load focus threshold
         self.focusThreshold = defaults.object(forKey: Keys.focusThreshold) as? TimeInterval ?? Self.defaultFocusThreshold
+        
+        // Load smart nudges preference
+        self.enableSmartNudges = defaults.object(forKey: Keys.enableSmartNudges) as? Bool ?? true
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status

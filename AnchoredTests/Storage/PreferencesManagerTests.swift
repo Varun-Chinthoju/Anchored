@@ -37,12 +37,14 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.countdownDuration, PreferencesManager.defaultCountdownDuration)
         XCTAssertEqual(manager.focusThreshold, PreferencesManager.defaultFocusThreshold)
         XCTAssertFalse(manager.launchAtLogin)
+        XCTAssertTrue(manager.enableSmartNudges)
     }
     
     func testInitializationWithStoredSettings() {
         // Given stored values in UserDefaults and enabled login item status
         testDefaults.set(15, forKey: PreferencesManager.Keys.countdownDuration)
         testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
+        testDefaults.set(false, forKey: PreferencesManager.Keys.enableSmartNudges)
         mockService.status = .enabled
         
         // When initializing PreferencesManager
@@ -52,6 +54,7 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.countdownDuration, 15)
         XCTAssertEqual(manager.focusThreshold, 300.0)
         XCTAssertTrue(manager.launchAtLogin)
+        XCTAssertFalse(manager.enableSmartNudges)
     }
     
     func testCountdownDurationClamping() {

@@ -389,6 +389,62 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(events.last?.sessionDurationSeconds, 700)
     }
     
+    func testURLDistractionDetection() {
+        // Set up profile with distraction domain
+        let profile = WorkProfile(
+            name: "Test Profile",
+            distractionApps: [],
+            distractionDomains: ["youtube.com"],
+            allowedDomains: ["github.com"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        // Switch to browser with distraction url
+        let distractionURL = URL(string: "https://m.youtube.com/watch?v=hello")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: distractionURL)
+        
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.google.Chrome"])
+        
+        let events = loadEventsFromDisk()
+        let distractionEvent = events.first(where: { $0.type == .distractionDetected })
+        XCTAssertNotNil(distractionEvent)
+        XCTAssertEqual(distractionEvent?.url, distractionURL?.absoluteString)
+        XCTAssertEqual(distractionEvent?.distraction_domain, "m.youtube.com")
+    }
+    
+    func testURLAllowedLiftsDimming() {
+        let profile = WorkProfile(
+            name: "Test Profile",
+            distractionApps: [],
+            distractionDomains: ["youtube.com"],
+            allowedDomains: ["github.com"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        // Enter distraction URL
+        let distractionURL = URL(string: "https://www.youtube.com")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: distractionURL)
+        
+        // Trigger dimming manually
+        engine.distractionTimerExpired(distractionBundleID: "com.google.Chrome")
+        XCTAssertTrue(engine.isDimming)
+        
+        // Switch to allowed URL
+        let allowedURL = URL(string: "https://github.com/my/repo")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: allowedURL)
+        
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+    
     // MARK: - Helper Methods
     
     private func loadEventsFromDisk() -> [SessionEvent] {

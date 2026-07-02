@@ -68,12 +68,23 @@ struct ProfileRowView: View {
     }
 
     var body: some View {
+        let split = profile.name.splitEmojiAndText()
         HStack {
             Image(systemName: iconName)
                 .font(.system(size: 12))
                 .foregroundColor(isActive ? .green : .secondary)
-            Text(profile.name)
-                .font(.system(size: 13))
+                .frame(width: 16, alignment: .center)
+            if let emoji = split.emoji {
+                HStack(alignment: .center, spacing: 4) {
+                    Text(emoji)
+                        .font(.system(size: 14))
+                    Text(split.text)
+                        .font(.system(size: 13))
+                }
+            } else {
+                Text(profile.name)
+                    .font(.system(size: 13))
+            }
             Spacer()
             if isActive {
                 Text("Active")
@@ -437,8 +448,12 @@ struct GeneralSettingsPane: View {
                     .padding(.leading, 2)
 
                 SettingsGroup {
-                    SettingsRow(label: "Launch at Login", description: "Automatically start Anchored when you log in.", showDivider: false) {
+                    SettingsRow(label: "Launch at Login", description: "Automatically start Anchored when you log in.", showDivider: true) {
                         Toggle("", isOn: $prefs.launchAtLogin)
+                    }
+                    
+                    SettingsRow(label: "Enable Smart Nudges", description: "Enable background app tracking for Smart Nudges.", showDivider: false) {
+                        Toggle("", isOn: $prefs.enableSmartNudges)
                     }
                 }
             }

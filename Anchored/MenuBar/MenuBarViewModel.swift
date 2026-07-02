@@ -2,7 +2,7 @@ import SwiftUI
 import Combine
 
 class MenuBarViewModel: ObservableObject {
-    private let focusEngine: FocusEngine
+    let focusEngine: FocusEngine
     private let sessionStore: SessionStore
     private var timer: AnyCancellable?
     

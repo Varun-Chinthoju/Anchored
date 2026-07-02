@@ -14,6 +14,9 @@ final class FocusEngine {
     /// The bundle identifier of the current active application in the foreground.
     private(set) var currentApp: String?
     
+    /// The URL of the current active page in the browser (if applicable).
+    private(set) var currentURL: URL?
+    
     /// The start date of the current work session (focused time).
     var workSessionStart: Date?
     
@@ -97,15 +100,35 @@ final class FocusEngine {
         cancelIdleTimer()
     }
     
-    private func isDistractionApp(_ bundleID: String) -> Bool {
+    private func isDistraction(bundleID: String, url: URL?) -> Bool {
+        if let url = url {
+            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
+                return true
+            }
+            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
+                return false
+            }
+        }
         return profileManager.activeProfile.distractionApps.contains(bundleID)
+    }
+    
+    private func isFocusContext(bundleID: String, url: URL?) -> Bool {
+        if let url = url {
+            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
+                return true
+            }
+            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
+                return false
+            }
+        }
+        return FocusListManager.shared.isFocusApp(bundleID)
     }
     
     @objc private func handleActiveProfileChange() {
         guard let currentApp = currentApp else { return }
         
         let now = Date()
-        let isCurrentlyDistraction = isDistractionApp(currentApp)
+        let isCurrentlyDistraction = isDistraction(bundleID: currentApp, url: currentURL)
         
         if isCurrentlyDistraction {
             // It is now a distraction under the new active profile
@@ -119,7 +142,9 @@ final class FocusEngine {
                         type: .distractionDetected,
                         appBundleID: lastWorkAppBundleID ?? "",
                         appName: getAppName(for: lastWorkAppBundleID ?? ""),
-                        distractionAppBundleID: currentApp
+                        url: currentURL?.absoluteString,
+                        distractionAppBundleID: currentApp,
+                        distraction_domain: currentURL?.host
                     )
                     sessionStore.log(event)
                     
@@ -149,7 +174,7 @@ final class FocusEngine {
                 distractionStartDate = nil
             } else {
                 // No active session: it is now a work or neutral app
-                if FocusListManager.shared.isFocusApp(currentApp) {
+                if isFocusContext(bundleID: currentApp, url: currentURL) {
                     lastWorkAppBundleID = currentApp
                     if workSessionStart == nil {
                         workSessionStart = now
@@ -164,10 +189,22 @@ final class FocusEngine {
         guard bundleID != "com.varun.Anchored" else { return }
         
         currentApp = bundleID
+        currentURL = url
         let now = Date()
         
-        if isDistractionApp(bundleID) {
-            // Distraction app detected
+        let isFocus = isFocusContext(bundleID: bundleID, url: url)
+        NotificationCenter.default.post(
+            name: .focusEngineContextDidChange,
+            object: self,
+            userInfo: [
+                "bundleID": bundleID,
+                "url": url as Any,
+                "isFocus": isFocus
+            ]
+        )
+        
+        if isDistraction(bundleID: bundleID, url: url) {
+            // Distraction app/URL detected
             if activeSession != nil {
                 // Distraction app detected + active session -> delegate call to show countdown pill
                 if distractionStartDate == nil {
@@ -178,7 +215,9 @@ final class FocusEngine {
                         type: .distractionDetected,
                         appBundleID: lastWorkAppBundleID ?? "",
                         appName: getAppName(for: lastWorkAppBundleID ?? ""),
-                        distractionAppBundleID: bundleID
+                        url: url?.absoluteString,
+                        distractionAppBundleID: bundleID,
+                        distraction_domain: url?.host
                     )
                     sessionStore.log(event)
                     
@@ -200,8 +239,8 @@ final class FocusEngine {
                 // distraction app detected + no session -> resets workSessionStart
                 workSessionStart = nil
             }
-        } else if FocusListManager.shared.isFocusApp(bundleID) {
-            // Whitelisted focus app detected
+        } else if isFocusContext(bundleID: bundleID, url: url) {
+            // Whitelisted focus app/URL detected
             lastWorkAppBundleID = bundleID
             
             if activeSession != nil {
@@ -217,7 +256,7 @@ final class FocusEngine {
                 }
             }
         } else {
-            // Neutral app detected (neither distraction nor focus app)
+            // Neutral app/URL detected
             if activeSession != nil {
                 if isDimming {
                     isDimming = false
@@ -240,7 +279,7 @@ final class FocusEngine {
     }
     
     /// Locks in an active focused session.
-    func anchorSession(duration: TimeInterval) {
+    func anchorSession(duration: TimeInterval, category: String? = nil, goal: String? = nil) {
         let now = Date()
         let start = workSessionStart ?? now
         let focusedAppName = getAppName(for: lastWorkAppBundleID ?? "")
@@ -248,7 +287,9 @@ final class FocusEngine {
         let session = ActiveSession(
             startDate: start,
             anchoredDuration: duration,
-            appName: focusedAppName
+            appName: focusedAppName,
+            category: category,
+            goal: goal
         )
         self.activeSession = session
         
@@ -262,9 +303,14 @@ final class FocusEngine {
             type: .sessionStart,
             appBundleID: lastWorkAppBundleID ?? "",
             appName: focusedAppName,
+            url: nil,
             focusDurationSeconds: Int(focusDuration),
             sessionDurationSeconds: Int(duration),
-            action: .anchored
+            distractionAppBundleID: nil,
+            distraction_domain: nil,
+            action: .anchored,
+            category: category,
+            sessionGoal: goal
         )
         sessionStore.log(event)
         
@@ -425,4 +471,5 @@ final class FocusEngine {
 
 extension Notification.Name {
     static let focusEngineStateDidChange = Notification.Name("com.varun.Anchored.focusEngineStateDidChange")
+    static let focusEngineContextDidChange = Notification.Name("com.varun.Anchored.focusEngineContextDidChange")
 }

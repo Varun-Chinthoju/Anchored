@@ -12,3 +12,7 @@ xcuserdata/
 
 # Code Coverage raw profile data
 *.profraw
+
+# Logs
+build.log
+

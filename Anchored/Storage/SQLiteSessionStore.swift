@@ -53,9 +53,20 @@ class SQLiteSessionStore {
                 sessionDurationSeconds INTEGER,
                 distractionAppBundleID TEXT,
                 distraction_domain TEXT,
-                action TEXT
+                action TEXT,
+                category TEXT,
+                sessionGoal TEXT
             );
             """)
+            
+            // Perform schema migration if columns are missing
+            let columns = try db.columns(in: "sessions")
+            let hasCategory = columns.contains { $0.name == "category" }
+            if !hasCategory {
+                try db.execute(sql: "ALTER TABLE sessions ADD COLUMN category TEXT;")
+                try db.execute(sql: "ALTER TABLE sessions ADD COLUMN sessionGoal TEXT;")
+            }
+            
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_sessions_timestamp ON sessions(timestamp);")
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_sessions_type ON sessions(type);")
         }

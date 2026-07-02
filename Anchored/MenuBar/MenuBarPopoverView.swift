@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarPopoverView: View {
     @ObservedObject var viewModel: MenuBarViewModel
     @ObservedObject private var profileManager = ProfileManager.shared
+    @State private var showStartForm = false
     
     var body: some View {
         VStack(spacing: 16) {
@@ -26,11 +27,21 @@ struct MenuBarPopoverView: View {
                         }
                     }
                 } label: {
+                    let split = profileManager.activeProfile.name.splitEmojiAndText()
                     HStack(spacing: 4) {
                         Image(systemName: "person.crop.circle")
                             .font(.system(size: 12))
-                        Text(profileManager.activeProfile.name)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        if let emoji = split.emoji {
+                            HStack(alignment: .center, spacing: 2) {
+                                Text(emoji)
+                                    .font(.system(size: 12))
+                                Text(split.text)
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            }
+                        } else {
+                            Text(profileManager.activeProfile.name)
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        }
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8))
                     }
@@ -73,11 +84,25 @@ struct MenuBarPopoverView: View {
                 if let session = viewModel.activeSession {
                     VStack(spacing: 12) {
                         VStack(spacing: 4) {
-                            Text("Focusing on")
+                            if let goal = session.goal {
+                                Text(goal)
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .multilineTextAlignment(.center)
+                                HStack(spacing: 4) {
+                                    Text("Focusing in")
+                                    Text(session.category ?? profileManager.activeProfile.name)
+                                        .bold()
+                                    Text("via \(session.appName)")
+                                }
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.secondary)
-                            Text(session.appName)
-                                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            } else {
+                                Text("Focusing on")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.secondary)
+                                Text(session.appName)
+                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            }
                         }
                         
                         Text(viewModel.remainingTimeFormatted)
@@ -123,29 +148,47 @@ struct MenuBarPopoverView: View {
                             .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                     )
                 } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "bolt.shield")
-                            .font(.system(size: 28))
-                            .foregroundColor(.secondary)
-                        
-                        Text("Ready to Anchor")
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        
-                        Text("Focused time is tracked automatically.\nWork in a productive app to trigger a focus block.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(2)
+                    if showStartForm {
+                        StartSessionFormView(viewModel: viewModel, isPresented: $showStartForm)
+                    } else {
+                        VStack(spacing: 8) {
+                            Image(systemName: "bolt.shield")
+                                .font(.system(size: 28))
+                                .foregroundColor(.secondary)
+                            
+                            Text("Ready to Anchor")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            
+                            Text("Focused time is tracked automatically.\nWork in a productive app to trigger a focus block.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .lineSpacing(2)
+                            
+                            Button(action: {
+                                showStartForm = true
+                            }) {
+                                Text("Start Focus Session...")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 6)
+                                    .background(Color.accentColor)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 8)
+                        }
+                        .padding(.vertical, 20)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.primary.opacity(0.02))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                        )
                     }
-                    .padding(.vertical, 24)
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.primary.opacity(0.02))
-                    .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-                    )
                 }
             }
             
@@ -259,6 +302,147 @@ struct StatCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+        )
+    }
+}
+
+struct StartSessionFormView: View {
+    @ObservedObject var viewModel: MenuBarViewModel
+    @ObservedObject private var profileManager = ProfileManager.shared
+    @Binding var isPresented: Bool
+    
+    @State private var minutes: Int = 25
+    @State private var selectedProfileID: UUID
+    @State private var goal: String = ""
+    
+    init(viewModel: MenuBarViewModel, isPresented: Binding<Bool>) {
+        self.viewModel = viewModel
+        self._isPresented = isPresented
+        let activeProfile = ProfileManager.shared.activeProfile
+        self._selectedProfileID = State(initialValue: activeProfile.id)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Start Focus Session")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+                .padding(.bottom, 2)
+            
+            // Duration Selection
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Duration")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+                
+                HStack(spacing: 6) {
+                    ForEach([15, 25, 45, 60], id: \.self) { min in
+                        Button(action: {
+                            minutes = min
+                        }) {
+                            Text("\(min)m")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(minutes == min ? .white : .primary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 5)
+                                .background(minutes == min ? Color.accentColor : Color.primary.opacity(0.06))
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                
+                HStack(spacing: 8) {
+                    Slider(value: Binding(
+                        get: { Double(minutes) },
+                        set: { minutes = Int($0) }
+                    ), in: 5...120, step: 5)
+                    
+                    Text("\(minutes) min")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .frame(width: 48, alignment: .trailing)
+                }
+                .padding(.top, 2)
+            }
+            
+            // Profile / Category Selection
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Category (Profile)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+                
+                Picker("", selection: $selectedProfileID) {
+                    ForEach(profileManager.profiles) { profile in
+                        Text(profile.name).tag(profile.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+            }
+            
+            // Goal / Goal Title
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Goal / Name")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+                
+                TextField("e.g. Code database migrations...", text: $goal)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .padding(6)
+                    .background(Color.primary.opacity(0.04))
+                    .cornerRadius(6)
+            }
+            
+            // Buttons
+            HStack(spacing: 12) {
+                Button(action: {
+                    isPresented = false
+                }) {
+                    Text("Cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.primary.opacity(0.08))
+                        .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: {
+                    let targetProfile = profileManager.profiles.first { $0.id == selectedProfileID }
+                    let profileName = targetProfile?.name ?? profileManager.activeProfile.name
+                    
+                    // Switch profile if needed
+                    if selectedProfileID != profileManager.activeProfile.id {
+                        profileManager.switchProfile(to: profileName)
+                    }
+                    
+                    // Start focus session
+                    let durationSeconds = TimeInterval(minutes * 60)
+                    viewModel.focusEngine.anchorSession(duration: durationSeconds, category: profileName, goal: goal.isEmpty ? nil : goal)
+                    
+                    isPresented = false
+                }) {
+                    Text("Start")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.accentColor)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 4)
+        }
+        .padding(12)
+        .background(Color.primary.opacity(0.02))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
     }
 }

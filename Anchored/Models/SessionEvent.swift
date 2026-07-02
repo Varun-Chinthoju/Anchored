@@ -12,6 +12,8 @@ struct SessionEvent: Codable, Equatable {
     let distractionAppBundleID: String?
     let distraction_domain: String?
     let action: SessionAction?
+    let category: String?
+    let sessionGoal: String?
 
     init(
         id: UUID = UUID(),
@@ -24,7 +26,9 @@ struct SessionEvent: Codable, Equatable {
         sessionDurationSeconds: Int? = nil,
         distractionAppBundleID: String? = nil,
         distraction_domain: String? = nil,
-        action: SessionAction? = nil
+        action: SessionAction? = nil,
+        category: String? = nil,
+        sessionGoal: String? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -37,6 +41,8 @@ struct SessionEvent: Codable, Equatable {
         self.distractionAppBundleID = distractionAppBundleID
         self.distraction_domain = distraction_domain
         self.action = action
+        self.category = category
+        self.sessionGoal = sessionGoal
     }
 }
 
