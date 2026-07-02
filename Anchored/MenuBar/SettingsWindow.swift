@@ -5,7 +5,7 @@ class SettingsWindow: NSWindow {
     
     init(initialSection: SettingsSection = .general) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 660, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 990, height: 630),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -15,9 +15,12 @@ class SettingsWindow: NSWindow {
         self.isReleasedWhenClosed = false
         self.isOpaque = true
         self.hasShadow = true
-        self.minSize = NSSize(width: 600, height: 380)
+        self.minSize = NSSize(width: 900, height: 570)
+        self.appearance = NSAppearance(named: .vibrantDark)
+        self.titlebarAppearsTransparent = true
         
         let view = SettingsView(initialSection: initialSection)
+            .preferredColorScheme(.dark)
         self.contentView = NSHostingView(rootView: view)
         self.center()
     }

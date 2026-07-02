@@ -40,10 +40,17 @@ final class OverlayManagerTests: XCTestCase {
         overlayManager = nil
         focusEngine = nil
         mockActivityMonitor = nil
+        sessionStore = nil
         
-        if FileManager.default.fileExists(atPath: tempStoreURL.path) {
-            try? FileManager.default.removeItem(at: tempStoreURL)
-        }
+        let dbURL = tempStoreURL.deletingPathExtension().appendingPathExtension("db")
+        let walURL = tempStoreURL.deletingPathExtension().appendingPathExtension("db-wal")
+        let shmURL = tempStoreURL.deletingPathExtension().appendingPathExtension("db-shm")
+        
+        try? FileManager.default.removeItem(at: tempStoreURL)
+        try? FileManager.default.removeItem(at: dbURL)
+        try? FileManager.default.removeItem(at: walURL)
+        try? FileManager.default.removeItem(at: shmURL)
+        
         super.tearDown()
     }
     

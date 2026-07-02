@@ -15,6 +15,7 @@ final class SessionStoreTests: XCTestCase {
     }
     
     override func tearDown() {
+        store = nil
         let directoryURL = testFileURL.deletingLastPathComponent()
         if FileManager.default.fileExists(atPath: directoryURL.path) {
             try? FileManager.default.removeItem(at: directoryURL)
@@ -32,21 +33,14 @@ final class SessionStoreTests: XCTestCase {
         store.log(event2)
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: self.testFileURL.path))
+            let dbURL = self.testFileURL.deletingPathExtension().appendingPathExtension("db")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
             
-            do {
-                let data = try Data(contentsOf: self.testFileURL)
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                let events = try decoder.decode([SessionEvent].self, from: data)
-                
-                XCTAssertEqual(events.count, 2)
-                XCTAssertEqual(events[0].id, event1.id)
-                XCTAssertEqual(events[1].id, event2.id)
-                expectation.fulfill()
-            } catch {
-                XCTFail("Failed to read back written file: \(error)")
-            }
+            let events = self.store.allEvents()
+            XCTAssertEqual(events.count, 2)
+            XCTAssertEqual(events[0].id, event1.id)
+            XCTAssertEqual(events[1].id, event2.id)
+            expectation.fulfill()
         }
         
         wait(for: [expectation], timeout: 1.0)

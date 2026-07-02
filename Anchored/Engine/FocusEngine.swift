@@ -6,6 +6,7 @@ final class FocusEngine {
     private let activityMonitor: ActivityMonitor
     private let distractionListManager: DistractionListManager
     private let sessionStore: SessionStore
+    private let profileManager: ProfileManager
     
     /// The delegate to receive state transition callbacks.
     weak var delegate: FocusEngineDelegate?
@@ -54,16 +55,29 @@ final class FocusEngine {
         activityMonitor: ActivityMonitor,
         distractionListManager: DistractionListManager,
         sessionStore: SessionStore = .shared,
+        profileManager: ProfileManager = .shared,
         focusThreshold: TimeInterval = 600.0
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
         self.sessionStore = sessionStore
+        self.profileManager = profileManager
         self.focusThreshold = focusThreshold
         
         self.activityMonitor.onContextChange = { [weak self] bundleID, url in
             self?.handleContextChange(bundleID: bundleID, url: url)
         }
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleActiveProfileChange),
+            name: .activeProfileDidChange,
+            object: nil
+        )
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     /// Starts monitoring application switch events.
@@ -78,6 +92,68 @@ final class FocusEngine {
         cancelDistractionTimer()
     }
     
+    private func isDistractionApp(_ bundleID: String) -> Bool {
+        return profileManager.activeProfile.distractionApps.contains(bundleID)
+    }
+    
+    @objc private func handleActiveProfileChange() {
+        guard let currentApp = currentApp else { return }
+        
+        let now = Date()
+        let isCurrentlyDistraction = isDistractionApp(currentApp)
+        
+        if isCurrentlyDistraction {
+            // It is now a distraction under the new active profile
+            if activeSession != nil {
+                // If we have an active session
+                if distractionStartDate == nil {
+                    // It wasn't previously flagged as a distraction
+                    distractionStartDate = now
+                    
+                    let event = SessionEvent(
+                        type: .distractionDetected,
+                        appBundleID: lastWorkAppBundleID ?? "",
+                        appName: getAppName(for: lastWorkAppBundleID ?? ""),
+                        distractionAppBundleID: currentApp
+                    )
+                    sessionStore.log(event)
+                    
+                    delegate?.didDetectDistraction(bundleID: currentApp)
+                    scheduleDistractionTimer(distractionBundleID: currentApp)
+                }
+            } else {
+                // No active session
+                if let start = workSessionStart {
+                    let elapsed = now.timeIntervalSince(start)
+                    if elapsed >= focusThreshold {
+                        let focusedAppName = getAppName(for: lastWorkAppBundleID ?? currentApp)
+                        delegate?.didRequestExitTrigger(duration: elapsed, appName: focusedAppName)
+                    }
+                }
+                workSessionStart = nil
+            }
+        } else {
+            // It is now allowed (NOT a distraction) under the new active profile
+            if activeSession != nil {
+                // Cancel warning/dimming
+                if isDimming {
+                    isDimming = false
+                    delegate?.didReturnToWork()
+                }
+                cancelDistractionTimer()
+                distractionStartDate = nil
+            } else {
+                // No active session: it is now a work or neutral app
+                if FocusListManager.shared.isFocusApp(currentApp) {
+                    lastWorkAppBundleID = currentApp
+                    if workSessionStart == nil {
+                        workSessionStart = now
+                    }
+                }
+            }
+        }
+    }
+    
     /// Handles context changes from the activity monitor.
     private func handleContextChange(bundleID: String, url: URL?) {
         guard bundleID != "com.varun.Anchored" else { return }
@@ -85,7 +161,7 @@ final class FocusEngine {
         currentApp = bundleID
         let now = Date()
         
-        if distractionListManager.isDistraction(bundleID) {
+        if isDistractionApp(bundleID) {
             // Distraction app detected
             if activeSession != nil {
                 // Distraction app detected + active session -> delegate call to show countdown pill

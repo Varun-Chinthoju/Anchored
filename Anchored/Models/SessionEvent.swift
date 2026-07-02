@@ -10,6 +10,7 @@ struct SessionEvent: Codable, Equatable {
     let focusDurationSeconds: Int?
     let sessionDurationSeconds: Int?
     let distractionAppBundleID: String?
+    let distraction_domain: String?
     let action: SessionAction?
 
     init(
@@ -22,6 +23,7 @@ struct SessionEvent: Codable, Equatable {
         focusDurationSeconds: Int? = nil,
         sessionDurationSeconds: Int? = nil,
         distractionAppBundleID: String? = nil,
+        distraction_domain: String? = nil,
         action: SessionAction? = nil
     ) {
         self.id = id
@@ -33,6 +35,7 @@ struct SessionEvent: Codable, Equatable {
         self.focusDurationSeconds = focusDurationSeconds
         self.sessionDurationSeconds = sessionDurationSeconds
         self.distractionAppBundleID = distractionAppBundleID
+        self.distraction_domain = distraction_domain
         self.action = action
     }
 }

@@ -1,6 +1,10 @@
 name: Anchored
 options:
   bundleIdPrefix: com.varun
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    from: 6.29.1
 targets:
   Anchored:
     type: application
@@ -8,6 +12,9 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - path: Anchored
+    dependencies:
+      - package: GRDB
+        product: GRDB
     settings:
       base:
         INFOPLIST_FILE: Anchored/Info.plist
@@ -22,9 +29,12 @@ targets:
       - path: AnchoredTests
     dependencies:
       - target: Anchored
+      - package: GRDB
+        product: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.varun.AnchoredTests
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_VERSION: "5.7"
         GENERATE_INFOPLIST_FILE: YES
+

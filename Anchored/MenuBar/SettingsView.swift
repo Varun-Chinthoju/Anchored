@@ -38,18 +38,106 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 // MARK: - Top-level Settings View
 
+enum SidebarItem: Hashable {
+    case profile(UUID)
+    case general
+    case focusApps
+    case stats
+    case analytics
+    case about
+}
+
+struct ProfileRowView: View {
+    let profile: WorkProfile
+    let isActive: Bool
+    let onDelete: () -> Void
+    let onMakeActive: () -> Void
+    let canDelete: Bool
+
+    private var iconName: String {
+        let lower = profile.name.lowercased()
+        if lower.contains("code") || lower.contains("coding") || lower.contains("dev") {
+            return "curlybraces"
+        } else if lower.contains("write") || lower.contains("writing") || lower.contains("edit") {
+            return "doc.text.fill"
+        } else if lower.contains("video") || lower.contains("movie") || lower.contains("film") {
+            return "play.rectangle.fill"
+        } else {
+            return "briefcase.fill"
+        }
+    }
+
+    var body: some View {
+        HStack {
+            Image(systemName: iconName)
+                .font(.system(size: 12))
+                .foregroundColor(isActive ? .green : .secondary)
+            Text(profile.name)
+                .font(.system(size: 13))
+            Spacer()
+            if isActive {
+                Text("Active")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.green)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color.green.opacity(0.15))
+                    .cornerRadius(4)
+            }
+        }
+        .contextMenu {
+            Button("Make Active") {
+                onMakeActive()
+            }
+            if canDelete {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete Profile", systemImage: "trash")
+                }
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
-    @State private var selectedSection: SettingsSection
+    @StateObject private var profileManager = ProfileManager.shared
+    @State private var selectedItem: SidebarItem
     @State private var searchQuery = ""
+    @State private var showAddAlert = false
+    @State private var newProfileName = ""
 
     init(initialSection: SettingsSection = .general) {
-        _selectedSection = State(initialValue: initialSection)
+        let initialItem: SidebarItem
+        switch initialSection {
+        case .general:
+            initialItem = .general
+        case .focusApps:
+            initialItem = .focusApps
+        case .distractions:
+            initialItem = .profile(ProfileManager.shared.activeProfile.id)
+        case .stats:
+            initialItem = .stats
+        case .analytics:
+            initialItem = .analytics
+        case .about:
+            initialItem = .about
+        }
+        _selectedItem = State(initialValue: initialItem)
+    }
+
+    var filteredProfiles: [WorkProfile] {
+        let all = profileManager.profiles
+        guard !searchQuery.isEmpty else { return all }
+        let q = searchQuery.lowercased()
+        return all.filter { $0.name.lowercased().contains(q) }
     }
 
     var filteredSections: [SettingsSection] {
-        guard !searchQuery.isEmpty else { return SettingsSection.allCases }
+        let sections: [SettingsSection] = [.general, .focusApps, .stats, .analytics, .about]
+        guard !searchQuery.isEmpty else { return sections }
         let q = searchQuery.lowercased()
-        return SettingsSection.allCases.filter { $0.rawValue.lowercased().contains(q) }
+        return sections.filter { $0.rawValue.lowercased().contains(q) }
     }
 
     var body: some View {
@@ -80,28 +168,129 @@ struct SettingsView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 8)
 
-                List(filteredSections, selection: $selectedSection) { section in
-                    Label(section.rawValue, systemImage: section.iconName)
-                        .tag(section)
-                        .labelStyle(ColoredLabelStyle(color: section.iconColor))
+                List(selection: $selectedItem) {
+                    Section {
+                        ForEach(filteredProfiles) { profile in
+                            ProfileRowView(
+                                profile: profile,
+                                isActive: profile.id == profileManager.activeProfile.id,
+                                onDelete: { deleteProfile(profile) },
+                                onMakeActive: { makeProfileActive(profile) },
+                                canDelete: profileManager.profiles.count > 1
+                            )
+                            .tag(SidebarItem.profile(profile.id))
+                        }
+                        
+                        Button {
+                            newProfileName = ""
+                            showAddAlert = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(4)
+                                    .background(Color.accentColor)
+                                    .clipShape(Circle())
+                                
+                                Text("Add Profile")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Work Profiles")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Section("System Settings") {
+                        ForEach(filteredSections) { section in
+                            Label(section.rawValue, systemImage: section.iconName)
+                                .tag(sidebarItem(for: section))
+                                .labelStyle(ColoredLabelStyle(color: section.iconColor))
+                        }
+                    }
                 }
                 .listStyle(.sidebar)
             }
+            .alert("New Profile", isPresented: $showAddAlert) {
+                TextField("Profile Name", text: $newProfileName)
+                Button("Cancel", role: .cancel) { }
+                Button("Create") {
+                    let trimmed = newProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        let newProfile = WorkProfile(name: trimmed)
+                        profileManager.addProfile(newProfile)
+                        selectedItem = .profile(newProfile.id)
+                    }
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 350)
         } detail: {
             // DETAIL PANE
             Group {
-                switch selectedSection {
-                case .general:      GeneralSettingsPane()
-                case .focusApps:    FocusAppsSettingsPane()
-                case .distractions: DistractionsSettingsPane()
-                case .stats:        StatsSettingsPane()
-                case .analytics:    AnalyticsSettingsPane()
-                case .about:        AboutSettingsPane()
+                switch selectedItem {
+                case .profile(let id):
+                    if let profile = profileManager.profiles.first(where: { $0.id == id }) {
+                        ProfileAppsSettingsPane(profileManager: profileManager, profile: profile)
+                    } else {
+                        Text("Select or create a work profile.")
+                            .foregroundColor(.secondary)
+                    }
+                case .general:
+                    GeneralSettingsPane()
+                case .focusApps:
+                    FocusAppsSettingsPane()
+                case .stats:
+                    StatsSettingsPane()
+                case .analytics:
+                    AnalyticsSettingsPane()
+                case .about:
+                    AboutSettingsPane()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 660, height: 420)
+        .frame(width: 990, height: 630)
+        .onChange(of: selectedItem) { newItem in
+            if case .profile(let id) = newItem,
+               let profile = profileManager.profiles.first(where: { $0.id == id }) {
+                profileManager.switchProfile(to: profile.name)
+            }
+        }
+        .onReceive(profileManager.$activeProfile) { newActiveProfile in
+            // Switch sidebar selection if active profile changes externally (like from status bar)
+            if case .profile = selectedItem {
+                selectedItem = .profile(newActiveProfile.id)
+            }
+        }
+    }
+
+    private func deleteProfile(_ profile: WorkProfile) {
+        if let index = profileManager.profiles.firstIndex(where: { $0.id == profile.id }) {
+            profileManager.deleteProfile(at: index)
+            if case .profile(let selectedId) = selectedItem, selectedId == profile.id {
+                selectedItem = .profile(profileManager.activeProfile.id)
+            }
+        }
+    }
+
+    private func makeProfileActive(_ profile: WorkProfile) {
+        profileManager.switchProfile(to: profile.name)
+    }
+
+    private func sidebarItem(for section: SettingsSection) -> SidebarItem {
+        switch section {
+        case .general:      return .general
+        case .focusApps:    return .focusApps
+        case .distractions: return .profile(profileManager.activeProfile.id)
+        case .stats:        return .stats
+        case .analytics:    return .analytics
+        case .about:        return .about
+        }
     }
 }
 
@@ -385,18 +574,49 @@ struct FocusAppsSettingsPane: View {
 
 // MARK: - Distractions Settings
 
-struct DistractionsSettingsPane: View {
-    @ObservedObject private var manager = DistractionListManager.shared
-    @State private var distractions: [String] = []
+// MARK: - Profile Apps Settings
+
+struct ProfileAppsSettingsPane: View {
+    @ObservedObject var profileManager: ProfileManager
+    let profile: WorkProfile
+
     @State private var suggestions: [(bundleID: String, name: String)] = []
 
+    private var sortedDistractionApps: [String] {
+        profile.distractionApps.sorted { appName(for: $0) < appName(for: $1) }
+    }
+
+    private var filteredSuggestions: [(bundleID: String, name: String)] {
+        suggestions.filter { !profile.distractionApps.contains($0.bundleID) }
+    }
+
     var body: some View {
-        SettingsPane(title: "Distractions") {
-            Text("These apps will trigger the dimming overlay when opened during an active focus session.")
+        SettingsPane(title: "\(profile.name) Profile") {
+            // Rename Profile Section
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Profile Name")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+
+                TextField("Profile Name", text: Binding(
+                    get: { profile.name },
+                    set: { newName in
+                        guard !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        var updated = profile
+                        updated.name = newName
+                        profileManager.updateProfile(updated)
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+                .frame(maxWidth: 300)
+            }
+
+            Text("These apps will trigger the dimming overlay when opened during a focus session in this profile.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
 
-            // Active distraction list
+            // Blocked Apps
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Blocked Apps")
@@ -411,12 +631,13 @@ struct DistractionsSettingsPane: View {
                 }
                 .padding(.leading, 2)
 
-                if distractions.isEmpty {
+                if profile.distractionApps.isEmpty {
                     emptyState("No distraction apps added yet.")
                 } else {
                     SettingsGroup {
-                        ForEach(distractions.indices, id: \.self) { i in
-                            let bundleID = distractions[i]
+                        let sortedApps = sortedDistractionApps
+                        ForEach(sortedApps.indices, id: \.self) { i in
+                            let bundleID = sortedApps[i]
                             HStack {
                                 Image(systemName: "app.fill")
                                     .font(.system(size: 11))
@@ -428,8 +649,9 @@ struct DistractionsSettingsPane: View {
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                                 Button {
-                                    manager.remove(bundleID)
-                                    refresh()
+                                    var updated = profile
+                                    updated.distractionApps.removeAll { $0 == bundleID }
+                                    profileManager.updateProfile(updated)
                                 } label: {
                                     Image(systemName: "minus.circle.fill")
                                         .foregroundColor(.red.opacity(0.7))
@@ -438,7 +660,7 @@ struct DistractionsSettingsPane: View {
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 9)
-                            if i < distractions.count - 1 {
+                            if i < sortedApps.count - 1 {
                                 Divider().padding(.leading, 16)
                             }
                         }
@@ -446,8 +668,9 @@ struct DistractionsSettingsPane: View {
                 }
             }
 
-            // Scanned suggestions
-            if !suggestions.isEmpty {
+            // Suggestions
+            let listSuggestions = filteredSuggestions
+            if !listSuggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Suggestions (Installed on your Mac)")
                         .font(.system(size: 11, weight: .semibold))
@@ -455,8 +678,8 @@ struct DistractionsSettingsPane: View {
                         .padding(.leading, 2)
 
                     SettingsGroup {
-                        ForEach(suggestions.indices, id: \.self) { i in
-                            let s = suggestions[i]
+                        ForEach(listSuggestions.indices, id: \.self) { i in
+                            let s = listSuggestions[i]
                             HStack {
                                 Image(systemName: "plus.circle.fill")
                                     .font(.system(size: 11))
@@ -465,8 +688,11 @@ struct DistractionsSettingsPane: View {
                                     .font(.system(size: 13))
                                 Spacer()
                                 Button("Add") {
-                                    manager.add(s.bundleID)
-                                    refresh()
+                                    var updated = profile
+                                    if !updated.distractionApps.contains(s.bundleID) {
+                                        updated.distractionApps.append(s.bundleID)
+                                        profileManager.updateProfile(updated)
+                                    }
                                 }
                                 .buttonStyle(.borderless)
                                 .font(.system(size: 12))
@@ -474,20 +700,29 @@ struct DistractionsSettingsPane: View {
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 9)
-                            if i < suggestions.count - 1 {
+                            if i < listSuggestions.count - 1 {
                                 Divider().padding(.leading, 16)
                             }
                         }
                     }
                 }
             }
+
+            Divider()
+                .padding(.vertical, 8)
+
+            DomainEditorView(profileManager: profileManager, profile: profile)
         }
-        .onAppear { refresh() }
+        .onAppear {
+            refreshSuggestions()
+        }
+        .onChange(of: profile.distractionApps) { _ in
+            refreshSuggestions()
+        }
     }
 
-    private func refresh() {
-        distractions = manager.allDistractions.sorted { appName(for: $0) < appName(for: $1) }
-        suggestions = manager.installedSuggestions
+    private func refreshSuggestions() {
+        suggestions = DistractionListManager.shared.installedSuggestions
     }
 
     private func appName(for bundleID: String) -> String {
@@ -502,7 +737,13 @@ struct DistractionsSettingsPane: View {
         if panel.runModal() == .OK, let url = panel.url {
             let id = Bundle(url: url)?.bundleIdentifier
                 ?? (NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist"))?["CFBundleIdentifier"] as? String)
-            if let id { manager.add(id); refresh() }
+            if let id {
+                var updated = profile
+                if !updated.distractionApps.contains(id) {
+                    updated.distractionApps.append(id)
+                    profileManager.updateProfile(updated)
+                }
+            }
         }
     }
 }
@@ -515,6 +756,10 @@ struct StatsSettingsPane: View {
         distractionListManager: DistractionListManager.shared
     ))
     private let dailyTarget = 7200.0
+
+    private var progress: Double {
+        min(1.0, vm.stats.focusedTimeToday / dailyTarget)
+    }
 
     var body: some View {
         SettingsPane(title: "Stats") {
@@ -532,7 +777,7 @@ struct StatsSettingsPane: View {
                     .foregroundColor(.secondary)
                     .padding(.leading, 2)
 
-                let progress = min(1.0, vm.stats.focusedTimeToday / dailyTarget)
+                let currentProgress = progress
 
                 HStack(spacing: 20) {
                     ZStack {
@@ -540,11 +785,11 @@ struct StatsSettingsPane: View {
                             .stroke(Color.primary.opacity(0.08), lineWidth: 10)
                             .frame(width: 80, height: 80)
                         Circle()
-                            .trim(from: 0, to: CGFloat(progress))
+                            .trim(from: 0, to: CGFloat(currentProgress))
                             .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                             .rotationEffect(.degrees(-90))
                             .frame(width: 80, height: 80)
-                        Text("\(Int(progress * 100))%")
+                        Text("\(Int(currentProgress * 100))%")
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                     }
 
@@ -595,12 +840,45 @@ struct StatsSettingsPane: View {
 
 // MARK: - Analytics Settings
 
+struct AppBreakdownRow: View {
+    let app: String
+    let duration: TimeInterval
+    let total: TimeInterval
+
+    var body: some View {
+        let frac = total > 0 ? duration / total : 0
+        VStack(spacing: 6) {
+            HStack {
+                Text(app).font(.system(size: 13))
+                Spacer()
+                Text("\(Int(duration / 60))m · \(Int(frac * 100))%")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.06)).frame(height: 5)
+                    Capsule().fill(Color.accentColor)
+                        .frame(width: geo.size.width * CGFloat(frac), height: 5)
+                }
+            }
+            .frame(height: 5)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
 struct AnalyticsSettingsPane: View {
     @State private var appBreakdown: [(String, TimeInterval)] = []
     @StateObject private var vm = MenuBarViewModel(focusEngine: FocusEngine(
         activityMonitor: AppSwitchMonitor(),
         distractionListManager: DistractionListManager.shared
     ))
+
+    private var totalDuration: TimeInterval {
+        appBreakdown.map(\.1).reduce(0, +)
+    }
 
     var body: some View {
         SettingsPane(title: "Analytics") {
@@ -614,30 +892,11 @@ struct AnalyticsSettingsPane: View {
                 if appBreakdown.isEmpty {
                     emptyState("No analytics recorded yet.")
                 } else {
-                    let total = appBreakdown.map(\.1).reduce(0, +)
+                    let total = totalDuration
                     VStack(spacing: 0) {
                         ForEach(appBreakdown.indices, id: \.self) { i in
                             let (app, duration) = appBreakdown[i]
-                            let frac = total > 0 ? duration / total : 0
-                            VStack(spacing: 6) {
-                                HStack {
-                                    Text(app).font(.system(size: 13))
-                                    Spacer()
-                                    Text("\(Int(duration / 60))m · \(Int(frac * 100))%")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                }
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        Capsule().fill(Color.primary.opacity(0.06)).frame(height: 5)
-                                        Capsule().fill(Color.accentColor)
-                                            .frame(width: geo.size.width * CGFloat(frac), height: 5)
-                                    }
-                                }
-                                .frame(height: 5)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                            AppBreakdownRow(app: app, duration: duration, total: total)
                             if i < appBreakdown.count - 1 {
                                 Divider().padding(.leading, 16)
                             }

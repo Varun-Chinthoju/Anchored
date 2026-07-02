@@ -10,10 +10,11 @@ final class SessionEventTests: XCTestCase {
             type: .sessionStart,
             appBundleID: "com.apple.dt.Xcode",
             appName: "Xcode",
-            url: nil,
+            url: "https://github.com",
             focusDurationSeconds: 1920,
             sessionDurationSeconds: 1500,
             distractionAppBundleID: "com.hnc.Discord",
+            distraction_domain: "discord.com",
             action: .anchored
         )
         
@@ -31,10 +32,11 @@ final class SessionEventTests: XCTestCase {
         XCTAssertEqual(event.type, decodedEvent.type)
         XCTAssertEqual(event.appBundleID, decodedEvent.appBundleID)
         XCTAssertEqual(event.appName, decodedEvent.appName)
-        XCTAssertNil(decodedEvent.url)
+        XCTAssertEqual(event.url, decodedEvent.url)
         XCTAssertEqual(event.focusDurationSeconds, decodedEvent.focusDurationSeconds)
         XCTAssertEqual(event.sessionDurationSeconds, decodedEvent.sessionDurationSeconds)
         XCTAssertEqual(event.distractionAppBundleID, decodedEvent.distractionAppBundleID)
+        XCTAssertEqual(event.distraction_domain, decodedEvent.distraction_domain)
         XCTAssertEqual(event.action, decodedEvent.action)
     }
 }

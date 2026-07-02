@@ -5,6 +5,7 @@ final class FocusEngineTests: XCTestCase {
     
     private var mockActivityMonitor: MockActivityMonitor!
     private var distractionListManager: DistractionListManager!
+    private var profileManager: ProfileManager!
     private var sessionStore: SessionStore!
     private var mockDelegate: MockFocusEngineDelegate!
     private var engine: FocusEngine!
@@ -17,6 +18,7 @@ final class FocusEngineTests: XCTestCase {
         let testDefaults = UserDefaults(suiteName: "com.varun.Anchored.tests")!
         testDefaults.removePersistentDomain(forName: "com.varun.Anchored.tests")
         distractionListManager = DistractionListManager(defaults: testDefaults)
+        profileManager = ProfileManager(defaults: testDefaults)
         
         // Setup isolated SessionStore
         let tempDirectory = FileManager.default.temporaryDirectory
@@ -32,6 +34,7 @@ final class FocusEngineTests: XCTestCase {
             activityMonitor: mockActivityMonitor,
             distractionListManager: distractionListManager,
             sessionStore: sessionStore,
+            profileManager: profileManager,
             focusThreshold: 600.0
         )
         engine.delegate = mockDelegate
@@ -42,8 +45,11 @@ final class FocusEngineTests: XCTestCase {
     
     override func tearDown() {
         engine.stop()
-        if FileManager.default.fileExists(atPath: tempStoreURL.path) {
-            try? FileManager.default.removeItem(at: tempStoreURL)
+        engine = nil
+        sessionStore = nil
+        let directoryURL = tempStoreURL.deletingLastPathComponent()
+        if FileManager.default.fileExists(atPath: directoryURL.path) {
+            try? FileManager.default.removeItem(at: directoryURL)
         }
         super.tearDown()
     }
@@ -292,26 +298,68 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
     }
     
+    // MARK: - Mid-Session Profile Switching Tests
+    
+    func testProfileSwitchMidSessionToDistractionApp() {
+        let profileA = WorkProfile(name: "ProfileA", distractionApps: [])
+        let profileB = WorkProfile(name: "ProfileB", distractionApps: ["com.apple.Music"])
+        profileManager.addProfile(profileA)
+        profileManager.addProfile(profileB)
+        
+        profileManager.switchProfile(to: "ProfileA")
+        
+        // Start watching a work app and anchor
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        // Switch to com.apple.Music. In ProfileA, it is NOT a distraction.
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Music")
+        
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertFalse(engine.isDimming)
+        
+        // Switch profile to ProfileB mid-session (where com.apple.Music IS a distraction)
+        profileManager.switchProfile(to: "ProfileB")
+        
+        // It should immediately trigger distraction detected
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.apple.Music"])
+    }
+    
+    func testProfileSwitchMidSessionToAllowedApp() {
+        let profileA = WorkProfile(name: "ProfileA", distractionApps: ["com.apple.Music"])
+        let profileB = WorkProfile(name: "ProfileB", distractionApps: [])
+        profileManager.addProfile(profileA)
+        profileManager.addProfile(profileB)
+        
+        profileManager.switchProfile(to: "ProfileA")
+        
+        // Start watching a work app and anchor
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        // Switch to com.apple.Music. In ProfileA, it IS a distraction.
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Music")
+        
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.apple.Music"])
+        
+        // Manually trigger distraction timer expiration to cause dimming
+        engine.distractionTimerExpired(distractionBundleID: "com.apple.Music")
+        XCTAssertTrue(engine.isDimming)
+        
+        // Switch profile to ProfileB mid-session (where com.apple.Music is allowed)
+        profileManager.switchProfile(to: "ProfileB")
+        
+        // It should lift the dimming and trigger return to work
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+    
     // MARK: - Helper Methods
     
     private func loadEventsFromDisk() -> [SessionEvent] {
-        // Since SessionStore writes asynchronously on a background queue,
-        // we can fetch recentSessions limit 100 which runs sync on the same queue,
-        // ensuring all preceding writes have completed.
-        let endEvents = sessionStore.recentSessions(limit: 100)
-        
-        // But recentSessions only returns .sessionEnd events. To get ALL events,
-        // we read directly from the file synchronously. Since we want to ensure
-        // background queue completes its write before we read, we can perform a dummy
-        // call to recentSessions first to flush the queue!
+        // Flush queue by doing a sync read:
         _ = sessionStore.recentSessions(limit: 1)
-        
-        guard let data = try? Data(contentsOf: tempStoreURL) else {
-            return []
-        }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([SessionEvent].self, from: data)) ?? []
+        return sessionStore.allEvents()
     }
 }
 

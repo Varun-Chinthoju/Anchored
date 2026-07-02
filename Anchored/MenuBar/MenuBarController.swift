@@ -22,6 +22,14 @@ class MenuBarController: NSObject, NSMenuDelegate {
             name: .focusEngineStateDidChange,
             object: nil
         )
+        
+        // Observe active profile change events to update UI
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleStateChange),
+            name: .activeProfileDidChange,
+            object: nil
+        )
     }
     
     deinit {
@@ -59,6 +67,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         
         // Status header
+        let activeProfileName = ProfileManager.shared.activeProfile.name
         if let session = focusEngine.activeSession {
             let statusItem = NSMenuItem(title: "Status: Active (Focusing on \(session.appName))", action: nil, keyEquivalent: "")
             statusItem.isEnabled = false
@@ -84,6 +93,10 @@ class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(statusItem)
         }
         
+        let profileHeaderItem = NSMenuItem(title: "Active Profile: \(activeProfileName)", action: nil, keyEquivalent: "")
+        profileHeaderItem.isEnabled = false
+        menu.addItem(profileHeaderItem)
+        
         menu.addItem(NSMenuItem.separator())
         
         // Stats
@@ -108,6 +121,24 @@ class MenuBarController: NSObject, NSMenuDelegate {
         editItem.target = self
         menu.addItem(editItem)
         
+        let switchProfileItem = NSMenuItem(title: "Switch Profile", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let profiles = ProfileManager.shared.profiles
+        let activeProfile = ProfileManager.shared.activeProfile
+        for profile in profiles {
+            let item = NSMenuItem(title: profile.name, action: #selector(switchProfileClicked(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = profile.name
+            if profile.id == activeProfile.id {
+                item.state = .on
+            } else {
+                item.state = .off
+            }
+            submenu.addItem(item)
+        }
+        switchProfileItem.submenu = submenu
+        menu.addItem(switchProfileItem)
+        
         let prefsItem = NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
         prefsItem.target = self
         menu.addItem(prefsItem)
@@ -117,6 +148,12 @@ class MenuBarController: NSObject, NSMenuDelegate {
         let quitItem = NSMenuItem(title: "Quit Anchored", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
+    }
+    
+    @objc private func switchProfileClicked(_ sender: NSMenuItem) {
+        if let profileName = sender.representedObject as? String {
+            ProfileManager.shared.switchProfile(to: profileName)
+        }
     }
     
     @objc private func endSessionClicked() {

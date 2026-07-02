@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarPopoverView: View {
     @ObservedObject var viewModel: MenuBarViewModel
+    @ObservedObject private var profileManager = ProfileManager.shared
     
     var body: some View {
         VStack(spacing: 16) {
@@ -9,7 +10,39 @@ struct MenuBarPopoverView: View {
             HStack {
                 Text("⚓ Anchored")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
+                
                 Spacer()
+                
+                Menu {
+                    ForEach(profileManager.profiles) { profile in
+                        Button(action: {
+                            profileManager.switchProfile(to: profile.name)
+                        }) {
+                            if profile.id == profileManager.activeProfile.id {
+                                Text("✓ \(profile.name)")
+                            } else {
+                                Text(profile.name)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 12))
+                        Text(profileManager.activeProfile.name)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8))
+                    }
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12))
+                    .cornerRadius(8)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                
                 if viewModel.activeSession != nil {
                     HStack(spacing: 4) {
                         Circle()

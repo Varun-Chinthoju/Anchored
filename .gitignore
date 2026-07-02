@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+buildDerivedData/
+*.xcodeproj
+*.xcworkspace
+!xcshareddata/
+xcuserdata/
+
+# Code Coverage raw profile data
+*.profraw

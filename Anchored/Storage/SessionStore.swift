@@ -5,53 +5,32 @@ class SessionStore {
     
     private let queue = DispatchQueue(label: "com.varun.Anchored.SessionStore", qos: .utility)
     private var fileURL: URL
+    private let sqliteStore: SQLiteSessionStore
     
     // Internal initializer for testing with custom path
     init(fileURL: URL? = nil) {
+        let fileManager = FileManager.default
         if let customURL = fileURL {
             self.fileURL = customURL
+            let sqliteURL = customURL.deletingPathExtension().appendingPathExtension("db")
+            self.sqliteStore = SQLiteSessionStore(databaseURL: sqliteURL)
         } else {
-            let fileManager = FileManager.default
             let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             let appDirectoryURL = appSupportURL.appendingPathComponent("Anchored")
             self.fileURL = appDirectoryURL.appendingPathComponent("sessions.json")
+            self.sqliteStore = SQLiteSessionStore.shared
         }
-    }
-    
-    private func ensureDirectoryExists() throws {
-        let directoryURL = fileURL.deletingLastPathComponent()
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: directoryURL.path) {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-        }
+        
+        // Trigger migration from JSON to SQLite
+        self.sqliteStore.migrateFromJSONIfNeeded(jsonURL: self.fileURL)
     }
     
     func log(_ event: SessionEvent) {
-        queue.async {
-            do {
-                try self.ensureDirectoryExists()
-                
-                var events = self.loadEventsSync()
-                events.append(event)
-                
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                encoder.outputFormatting = .prettyPrinted
-                
-                let data = try encoder.encode(events)
-                try data.write(to: self.fileURL, options: .atomic)
-            } catch {
-                print("SessionStore Error: Failed to log event. \(error.localizedDescription)")
-            }
-        }
+        sqliteStore.log(event)
     }
     
     func recentSessions(limit: Int) -> [SessionEvent] {
-        return queue.sync {
-            let events = loadEventsSync()
-            let sessionEndEvents = events.filter { $0.type == .sessionEnd }
-            return Array(sessionEndEvents.suffix(limit)).reversed()
-        }
+        return sqliteStore.recentSessions(limit: limit)
     }
     
     func getStats() -> SessionStats {
@@ -111,22 +90,13 @@ class SessionStore {
         }
     }
     
+    func allEvents() -> [SessionEvent] {
+        return sqliteStore.allEvents()
+    }
+    
     // Helper to load events synchronously on the current queue
     private func loadEventsSync() -> [SessionEvent] {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: fileURL.path) else {
-            return []
-        }
-        
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode([SessionEvent].self, from: data)
-        } catch {
-            print("SessionStore Error: Failed to load events. \(error.localizedDescription)")
-            return []
-        }
+        return sqliteStore.allEvents()
     }
 }
 
