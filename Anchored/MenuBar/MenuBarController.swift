@@ -7,6 +7,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
     private let sessionStore: SessionStore
     private var settingsWindow: SettingsWindow?
     private var dashboardWindow: DashboardWindow?
+    private var startSessionWindow: StartSessionWindow?
     
     init(focusEngine: FocusEngine, sessionStore: SessionStore = .shared) {
         self.focusEngine = focusEngine
@@ -92,6 +93,10 @@ class MenuBarController: NSObject, NSMenuDelegate {
             let statusItem = NSMenuItem(title: "Status: Idle (Ready to Anchor)", action: nil, keyEquivalent: "")
             statusItem.isEnabled = false
             menu.addItem(statusItem)
+            
+            let startSessionItem = NSMenuItem(title: "Start Focus Session...", action: #selector(startSessionClicked), keyEquivalent: "s")
+            startSessionItem.target = self
+            menu.addItem(startSessionItem)
         }
         
         let profileHeaderItem = NSMenuItem(title: "Active Profile: \(activeProfileName)", action: nil, keyEquivalent: "")
@@ -225,6 +230,32 @@ class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func settingsWindowWillClose(_ notification: Notification) {
         if let window = notification.object as? NSWindow, window == settingsWindow {
             settingsWindow = nil
+            NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+        }
+    }
+    
+    @objc private func startSessionClicked() {
+        if let window = startSessionWindow {
+            window.close()
+        }
+        
+        let window = StartSessionWindow(focusEngine: focusEngine)
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(startSessionWindowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+        
+        self.startSessionWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc private func startSessionWindowWillClose(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window == startSessionWindow {
+            startSessionWindow = nil
             NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
         }
     }
