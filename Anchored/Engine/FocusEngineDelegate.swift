@@ -14,4 +14,7 @@ protocol FocusEngineDelegate: AnyObject {
     
     /// Called when the active session ends (e.g. timeout or manual end).
     func sessionDidEnd()
+    
+    /// Called when the permission gate for accessibility access should be displayed.
+    func didRequestPermissionGate()
 }

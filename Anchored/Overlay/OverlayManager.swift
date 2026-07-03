@@ -13,6 +13,9 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// The currently active countdown pill panel, if any.
     var countdownPillPanel: CountdownPillPanel?
     
+    /// The currently active permission gate panel, if any.
+    var permissionGatePanel: PermissionGatePanel?
+    
     /// The active dim overlay windows (one per screen).
     var dimWindows: [DimOverlayWindow] = []
     
@@ -105,11 +108,39 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             countdownPillPanel = nil
         }
         
+        if let gate = permissionGatePanel {
+            gate.close()
+            permissionGatePanel = nil
+        }
+        
         // Close dim windows immediately
         for window in dimWindows {
             window.close()
         }
         dimWindows.removeAll()
+    }
+    
+    /// Callback from FocusEngine to request showing the Accessibility Permission Gate.
+    func didRequestPermissionGate() {
+        guard permissionGatePanel == nil else { return }
+        
+        let panel = PermissionGatePanel()
+        permissionGatePanel = panel
+        
+        panel.show(onGrant: { [weak self] in
+            // Trigger standard Accessibility prompt
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+            
+            // Backup action: open System Preferences directly to Privacy & Security -> Accessibility
+            if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(settingsURL)
+            }
+            
+            self?.permissionGatePanel = nil
+        }, onDismiss: { [weak self] in
+            self?.permissionGatePanel = nil
+        })
     }
     
     // MARK: - Helper Methods

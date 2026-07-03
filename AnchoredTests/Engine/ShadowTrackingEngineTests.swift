@@ -8,6 +8,7 @@ class ShadowTrackingEngineTests: XCTestCase {
     var distractionListManager: DistractionListManager!
     var preferencesManager: PreferencesManager!
     var shadowEngine: ShadowTrackingEngine!
+    private var originalDistractions: [String] = []
     
     override func setUp() {
         super.setUp()
@@ -18,6 +19,7 @@ class ShadowTrackingEngineTests: XCTestCase {
         distractionListManager = DistractionListManager(defaults: testDefaults!)
         preferencesManager = PreferencesManager(defaults: testDefaults!)
         
+        originalDistractions = DistractionListManager.shared.allDistractions
         DistractionListManager.shared.add("com.spotify.client")
         DistractionListManager.shared.remove("com.apple.dt.Xcode")
         
@@ -41,6 +43,16 @@ class ShadowTrackingEngineTests: XCTestCase {
         mockMonitor = nil
         distractionListManager = nil
         preferencesManager = nil
+        
+        // Restore DistractionListManager.shared
+        let currentDistractions = DistractionListManager.shared.allDistractions
+        for app in currentDistractions {
+            DistractionListManager.shared.remove(app)
+        }
+        for app in originalDistractions {
+            DistractionListManager.shared.add(app)
+        }
+        
         super.tearDown()
     }
     

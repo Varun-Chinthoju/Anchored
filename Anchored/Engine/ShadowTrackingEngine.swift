@@ -26,6 +26,7 @@ final class ShadowTrackingEngine {
     deinit {
         stopTimer()
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
     
     private func setupObservers() {

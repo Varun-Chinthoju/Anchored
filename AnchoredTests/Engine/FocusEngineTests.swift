@@ -445,6 +445,37 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
     }
     
+    func testPermissionGateTriggered() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        
+        // Log 9 sessions
+        for _ in 1...9 {
+            let sessionEvent = SessionEvent(
+                type: .sessionEnd,
+                appBundleID: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                sessionDurationSeconds: 1500,
+                action: .timeout
+            )
+            sessionStore.log(sessionEvent)
+        }
+        
+        // Flush queue by doing a sync read
+        _ = sessionStore.allEvents()
+        
+        // Start and anchor session
+        engine.anchorSession(duration: 1500.0)
+        
+        // End the 10th session
+        engine.endSession()
+        
+        if !AXIsProcessTrusted() {
+            XCTAssertEqual(mockDelegate.requestedPermissionGate, 1)
+        } else {
+            XCTAssertEqual(mockDelegate.requestedPermissionGate, 0)
+        }
+    }
+    
     // MARK: - Helper Methods
     
     private func loadEventsFromDisk() -> [SessionEvent] {
@@ -494,5 +525,10 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     
     func sessionDidEnd() {
         endedSessions += 1
+    }
+    
+    var requestedPermissionGate = 0
+    func didRequestPermissionGate() {
+        requestedPermissionGate += 1
     }
 }

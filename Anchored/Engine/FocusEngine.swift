@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import ApplicationServices
 
 /// The central engine that coordinates focus session tracking and state transitions.
 final class FocusEngine {
@@ -363,6 +364,14 @@ final class FocusEngine {
         delegate?.sessionDidEnd()
         
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
+        
+        // Present Permission Gate if we have at least 10 completed sessions and accessibility is not yet granted
+        if !AXIsProcessTrusted() {
+            let sessionCount = sessionStore.allEvents().filter { $0.type == .sessionEnd }.count
+            if sessionCount >= 10 {
+                delegate?.didRequestPermissionGate()
+            }
+        }
     }
     
     /// Returns the net focused time for the active session (subtracting idle time).

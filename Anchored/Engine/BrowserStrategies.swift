@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import ApplicationServices
 
 /// Errors that can occur during AppleScript compilation or execution.
 public enum AppleScriptError: Error, Equatable {
@@ -30,17 +32,27 @@ public class NSAppleScriptExecutor: AppleScriptExecutor {
     }
 }
 
-/// Protocol defining a strategy for retrieving the active URL from a browser.
+public struct BrowserContext: Equatable {
+    public let title: String
+    public let url: URL
+    
+    public init(title: String, url: URL) {
+        self.title = title
+        self.url = url
+    }
+}
+
+/// Protocol defining a strategy for retrieving the active browser context from a browser.
 public protocol BrowserStrategy {
     /// The bundle identifier of the browser this strategy supports.
     var bundleIdentifier: String { get }
     
-    /// Fetches the active URL from the browser.
-    /// - Returns: The active URL if successfully retrieved, nil otherwise.
-    func getActiveURL() -> URL?
+    /// Fetches the active context from the browser.
+    /// - Returns: The active context if successfully retrieved, nil otherwise.
+    func getActiveContext() -> BrowserContext?
 }
 
-/// Strategy for fetching the active URL from Chromium-based browsers using AppleScript.
+/// Strategy for fetching the active context from Chromium-based browsers using AppleScript.
 public class ChromiumBrowserStrategy: BrowserStrategy {
     public let bundleIdentifier: String
     public let appName: String
@@ -52,18 +64,36 @@ public class ChromiumBrowserStrategy: BrowserStrategy {
         self.executor = executor
     }
     
-    public func getActiveURL() -> URL? {
+    public func getActiveContext() -> BrowserContext? {
         let scriptSource = """
         tell application "\(appName)"
             if window 1 exists then
-                return URL of active tab of window 1
+                tell window 1
+                    return (title of active tab) & "\\n" & (URL of active tab)
+                end tell
             end if
         end tell
         """
         do {
-            let urlString = try executor.execute(scriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !urlString.isEmpty else { return nil }
-            return URL(string: urlString)
+            let response = try executor.execute(scriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !response.isEmpty else { return nil }
+            
+            let components = response.components(separatedBy: "\n")
+            let title: String
+            let urlString: String
+            
+            if components.count >= 2 {
+                urlString = components.last!.trimmingCharacters(in: .whitespacesAndNewlines)
+                title = components.dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if components.count == 1 {
+                urlString = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                title = ""
+            } else {
+                return nil
+            }
+            
+            guard !urlString.isEmpty, let url = URL(string: urlString), url.scheme != nil else { return nil }
+            return BrowserContext(title: title, url: url)
         } catch {
             return nil
         }
@@ -91,7 +121,7 @@ public class SafariBrowserStrategy: BrowserStrategy {
         self.executor = executor
     }
     
-    public func getActiveURL() -> URL? {
+    public func getActiveContext() -> BrowserContext? {
         // 1. Try to fetch URL using JavaScript execution first.
         // This is necessary to detect if "Allow JavaScript from Apple Events" is enabled/disabled.
         let jsScriptSource = """
@@ -106,8 +136,8 @@ public class SafariBrowserStrategy: BrowserStrategy {
         
         do {
             let urlString = try executor.execute(jsScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !urlString.isEmpty {
-                return URL(string: urlString)
+            if !urlString.isEmpty, let url = URL(string: urlString) {
+                return BrowserContext(title: "", url: url)
             }
         } catch let error as AppleScriptError {
             switch error {
@@ -134,8 +164,8 @@ public class SafariBrowserStrategy: BrowserStrategy {
         
         do {
             let urlString = try executor.execute(fallbackScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !urlString.isEmpty else { return nil }
-            return URL(string: urlString)
+            guard !urlString.isEmpty, let url = URL(string: urlString) else { return nil }
+            return BrowserContext(title: "", url: url)
         } catch {
             return nil
         }
@@ -153,6 +183,77 @@ public class SafariBrowserStrategy: BrowserStrategy {
     }
 }
 
+/// Strategy for fetching the active URL from Firefox using the Accessibility API.
+public class FirefoxBrowserStrategy: BrowserStrategy {
+    public let bundleIdentifier = "org.mozilla.firefox"
+    
+    public init() {}
+    
+    public func getActiveContext() -> BrowserContext? {
+        guard let firefoxApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) else {
+            return nil
+        }
+        
+        let appRef = AXUIElementCreateApplication(firefoxApp.processIdentifier)
+        
+        var windowRef: AnyObject?
+        let windowError = AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &windowRef)
+        guard windowError == .success, let activeWindow = windowRef else {
+            var windowsRef: AnyObject?
+            let windowsError = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &windowsRef)
+            guard windowsError == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
+                return nil
+            }
+            if let url = findURLInUIElement(windows[0]) {
+                return BrowserContext(title: "", url: url)
+            }
+            return nil
+        }
+        
+        if let url = findURLInUIElement(activeWindow as! AXUIElement) {
+            return BrowserContext(title: "", url: url)
+        }
+        return nil
+    }
+    
+    private func findURLInUIElement(_ element: AXUIElement) -> URL? {
+        var roleValue: AnyObject?
+        let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+        if roleError == .success, let role = roleValue as? String {
+            if role == kAXTextFieldRole {
+                var valueRef: AnyObject?
+                let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+                if valueError == .success, let urlStr = valueRef as? String {
+                    let trimmed = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        // Match address bar containing a URL-like value
+                        if trimmed.contains("://") || trimmed.contains(".") {
+                            let finalUrlStr = trimmed.contains("://") ? trimmed : "https://" + trimmed
+                            if let url = URL(string: finalUrlStr), url.host != nil {
+                                return url
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        var childrenRef: AnyObject?
+        let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
+        guard childrenError == .success, let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+        
+        for child in children {
+            if let url = findURLInUIElement(child) {
+                return url
+            }
+        }
+        
+        return nil
+    }
+}
+
 /// Registry factory to map browser bundle identifiers to their respective strategies.
 public struct BrowserStrategyFactory {
     public static func strategy(for bundleIdentifier: String, executor: AppleScriptExecutor = NSAppleScriptExecutor()) -> BrowserStrategy? {
@@ -167,6 +268,8 @@ public struct BrowserStrategyFactory {
             return ChromiumBrowserStrategy(bundleIdentifier: bundleIdentifier, appName: "Brave Browser", executor: executor)
         case "com.apple.Safari":
             return SafariBrowserStrategy(executor: executor)
+        case "org.mozilla.firefox":
+            return FirefoxBrowserStrategy()
         default:
             return nil
         }

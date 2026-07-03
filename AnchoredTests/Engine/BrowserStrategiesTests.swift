@@ -26,13 +26,85 @@ class BrowserStrategiesTests: XCTestCase {
         
         mockExecutor.executeCallback = { source in
             XCTAssertTrue(source.contains("tell application \"Google Chrome\""))
-            XCTAssertTrue(source.contains("return URL of active tab of window 1"))
+            XCTAssertTrue(source.contains("return (title of active tab) & \"\\n\" & (URL of active tab)"))
+            return "Google\nhttps://www.google.com"
+        }
+        
+        let context = strategy.getActiveContext()
+        XCTAssertNotNil(context)
+        XCTAssertEqual(context?.title, "Google")
+        XCTAssertEqual(context?.url, URL(string: "https://www.google.com"))
+        XCTAssertEqual(mockExecutor.executedScripts.count, 1)
+    }
+    
+    func testChromiumBrowserStrategyTitleWithNewlines() {
+        let mockExecutor = MockAppleScriptExecutor()
+        let strategy = ChromiumBrowserStrategy(
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Google Chrome",
+            executor: mockExecutor
+        )
+        
+        mockExecutor.executeCallback = { _ in
+            return "Google\nSearch\nEngine\nhttps://www.google.com"
+        }
+        
+        let context = strategy.getActiveContext()
+        XCTAssertNotNil(context)
+        XCTAssertEqual(context?.title, "Google\nSearch\nEngine")
+        XCTAssertEqual(context?.url, URL(string: "https://www.google.com"))
+    }
+    
+    func testChromiumBrowserStrategyEmptyTitle() {
+        let mockExecutor = MockAppleScriptExecutor()
+        let strategy = ChromiumBrowserStrategy(
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Google Chrome",
+            executor: mockExecutor
+        )
+        
+        mockExecutor.executeCallback = { _ in
+            return "\nhttps://www.google.com"
+        }
+        
+        let context = strategy.getActiveContext()
+        XCTAssertNotNil(context)
+        XCTAssertEqual(context?.title, "")
+        XCTAssertEqual(context?.url, URL(string: "https://www.google.com"))
+    }
+    
+    func testChromiumBrowserStrategyInsufficientParts() {
+        let mockExecutor = MockAppleScriptExecutor()
+        let strategy = ChromiumBrowserStrategy(
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Google Chrome",
+            executor: mockExecutor
+        )
+        
+        mockExecutor.executeCallback = { _ in
             return "https://www.google.com"
         }
         
-        let url = strategy.getActiveURL()
-        XCTAssertEqual(url, URL(string: "https://www.google.com"))
-        XCTAssertEqual(mockExecutor.executedScripts.count, 1)
+        let context = strategy.getActiveContext()
+        XCTAssertNotNil(context)
+        XCTAssertEqual(context?.title, "")
+        XCTAssertEqual(context?.url, URL(string: "https://www.google.com"))
+    }
+    
+    func testChromiumBrowserStrategyInvalidURL() {
+        let mockExecutor = MockAppleScriptExecutor()
+        let strategy = ChromiumBrowserStrategy(
+            bundleIdentifier: "com.google.Chrome",
+            appName: "Google Chrome",
+            executor: mockExecutor
+        )
+        
+        mockExecutor.executeCallback = { _ in
+            return "Google\ninvalid-url-without-scheme"
+        }
+        
+        let context = strategy.getActiveContext()
+        XCTAssertNil(context)
     }
     
     func testChromiumBrowserStrategyEmptyResult() {
@@ -47,8 +119,8 @@ class BrowserStrategiesTests: XCTestCase {
             return ""
         }
         
-        let url = strategy.getActiveURL()
-        XCTAssertNil(url)
+        let context = strategy.getActiveContext()
+        XCTAssertNil(context)
     }
     
     func testChromiumBrowserStrategyFailure() {
@@ -63,8 +135,8 @@ class BrowserStrategiesTests: XCTestCase {
             throw AppleScriptError.executionFailed(code: -1708, message: "User cancelled")
         }
         
-        let url = strategy.getActiveURL()
-        XCTAssertNil(url)
+        let context = strategy.getActiveContext()
+        XCTAssertNil(context)
     }
     
     func testSafariBrowserStrategyJavaScriptSuccess() {
@@ -79,8 +151,10 @@ class BrowserStrategiesTests: XCTestCase {
             return ""
         }
         
-        let url = strategy.getActiveURL()
-        XCTAssertEqual(url, URL(string: "https://www.apple.com"))
+        let context = strategy.getActiveContext()
+        XCTAssertNotNil(context)
+        XCTAssertEqual(context?.url, URL(string: "https://www.apple.com"))
+        XCTAssertEqual(context?.title, "")
         XCTAssertEqual(mockExecutor.executedScripts.count, 1)
         XCTAssertFalse(strategy.hasTriggeredWarning)
     }
@@ -120,12 +194,14 @@ class BrowserStrategiesTests: XCTestCase {
             return ""
         }
         
-        let url = strategy.getActiveURL()
+        let context = strategy.getActiveContext()
         
         // Wait for async dispatch
         waitForExpectations(timeout: 1.0)
         
-        XCTAssertEqual(url, URL(string: "https://www.apple.com/safari"))
+        XCTAssertNotNil(context)
+        XCTAssertEqual(context?.url, URL(string: "https://www.apple.com/safari"))
+        XCTAssertEqual(context?.title, "")
         XCTAssertTrue(delegate.didDetectDisabledJSCalled)
         XCTAssertTrue(callbackCalled)
         XCTAssertIdentical(delegate.detectedStrategy, strategy)
@@ -150,7 +226,7 @@ class BrowserStrategiesTests: XCTestCase {
             }
         }
         
-        let url = strategy.getActiveURL()
+        let context = strategy.getActiveContext()
         
         // Give a short window to verify delegates/callbacks were NOT called again
         let runLoopExpectation = self.expectation(description: "Run loop cycle")
@@ -159,7 +235,9 @@ class BrowserStrategiesTests: XCTestCase {
         }
         waitForExpectations(timeout: 0.5)
         
-        XCTAssertEqual(url, URL(string: "https://www.apple.com"))
+        XCTAssertNotNil(context)
+        XCTAssertEqual(context?.url, URL(string: "https://www.apple.com"))
+        XCTAssertEqual(context?.title, "")
         XCTAssertFalse(delegate.didDetectDisabledJSCalled)
     }
     
@@ -169,10 +247,11 @@ class BrowserStrategiesTests: XCTestCase {
         XCTAssertNotNil(BrowserStrategyFactory.strategy(for: "com.microsoft.edgemac"))
         XCTAssertNotNil(BrowserStrategyFactory.strategy(for: "com.brave.Browser"))
         XCTAssertNotNil(BrowserStrategyFactory.strategy(for: "com.apple.Safari"))
-        XCTAssertNil(BrowserStrategyFactory.strategy(for: "org.mozilla.firefox"))
+        XCTAssertNotNil(BrowserStrategyFactory.strategy(for: "org.mozilla.firefox"))
         
         XCTAssertTrue(BrowserStrategyFactory.isSupportedBrowser("com.google.Chrome"))
         XCTAssertTrue(BrowserStrategyFactory.isSupportedBrowser("com.apple.Safari"))
-        XCTAssertFalse(BrowserStrategyFactory.isSupportedBrowser("org.mozilla.firefox"))
+        XCTAssertTrue(BrowserStrategyFactory.isSupportedBrowser("org.mozilla.firefox"))
+        XCTAssertFalse(BrowserStrategyFactory.isSupportedBrowser("com.example.nonexistent"))
     }
 }

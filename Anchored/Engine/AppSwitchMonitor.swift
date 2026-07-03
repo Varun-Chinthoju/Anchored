@@ -1,7 +1,8 @@
 import AppKit
+import ApplicationServices
 
 /// Monitors application switch events via `NSWorkspace.didActivateApplicationNotification`
-/// and publishes the active application's bundle identifier.
+/// and publishes the active application's bundle identifier and browser URL, if applicable.
 final class AppSwitchMonitor: ActivityMonitor {
     /// Callback invoked when a context change is detected.
     var onContextChange: ((_ bundleID: String, _ url: URL?) -> Void)?
@@ -9,9 +10,14 @@ final class AppSwitchMonitor: ActivityMonitor {
     private var observer: NSObjectProtocol?
     private var isMonitoring = false
     
+    // URL Polling properties
+    private var pollingTimer: Timer?
+    private var activeBrowserBundleID: String?
+    private var lastPolledURL: URL?
+    
     init() {}
     
-    /// Starts monitoring application switch notifications.
+    /// Starts monitoring application switch notifications and initializes browser URL polling.
     func start() {
         guard !isMonitoring else { return }
         isMonitoring = true
@@ -28,8 +34,13 @@ final class AppSwitchMonitor: ActivityMonitor {
             guard let bundleID = app.bundleIdentifier else {
                 return
             }
-            // In V1, URL is always nil.
-            self.onContextChange?(bundleID, nil)
+            self.handleApplicationActivation(bundleID: bundleID)
+        }
+        
+        // Handle the current frontmost application immediately on start
+        if let frontApp = NSWorkspace.shared.frontmostApplication,
+           let bundleID = frontApp.bundleIdentifier {
+            handleApplicationActivation(bundleID: bundleID)
         }
     }
     
@@ -38,9 +49,64 @@ final class AppSwitchMonitor: ActivityMonitor {
         guard isMonitoring else { return }
         isMonitoring = false
         
+        cancelPollingTimer()
+        
         if let observer = observer {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             self.observer = nil
+        }
+    }
+    
+    private func handleApplicationActivation(bundleID: String) {
+        cancelPollingTimer()
+        
+        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
+            activeBrowserBundleID = bundleID
+            
+            if AXIsProcessTrusted() {
+                // Fetch current URL immediately
+                let strategy = BrowserStrategyFactory.strategy(for: bundleID)
+                let currentURL = strategy?.getActiveContext()?.url
+                lastPolledURL = currentURL
+                onContextChange?(bundleID, currentURL)
+                
+                // Start background 2.5-second polling timer
+                startPollingTimer()
+            } else {
+                // Treat browser as neutral since accessibility isn't granted
+                onContextChange?(bundleID, nil)
+            }
+        } else {
+            activeBrowserBundleID = nil
+            lastPolledURL = nil
+            onContextChange?(bundleID, nil)
+        }
+    }
+    
+    private func startPollingTimer() {
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+            self?.pollActiveBrowser()
+        }
+    }
+    
+    private func cancelPollingTimer() {
+        pollingTimer?.invalidate()
+        pollingTimer = nil
+    }
+    
+    private func pollActiveBrowser() {
+        guard let bundleID = activeBrowserBundleID,
+              AXIsProcessTrusted() else {
+            cancelPollingTimer()
+            return
+        }
+        
+        let strategy = BrowserStrategyFactory.strategy(for: bundleID)
+        let currentURL = strategy?.getActiveContext()?.url
+        
+        if currentURL != lastPolledURL {
+            lastPolledURL = currentURL
+            onContextChange?(bundleID, currentURL)
         }
     }
     
