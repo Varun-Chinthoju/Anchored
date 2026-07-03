@@ -3,6 +3,7 @@ import SwiftUI
 struct SetSailStepView: View {
     let onComplete: () -> Void
     @State private var animateGlow = false
+    @ObservedObject private var langManager = LanguageManager.shared
     
     var body: some View {
         VStack(spacing: 32) {
@@ -59,12 +60,12 @@ struct SetSailStepView: View {
             
             VStack(spacing: 12) {
                 GlowingText(
-                    text: "Ready to Set Sail!",
+                    text: t("sail_title"),
                     font: .system(size: 38, weight: .bold, design: .serif),
                     colors: [PirateTheme.gold, PirateTheme.parchment]
                 )
                 
-                Text("Your vessel is rigged, the crew is ready, and your course is locked. Click the button below to board and begin your voyage of deep focus.")
+                Text(t("sail_desc"))
                     .font(.system(size: 15, weight: .medium, design: .serif))
                     .foregroundColor(PirateTheme.parchment.opacity(0.85))
                     .multilineTextAlignment(.center)
@@ -78,7 +79,7 @@ struct SetSailStepView: View {
                 AudioEngine.shared.play(.chime)
                 onComplete()
             }) {
-                Text("Set Sail! ⚓")
+                Text("\(t("sail_btn")) ⚓")
                     .font(.system(size: 16, weight: .bold, design: .serif))
                     .foregroundColor(PirateTheme.darkWood)
                     .frame(width: 280)

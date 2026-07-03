@@ -10,6 +10,7 @@ struct PreferencesStepView: View {
     }
     
     @StateObject private var prefs = PreferencesManager.shared
+    @ObservedObject private var langManager = LanguageManager.shared
     
     private let thresholdOptions = [
         (300.0, "5 min"),
@@ -36,12 +37,12 @@ struct PreferencesStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: "Command\nDeck",
+                        text: t("pref_title"),
                         font: .system(size: 36, weight: .bold, design: .serif),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Calibrate the helm of your vessel. Set when the anchor triggers, warning countdowns, and automatic sailing settings.")
+                    Text(t("pref_desc"))
                         .font(.system(size: 14, design: .serif))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
@@ -55,7 +56,7 @@ struct PreferencesStepView: View {
                         onComplete?()
                     }) {
                         HStack {
-                            Text("Confirm Settings & Continue")
+                            Text(t("pref_btn"))
                             Image(systemName: "arrow.right")
                         }
                         .font(.system(size: 14, weight: .bold, design: .serif))
@@ -82,11 +83,11 @@ struct PreferencesStepView: View {
                 // Focus Threshold Picker
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Watch Time to Drop Anchor")
+                        Text(t("pref_threshold_title"))
                             .font(.system(size: 13, weight: .semibold, design: .serif))
                             .foregroundColor(PirateTheme.parchment)
                         Spacer()
-                        Text("Sailing time required to trigger anchor.")
+                        Text(t("pref_threshold_desc"))
                             .font(.system(size: 11, design: .serif))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
@@ -110,11 +111,11 @@ struct PreferencesStepView: View {
                 // Countdown Duration Picker
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Seconds Before Fog Rolls In")
+                        Text(t("pref_countdown_title"))
                             .font(.system(size: 13, weight: .semibold, design: .serif))
                             .foregroundColor(PirateTheme.parchment)
                         Spacer()
-                        Text("Seconds allowed in mutinous apps before dimming.")
+                        Text(t("pref_countdown_desc"))
                             .font(.system(size: 11, design: .serif))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
@@ -138,10 +139,10 @@ struct PreferencesStepView: View {
                 // Smart Nudges Toggle
                 Toggle(isOn: $prefs.enableSmartNudges) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enable Scout Sentinels (Smart Nudges)")
+                        Text(t("pref_nudges_title"))
                             .font(.system(size: 13, weight: .semibold, design: .serif))
                             .foregroundColor(PirateTheme.parchment)
-                        Text("Send scout warnings if background activities indicate distraction patterns.")
+                        Text(t("pref_nudges_desc"))
                             .font(.system(size: 11, design: .serif))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
@@ -159,10 +160,10 @@ struct PreferencesStepView: View {
                 // Launch at Login Toggle
                 Toggle(isOn: $prefs.launchAtLogin) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Hoist Sails on Startup")
+                        Text(t("pref_launch_title"))
                             .font(.system(size: 13, weight: .semibold, design: .serif))
                             .foregroundColor(PirateTheme.parchment)
-                        Text("Automatically launch Anchored and begin your voyage when you log in.")
+                        Text(t("pref_launch_desc"))
                             .font(.system(size: 11, design: .serif))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }

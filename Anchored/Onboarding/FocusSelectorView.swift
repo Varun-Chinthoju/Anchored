@@ -15,6 +15,7 @@ struct FocusSelectorView: View {
     @State private var focusManager = FocusListManager.shared
     @State private var focusApps: [String] = []
     @State private var suggestions: [(bundleID: String, name: String)] = []
+    @ObservedObject private var langManager = LanguageManager.shared
     
     var body: some View {
         HStack(spacing: 64) {
@@ -32,12 +33,12 @@ struct FocusSelectorView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: "Focus Vessels",
+                        text: t("focus_title"),
                         font: .system(size: 36, weight: .bold, design: .serif),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Only selected applications count as active voyages. Neutral and background apps won't accumulate focus progress, keeping your journey steady.")
+                    Text(t("focus_desc"))
                         .font(.system(size: 14, design: .serif))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
@@ -50,7 +51,7 @@ struct FocusSelectorView: View {
                 }) {
                     HStack {
                         Image(systemName: "plus")
-                        Text("Commission Custom Vessel...")
+                        Text(t("focus_custom_btn"))
                     }
                     .font(.system(size: 13, weight: .semibold, design: .serif))
                     .foregroundColor(PirateTheme.gold)
@@ -74,7 +75,7 @@ struct FocusSelectorView: View {
                         onNext?()
                     }) {
                         HStack {
-                            Text("Secure the Rigging")
+                            Text(t("focus_btn"))
                             Image(systemName: "arrow.right")
                         }
                         .font(.system(size: 14, weight: .bold, design: .serif))
@@ -97,17 +98,17 @@ struct FocusSelectorView: View {
             .frame(width: 320, alignment: .leading)
             
             // Right Column (Lists of Apps)
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 24) {
                     // Active Focus Apps Grid
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("ACTIVE FOCUS VESSELS")
+                        Text(t("focus_active_title"))
                             .font(.system(size: 11, weight: .bold, design: .serif))
                             .foregroundColor(PirateTheme.gold.opacity(0.8))
                             .tracking(1.0)
                         
                         if focusApps.isEmpty {
-                            Text("No focus vessels chartered. Select recommendations below or commission a custom app.")
+                            Text(t("focus_empty"))
                                 .font(.system(size: 12, design: .serif))
                                 .foregroundColor(PirateTheme.parchment.opacity(0.6))
                                 .padding(.vertical, 24)
@@ -159,7 +160,7 @@ struct FocusSelectorView: View {
                     // Scanned Installed Recommendations
                     if !suggestions.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("SUGGESTED VESSELS (INSTALLED)")
+                            Text(t("focus_suggest_title"))
                                 .font(.system(size: 11, weight: .bold, design: .serif))
                                 .foregroundColor(PirateTheme.gold.opacity(0.8))
                                 .tracking(1.0)

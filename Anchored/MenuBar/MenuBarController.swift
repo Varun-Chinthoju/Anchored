@@ -6,7 +6,6 @@ class MenuBarController: NSObject, NSMenuDelegate {
     private let focusEngine: FocusEngine
     private let sessionStore: SessionStore
     private var settingsWindow: SettingsWindow?
-    private var dashboardWindow: DashboardWindow?
     private var startSessionWindow: StartSessionWindow?
     
     init(focusEngine: FocusEngine, sessionStore: SessionStore = .shared) {
@@ -184,29 +183,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
     }
     
     @objc func openDashboard() {
-        if let window = dashboardWindow {
-            window.close()
-        }
-        
-        let window = DashboardWindow()
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(dashboardWindowWillClose(_:)),
-            name: NSWindow.willCloseNotification,
-            object: window
-        )
-        
-        self.dashboardWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-    
-    @objc private func dashboardWindowWillClose(_ notification: Notification) {
-        if let window = notification.object as? NSWindow, window == dashboardWindow {
-            dashboardWindow = nil
-            NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
-        }
+        showSettingsWindow(section: .analytics)
     }
     
     private func showSettingsWindow(section: SettingsSection) {

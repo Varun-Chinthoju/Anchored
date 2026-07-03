@@ -3,6 +3,7 @@ import SwiftUI
 struct WelcomeStepView: View {
     let onNext: () -> Void
     @State private var animateGlow = false
+    @ObservedObject private var langManager = LanguageManager.shared
     
     var body: some View {
         VStack(spacing: 32) {
@@ -59,12 +60,12 @@ struct WelcomeStepView: View {
             
             VStack(spacing: 12) {
                 GlowingText(
-                    text: "Ahoy, Captain!",
+                    text: t("welcome_title"),
                     font: .system(size: 38, weight: .bold, design: .serif),
                     colors: [PirateTheme.gold, PirateTheme.parchment]
                 )
                 
-                Text("Commandeer your focus and guard your flow state from the mutinous distractions of the deep web. Stand ready to anchor your vessel.")
+                Text(t("welcome_desc"))
                     .font(.system(size: 15, weight: .medium, design: .serif))
                     .foregroundColor(PirateTheme.parchment.opacity(0.85))
                     .multilineTextAlignment(.center)
@@ -78,7 +79,7 @@ struct WelcomeStepView: View {
                 AudioEngine.shared.play(.tick)
                 onNext()
             }) {
-                Text("Board the Vessel & Set Sail")
+                Text(t("welcome_btn"))
                     .font(.system(size: 15, weight: .bold, design: .serif))
                     .foregroundColor(PirateTheme.darkWood)
                     .frame(width: 280)

@@ -897,66 +897,86 @@ struct AnalyticsSettingsPane: View {
 
     var body: some View {
         SettingsPane(title: "Voyage Logs") {
-            // App breakdown
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Sailing Time by Port")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 2)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    // 1. Tidal Wave Chart (Bezier Curve)
+                    TidalWaveChartView()
+                    
+                    // 2. Fleet Tree (Spreadmap)
+                    FleetTreeSpreadmapView()
+                    
+                    // 3. Constellation Heatmap (Voyage Density)
+                    ConstellationHeatmapView()
+                    
+                    // 4. Sailing Time by Port
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Sailing Time by Port")
+                            .font(.system(size: 13, weight: .bold, design: .serif))
+                            .foregroundColor(PirateTheme.gold)
+                            .padding(.leading, 4)
 
-                if appBreakdown.isEmpty {
-                    emptyState("No logs recorded yet.")
-                } else {
-                    let total = totalDuration
-                    VStack(spacing: 0) {
-                        ForEach(appBreakdown.indices, id: \.self) { i in
-                            let (app, duration) = appBreakdown[i]
-                            AppBreakdownRow(app: app, duration: duration, total: total)
-                            if i < appBreakdown.count - 1 {
-                                Divider().padding(.leading, 16)
+                        if appBreakdown.isEmpty {
+                            emptyState("No logs recorded yet.")
+                        } else {
+                            let total = totalDuration
+                            VStack(spacing: 0) {
+                                ForEach(appBreakdown.indices, id: \.self) { i in
+                                    let (app, duration) = appBreakdown[i]
+                                    AppBreakdownRow(app: app, duration: duration, total: total)
+                                    if i < appBreakdown.count - 1 {
+                                        Divider().padding(.leading, 16)
+                                    }
+                                }
                             }
+                            .background(PirateTheme.darkWood.opacity(0.4))
+                            .cornerRadius(12)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1))
                         }
                     }
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.07), lineWidth: 1))
-                }
-            }
 
-            // Session history
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Today's Voyages")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 2)
+                    // 5. Today's Voyages
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Today's Voyages")
+                            .font(.system(size: 13, weight: .bold, design: .serif))
+                            .foregroundColor(PirateTheme.gold)
+                            .padding(.leading, 4)
 
-                if vm.recentSessions.isEmpty {
-                    emptyState("No voyages logged this sun.")
-                } else {
-                    SettingsGroup {
-                        ForEach(vm.recentSessions.indices, id: \.self) { i in
-                            let s = vm.recentSessions[i]
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                                    .font(.system(size: 12))
-                                Text(s.appName).font(.system(size: 13))
-                                Spacer()
-                                Text(formatTime(s.timestamp))
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                                Text(formatDuration(Double(s.sessionDurationSeconds ?? 0)))
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.secondary)
+                        if vm.recentSessions.isEmpty {
+                            emptyState("No voyages logged this sun.")
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(vm.recentSessions.indices, id: \.self) { i in
+                                    let s = vm.recentSessions[i]
+                                    HStack {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                            .font(.system(size: 12))
+                                        Text(s.appName)
+                                            .font(.system(size: 12, weight: .bold, design: .serif))
+                                            .foregroundColor(PirateTheme.parchment)
+                                        Spacer()
+                                        Text(formatTime(s.timestamp))
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                        Text(formatDuration(Double(s.sessionDurationSeconds ?? 0)))
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 9)
+                                    if i < vm.recentSessions.count - 1 {
+                                        Divider().padding(.leading, 16)
+                                    }
+                                }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 9)
-                            if i < vm.recentSessions.count - 1 {
-                                Divider().padding(.leading, 16)
-                            }
+                            .background(PirateTheme.darkWood.opacity(0.4))
+                            .cornerRadius(12)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1))
                         }
                     }
                 }
+                .padding(.trailing, 16)
+                .padding(.bottom, 24)
             }
         }
         .onAppear {

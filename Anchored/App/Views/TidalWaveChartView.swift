@@ -29,7 +29,7 @@ struct BezierCurve: Shape {
             let controlPoint1 = CGPoint(x: p1.x + stepX / 2, y: p1.y)
             let controlPoint2 = CGPoint(x: p2.x - stepX / 2, y: p2.y)
             
-            path.addCurve(to: p2, controlPoint1: controlPoint1, controlPoint2: controlPoint2)
+            path.addCurve(to: p2, control1: controlPoint1, control2: controlPoint2)
         }
         
         return path
@@ -66,11 +66,11 @@ struct BezierArea: Shape {
             let controlPoint1 = CGPoint(x: p1.x + stepX / 2, y: p1.y)
             let controlPoint2 = CGPoint(x: p2.x - stepX / 2, y: p2.y)
             
-            path.addCurve(to: p2, controlPoint1: controlPoint1, controlPoint2: controlPoint2)
+            path.addCurve(to: p2, control1: controlPoint1, control2: controlPoint2)
         }
         
         path.addLine(to: CGPoint(x: width, y: height))
-        path.close()
+        path.closeSubpath()
         
         return path
     }

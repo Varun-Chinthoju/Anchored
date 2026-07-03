@@ -6,6 +6,7 @@ struct OnboardingView: View {
     
     @State private var currentStep = 0
     let onComplete: () -> Void
+    @ObservedObject private var langManager = LanguageManager.shared
     
     var body: some View {
         ZStack {
@@ -19,7 +20,7 @@ struct OnboardingView: View {
                 // Header / Step dots
                 if currentStep > 0 {
                     HStack(spacing: 8) {
-                        ForEach(0..<6) { index in
+                        ForEach(0..<8) { index in
                             Circle()
                                 .fill(index == currentStep ? PirateTheme.gold : Color.secondary.opacity(0.3))
                                 .frame(width: 8, height: 8)
@@ -32,21 +33,35 @@ struct OnboardingView: View {
                 Group {
                     switch currentStep {
                     case 0:
-                        WelcomeStepView(onNext: { self.nextStep() })
+                        LanguageStepView(windowHeight: windowHeight, onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                     case 1:
+                        WelcomeStepView(onNext: { self.nextStep() })
+                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                handleBackgroundTap()
+                            }
+                    case 2:
                         HowItWorksStepView(onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 2:
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                handleBackgroundTap()
+                            }
+                    case 3:
                         FocusSelectorView(windowHeight: windowHeight, onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 3:
+                    case 4:
                         DistractionSelectorView(windowHeight: windowHeight, onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 4:
+                    case 5:
                         PreferencesStepView(onComplete: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 5:
+                    case 6:
+                        PermissionStepView(windowHeight: windowHeight, onNext: { self.nextStep() })
+                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                    case 7:
                         SetSailStepView(onComplete: { self.onComplete() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                     default:
@@ -57,8 +72,8 @@ struct OnboardingView: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: currentStep)
                 
                 // Click-anywhere helper hint (only shown for non-interactive pages)
-                if currentStep < 2 {
-                    Text("Click the deep ocean deck to continue your voyage")
+                if currentStep == 1 || currentStep == 2 {
+                    Text(t("how_btn")) // Standard prompt
                         .font(.system(size: 11, weight: .medium, design: .serif))
                         .foregroundColor(PirateTheme.parchment)
                         .opacity(0.4)
@@ -74,13 +89,13 @@ struct OnboardingView: View {
     }
     
     private func nextStep() {
-        if currentStep < 5 {
+        if currentStep < 7 {
             currentStep += 1
         }
     }
     
     private func handleBackgroundTap() {
-        if currentStep < 2 {
+        if currentStep == 1 || currentStep == 2 {
             AudioEngine.shared.play(.tick)
             nextStep()
         }

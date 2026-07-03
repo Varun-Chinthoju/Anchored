@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HowItWorksStepView: View {
     let onNext: () -> Void
+    @ObservedObject private var langManager = LanguageManager.shared
     
     var body: some View {
         HStack(spacing: 64) {
@@ -25,12 +26,12 @@ struct HowItWorksStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: "Chart Your\nCourse",
+                        text: t("how_title"),
                         font: .system(size: 36, weight: .bold, design: .serif),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Anchored operates quietly like a trusted navigator, tracking your progress and shielding your attention during your voyage.")
+                    Text(t("how_left_desc"))
                         .font(.system(size: 14, design: .serif))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
@@ -43,7 +44,7 @@ struct HowItWorksStepView: View {
                     onNext()
                 }) {
                     HStack {
-                        Text("Chart the Course")
+                        Text(t("how_btn"))
                         Image(systemName: "arrow.right")
                     }
                     .font(.system(size: 14, weight: .bold, design: .serif))
@@ -68,22 +69,22 @@ struct HowItWorksStepView: View {
             VStack(spacing: 16) {
                 FeatureCard(
                     icon: "binoculars.fill",
-                    title: "1. Passive Lookout",
-                    description: "Our watchman silently monitors your active app and browser domain in the background. No manual buttons needed.",
+                    title: t("how_card1_title"),
+                    description: t("how_desc1"),
                     accentColor: PirateTheme.gold
                 )
                 
                 FeatureCard(
                     icon: "anchor",
-                    title: "2. Drop the Anchor",
-                    description: "If you wander to a distracting site after deep work, you'll be prompted to drop anchor and lock in a session.",
+                    title: t("how_card2_title"),
+                    description: t("how_desc2"),
                     accentColor: PirateTheme.gold
                 )
                 
                 FeatureCard(
                     icon: "eye.slash.fill",
-                    title: "3. Ocean Fog (Dimming)",
-                    description: "Straying into forbidden waters during a session causes a heavy dimming fog to roll in until you steer back to work.",
+                    title: t("how_card3_title"),
+                    description: t("how_desc3"),
                     accentColor: PirateTheme.gold
                 )
             }
