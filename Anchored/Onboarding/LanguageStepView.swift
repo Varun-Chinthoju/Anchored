@@ -7,6 +7,7 @@ struct LanguageStepView: View {
     @ObservedObject private var langManager = LanguageManager.shared
     
     @State private var titleIndex = 0
+    @State private var hasSelected = false
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
     
     var body: some View {
@@ -23,31 +24,33 @@ struct LanguageStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: langManager.translate("lang_title", for: AppLanguage.allCases[titleIndex]),
+                        text: hasSelected ? langManager.translate("lang_title") : langManager.translate("lang_title", for: AppLanguage.allCases[titleIndex]),
                         font: .system(size: 36, weight: .bold, design: .serif),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     .frame(height: 96, alignment: .topLeading)
-                    .id(titleIndex)
+                    .id(hasSelected ? 999 : titleIndex)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .offset(y: 10)),
                         removal: .opacity.combined(with: .offset(y: -10))
                     ))
                     
-                    Text(langManager.translate("lang_desc", for: AppLanguage.allCases[titleIndex]))
+                    Text(hasSelected ? langManager.translate("lang_desc") : langManager.translate("lang_desc", for: AppLanguage.allCases[titleIndex]))
                         .font(.system(size: 14, design: .serif))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
                         .frame(height: 90, alignment: .topLeading)
-                        .id(titleIndex)
+                        .id(hasSelected ? 999 : titleIndex)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .offset(y: 10)),
                             removal: .opacity.combined(with: .offset(y: -10))
                         ))
                 }
                 .onReceive(timer) { _ in
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        titleIndex = (titleIndex + 1) % AppLanguage.allCases.count
+                    if !hasSelected {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                            titleIndex = (titleIndex + 1) % AppLanguage.allCases.count
+                        }
                     }
                 }
                 
@@ -59,8 +62,8 @@ struct LanguageStepView: View {
                 }) {
                     HStack {
                         Spacer()
-                        Text(langManager.translate("lang_btn", for: AppLanguage.allCases[titleIndex]))
-                            .id(titleIndex)
+                        Text(hasSelected ? langManager.translate("lang_btn") : langManager.translate("lang_btn", for: AppLanguage.allCases[titleIndex]))
+                            .id(hasSelected ? 999 : titleIndex)
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .offset(y: 5)),
                                 removal: .opacity.combined(with: .offset(y: -5))
@@ -89,38 +92,103 @@ struct LanguageStepView: View {
             
             // Right Column (Languages selection)
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Button(action: {
-                            AudioEngine.shared.play(.tick)
-                            langManager.currentLanguage = language
-                        }) {
-                            HStack {
-                                Text(language.displayName)
-                                    .font(.system(size: 13, weight: .semibold, design: .serif))
-                                    .foregroundColor(langManager.currentLanguage == language ? PirateTheme.darkWood : PirateTheme.parchment)
-                                Spacer()
-                                if langManager.currentLanguage == language {
-                                    SafeSystemImage(systemName: "checkmark", size: 12, color: langManager.currentLanguage == language ? PirateTheme.darkWood : PirateTheme.gold)
+                VStack(alignment: .leading, spacing: 28) {
+                    // Row 1: The Fun Route (Pirate Speak)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            SafeSystemImage(systemName: "flag.and.flag.filled.crossed", size: 16, color: PirateTheme.gold)
+                            Text(langManager.translate("lang_fun_route"))
+                                .font(.system(size: 14, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.gold)
+                        }
+                        
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                            ForEach(AppLanguage.allCases) { language in
+                                if language != .english {
+                                    let isSelected = langManager.currentLanguage == language && langManager.isPirateMode
+                                    Button(action: {
+                                        AudioEngine.shared.play(.tick)
+                                        langManager.setLanguage(language, isPirateMode: true)
+                                        hasSelected = true
+                                    }) {
+                                        HStack {
+                                            Text(language.displayName)
+                                                .font(.system(size: 12, weight: .semibold, design: .serif))
+                                                .foregroundColor(isSelected ? PirateTheme.darkWood : PirateTheme.parchment)
+                                            Spacer()
+                                            if isSelected {
+                                                SafeSystemImage(systemName: "checkmark", size: 11, color: PirateTheme.darkWood)
+                                            }
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            isSelected ?
+                                            AnyShapeStyle(LinearGradient(
+                                                gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )) : AnyShapeStyle(PirateTheme.darkWood.opacity(0.4))
+                                        )
+                                        .cornerRadius(8)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(isSelected ? PirateTheme.gold : PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(
-                                langManager.currentLanguage == language ?
-                                AnyShapeStyle(LinearGradient(
-                                    gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )) : AnyShapeStyle(Color.clear)
-                            )
-                            .cornerRadius(10)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(langManager.currentLanguage == language ? PirateTheme.gold : PirateTheme.gold.opacity(0.15), lineWidth: 1)
-                            )
                         }
-                        .buttonStyle(.plain)
+                    }
+                    
+                    // Row 2: The Boring Side (Standard)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            SafeSystemImage(systemName: "briefcase.fill", size: 14, color: PirateTheme.parchment.opacity(0.6))
+                            Text(langManager.translate("lang_boring_side"))
+                                .font(.system(size: 14, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.parchment.opacity(0.8))
+                        }
+                        
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                            ForEach(AppLanguage.allCases) { language in
+                                if language != .pirate {
+                                    let isSelected = langManager.currentLanguage == language && !langManager.isPirateMode
+                                    Button(action: {
+                                        AudioEngine.shared.play(.tick)
+                                        langManager.setLanguage(language, isPirateMode: false)
+                                        hasSelected = true
+                                    }) {
+                                        HStack {
+                                            Text(language.displayName)
+                                                .font(.system(size: 12, weight: .semibold, design: .serif))
+                                                .foregroundColor(isSelected ? PirateTheme.darkWood : PirateTheme.parchment)
+                                            Spacer()
+                                            if isSelected {
+                                                SafeSystemImage(systemName: "checkmark", size: 11, color: PirateTheme.darkWood)
+                                            }
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            isSelected ?
+                                            AnyShapeStyle(LinearGradient(
+                                                gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )) : AnyShapeStyle(PirateTheme.darkWood.opacity(0.4))
+                                        )
+                                        .cornerRadius(8)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(isSelected ? PirateTheme.gold : PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.vertical, 2)

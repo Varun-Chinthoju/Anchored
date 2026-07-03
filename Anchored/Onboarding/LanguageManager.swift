@@ -45,17 +45,136 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 class LanguageManager: ObservableObject {
     static let shared = LanguageManager()
     
-    @Published var currentLanguage: AppLanguage = .pirate
+    @Published var currentLanguage: AppLanguage = .pirate {
+        didSet {
+            UserDefaults.standard.set(currentLanguage.rawValue, forKey: "com.varun.Anchored.language")
+        }
+    }
+    
+    @Published var isPirateMode: Bool = true {
+        didSet {
+            UserDefaults.standard.set(isPirateMode, forKey: "com.varun.Anchored.isPirateMode")
+        }
+    }
+    
+    private init() {
+        self.isPirateMode = UserDefaults.standard.object(forKey: "com.varun.Anchored.isPirateMode") as? Bool ?? true
+        if let storedLang = UserDefaults.standard.string(forKey: "com.varun.Anchored.language"),
+           let lang = AppLanguage(rawValue: storedLang) {
+            self.currentLanguage = lang
+        } else {
+            self.currentLanguage = .pirate
+        }
+    }
+    
+    func setLanguage(_ language: AppLanguage, isPirateMode: Bool) {
+        self.currentLanguage = language
+        self.isPirateMode = isPirateMode
+    }
     
     func translate(_ key: String) -> String {
-        return translations[key]?[currentLanguage] ?? translations[key]?[.english] ?? key
+        return translate(key, for: currentLanguage)
     }
     
     func translate(_ key: String, for language: AppLanguage) -> String {
-        return translations[key]?[language] ?? translations[key]?[.english] ?? key
+        if isPirateMode {
+            if language == .pirate {
+                return translations[key]?[.pirate] ?? translations[key]?[.english] ?? key
+            } else {
+                let standard = translations[key]?[language] ?? translations[key]?[.english] ?? key
+                return makePirate(standard, for: language)
+            }
+        } else {
+            if language == .pirate {
+                return translations[key]?[.english] ?? key
+            }
+            return translations[key]?[language] ?? translations[key]?[.english] ?? key
+        }
+    }
+    
+    private func makePirate(_ text: String, for language: AppLanguage) -> String {
+        guard !text.isEmpty,
+              !text.contains("🔒"),
+              !text.contains("🔓"),
+              text != "Active",
+              text != "5s",
+              text != "10s",
+              text != "15s",
+              text != "20s" else {
+            return text
+        }
+        
+        switch language {
+        case .pirate:
+            return text
+        case .english:
+            return "Ahoy! " + text + ", matey!"
+        case .chinese:
+            return "啊哈！" + text + "，船长起航！"
+        case .spanishLA, .spanishES:
+            return "¡Al abordaje! " + text + ", ¡arr!"
+        case .french:
+            return "Ohé ! " + text + ", morbleu !"
+        case .italian:
+            return "Corpo di mille balene! " + text + ", capitano!"
+        case .portuguese:
+            return "Raios e coriscos! " + text + ", marujo!"
+        case .romanian:
+            return "Ahoy! " + text + ", căpitane!"
+        case .japanese:
+            return "ヨーホー！" + text + "、船長！"
+        case .korean:
+            return "어호이! " + text + ", 선장님!"
+        case .vietnamese:
+            return "Ahoy! " + text + ", thuyền trưởng!"
+        case .tagalog:
+            return "Ahoy! " + text + ", kasama!"
+        case .thai:
+            return "อะฮอย! " + text + ", กัปตัน!"
+        case .hindi:
+            return "अहोय! " + text + ", कप्तान!"
+        case .telugu:
+            return "అహోయ్! " + text + ", కెప్టెన్!"
+        }
     }
     
     private let translations: [String: [AppLanguage: String]] = [
+        "lang_fun_route": [
+            .pirate: "The Fun Route (Pirate Speak) 🏴‍☠️",
+            .english: "The Fun Route (Pirate Speak) 🏴‍☠️",
+            .chinese: "趣味航线 (海盗语) 🏴‍☠️",
+            .spanishLA: "Ruta Divertida (Habla Pirata) 🏴‍☠️",
+            .spanishES: "Ruta Divertida (Habla Pirata) 🏴‍☠️",
+            .hindi: "मज़ेदार मार्ग (समुद्री डाकू भाषा) 🏴‍☠️",
+            .telugu: "సరదైన మార్గం (పైరేట్ భాష) 🏴‍☠️",
+            .french: "La Route Amusante (Parler Pirate) 🏴‍☠️",
+            .italian: "La Rotta Divertente (Parlata Pirata) 🏴‍☠️",
+            .portuguese: "A Rota Divertida (Falar Pirata) 🏴‍☠️",
+            .romanian: "Traseul Distractiv (Limbaj Pirat) 🏴‍☠️",
+            .japanese: "楽しい航路（海盗語）🏴‍☠️",
+            .korean: "재미있는 항로 (해적 말투) 🏴‍☠️",
+            .vietnamese: "Tuyến đường Thú vị (Giọng Hải tặc) 🏴‍☠️",
+            .tagalog: "Ang Masayang Ruta (Salitang Pirata) 🏴‍☠️",
+            .thai: "เส้นทางสนุกสนาน (ภาษาโจรสลัด) 🏴‍☠️"
+        ],
+        "lang_boring_side": [
+            .pirate: "The Boring Side (Standard) 💼",
+            .english: "The Boring Side (Standard) 💼",
+            .chinese: "常规航线 (标准语) 💼",
+            .spanishLA: "Ruta Aburrida (Estándar) 💼",
+            .spanishES: "Ruta Aburrida (Estándar) 💼",
+            .hindi: "उबाऊ पक्ष (मानक) 💼",
+            .telugu: "సాధారణ మార్గం (ప్రామాణికం) 💼",
+            .french: "Le Côté Ennuyeux (Standard) 💼",
+            .italian: "Il Lato Noioso (Standard) 💼",
+            .portuguese: "O Lado Tedioso (Padrão) 💼",
+            .romanian: "Partea Plictisitoare (Standard) 💼",
+            .japanese: "退屈な航路（標準語）💼",
+            .korean: "지루한 항로 (표준 말투) 💼",
+            .vietnamese: "Tuyến đường Nhàm chán (Chuẩn) 💼",
+            .tagalog: "Ang Nakakabagot na Bahagi (Standard) 💼",
+            .thai: "เส้นทางธรรมดา (มาตรฐาน) 💼"
+        ],
         "lang_title": [
             .pirate: "Choose Your\nTongue",
             .english: "Select Your\nLanguage",

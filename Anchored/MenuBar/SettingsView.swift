@@ -402,6 +402,7 @@ struct SettingsRow<Content: View>: View {
 
 struct GeneralSettingsPane: View {
     @StateObject private var prefs = PreferencesManager.shared
+    @ObservedObject private var langManager = LanguageManager.shared
 
     private let thresholds: [(Double, String)] = [
         (300.0, "5 min"), (600.0, "10 min"), (900.0, "15 min"), (1800.0, "30 min")
@@ -418,7 +419,7 @@ struct GeneralSettingsPane: View {
                     .padding(.leading, 2)
 
                 SettingsGroup {
-                    SettingsRow(label: "Voyage Threshold", description: "How long ye must sail before dropping anchor.") {
+                    SettingsRow(label: "Voyage Threshold", description: "How long ye must sail before dropping anchor.", showDivider: true) {
                         Picker("", selection: $prefs.focusThreshold) {
                             ForEach(thresholds, id: \.0) { value, label in
                                 Text(label).tag(value)
@@ -436,6 +437,35 @@ struct GeneralSettingsPane: View {
                         }
                         .pickerStyle(.menu)
                         .frame(width: 80)
+                    }
+                }
+            }
+
+            // Tongue & Navigation
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Tongue & Navigation")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(label: "Ship's Tongue", description: "The tongue spoken across yer ship.", showDivider: true) {
+                        Picker("", selection: $langManager.currentLanguage) {
+                            ForEach(AppLanguage.allCases) { language in
+                                Text(language.displayName).tag(language)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 180)
+                    }
+                    
+                    SettingsRow(label: "Voyage Path", description: "Choose the fun pirate route or the boring side.", showDivider: false) {
+                        Picker("", selection: $langManager.isPirateMode) {
+                            Text("Fun Route 🏴‍☠️").tag(true)
+                            Text("Boring Side 💼").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
                     }
                 }
             }
