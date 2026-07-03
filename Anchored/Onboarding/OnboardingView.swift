@@ -86,6 +86,7 @@ struct OnboardingView: View {
             .frame(width: windowWidth, height: windowHeight)
         }
         .frame(width: windowWidth, height: windowHeight)
+        .preferredColorScheme(.dark)
     }
     
     private func nextStep() {

@@ -30,9 +30,7 @@ struct PreferencesStepView: View {
                         .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(PirateTheme.gold)
+                    SafeSystemImage(systemName: "gearshape.fill", size: 32)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {

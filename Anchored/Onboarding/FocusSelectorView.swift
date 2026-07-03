@@ -26,9 +26,7 @@ struct FocusSelectorView: View {
                         .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "anchor")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(PirateTheme.gold)
+                    SafeSystemImage(systemName: "anchor", size: 32)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {

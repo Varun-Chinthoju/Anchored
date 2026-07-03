@@ -37,9 +37,7 @@ struct SetSailStepView: View {
                     )
                 
                 // Ship wheel / steering wheel icon (or large compass)
-                Image(systemName: "compass.fill")
-                    .font(.system(size: 64, weight: .bold))
-                    .foregroundColor(PirateTheme.gold)
+                SafeSystemImage(systemName: "compass.fill", size: 64)
                     .shadow(color: PirateTheme.darkGold.opacity(0.6), radius: 12, x: 0, y: 4)
                 
                 // Pirate flag offset

@@ -18,9 +18,7 @@ struct PermissionStepView: View {
                         .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "scope")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(PirateTheme.gold)
+                    SafeSystemImage(systemName: "scope", size: 32)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
@@ -51,9 +49,7 @@ struct PermissionStepView: View {
                             .fill(isGranted ? PirateTheme.gold.opacity(0.12) : Color.red.opacity(0.08))
                             .frame(width: 90, height: 90)
                         
-                        Image(systemName: isGranted ? "checkmark.seal.fill" : "lock.fill")
-                            .font(.system(size: 40, weight: .semibold))
-                            .foregroundColor(isGranted ? PirateTheme.gold : .red)
+                        SafeSystemImage(systemName: isGranted ? "checkmark.seal.fill" : "lock.fill", size: 40, color: isGranted ? PirateTheme.gold : .red)
                             .shadow(color: (isGranted ? PirateTheme.gold : .red).opacity(0.3), radius: 8)
                     }
                     
@@ -70,6 +66,16 @@ struct PermissionStepView: View {
                             .multilineTextAlignment(.center)
                             .lineSpacing(3)
                             .padding(.horizontal, 24)
+                        
+                        if !isGranted {
+                            Text(t("perm_warning"))
+                                .font(.system(size: 11, design: .serif))
+                                .foregroundColor(Color.red.opacity(0.85))
+                                .multilineTextAlignment(.center)
+                                .lineSpacing(3)
+                                .padding(.horizontal, 24)
+                                .padding(.top, 4)
+                        }
                     }
                 }
                 .padding(.vertical, 32)

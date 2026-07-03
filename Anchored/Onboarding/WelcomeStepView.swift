@@ -37,9 +37,7 @@ struct WelcomeStepView: View {
                     )
                 
                 // SVG / Vector-like Anchor Symbol
-                Image(systemName: "anchor")
-                    .font(.system(size: 56, weight: .semibold))
-                    .foregroundColor(PirateTheme.gold)
+                SafeSystemImage(systemName: "anchor", size: 56)
                     .shadow(color: PirateTheme.darkGold.opacity(0.6), radius: 12, x: 0, y: 4)
                 
                 // Pirate flag offset on top of the anchor to act as a pirate hat!

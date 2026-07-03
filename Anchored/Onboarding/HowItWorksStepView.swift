@@ -13,15 +13,7 @@ struct HowItWorksStepView: View {
                         .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "compass.fill")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                    SafeSystemImage(systemName: "compass.fill", size: 32)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
@@ -108,9 +100,7 @@ struct FeatureCard: View {
                     .fill(accentColor.opacity(0.12))
                     .frame(width: 44, height: 44)
                 
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(accentColor)
+                SafeSystemImage(systemName: icon, size: 18, color: accentColor)
             }
             
             VStack(alignment: .leading, spacing: 6) {

@@ -884,6 +884,24 @@ class LanguageManager: ObservableObject {
             .tagalog: "Katayuan: Pinayagan 🔓",
             .thai: "สถานะ: อนุญาตแล้ว 🔓"
         ],
+        "perm_warning": [
+            .pirate: "If it still says Locked after enabling: Select 'Anchored' in Accessibility settings, click the minus (-) button to remove it, then click 'Grant' again to re-add it.",
+            .english: "If it still says Locked after enabling: Select 'Anchored' in Accessibility settings, click the minus (-) button to remove it, then click 'Grant' again to re-add it.",
+            .chinese: "如果启用后仍显示为已锁定：请在辅助功能设置中选择 'Anchored'，点击减号 (-) 按钮将其删除，然后再次点击 '授予' 重新添加。",
+            .spanishLA: "Si sigue apareciendo Bloqueado después de activarlo: Selecciona 'Anchored' en la configuración de Accesibilidad, haz clic en el botón menos (-) para quitarlo y luego haz clic en 'Otorgar' nuevamente.",
+            .spanishES: "Si sigue apareciendo Bloqueado tras activarlo: Selecciona 'Anchored' en los ajustes de Accesibilidad, pulsa el botón menos (-) para quitarlo y haz clic en 'Otorgar' de nuevo.",
+            .hindi: "यदि सक्षम करने के बाद भी यह लॉक दिखाता है: एक्सेसिबिलिटी सेटिंग्स में 'Anchored' चुनें, इसे हटाने के लिए माइनस (-) बटन पर क्लिक करें, फिर इसे फिर से जोड़ने के लिए 'अनुमति दें' पर क्लिक करें।",
+            .telugu: "ఎనేబుల్ చేసిన తర్వాత కూడా లాక్ చేయబడి ఉంటే: యాక్సెసిబిలిటీ సెట్టింగ్స్‌లో 'Anchored' ని ఎంచుకుని, తీసివేయడానికి మైనస్ (-) బటన్ క్లిక్ చేయండి, ఆపై మళ్లీ జోడించడానికి 'అనుమతి ఇవ్వండి' క్లిక్ చేయండి.",
+            .french: "Si le statut reste Verrouillé après activation : Sélectionnez 'Anchored' dans les paramètres d'accessibilité, cliquez sur le bouton moins (-) pour le supprimer, puis cliquez à nouveau sur 'Autoriser'.",
+            .italian: "Se risulta ancora Bloccato dopo l'abilitazione: Seleziona 'Anchored' nelle impostazioni di Accessibilità, fai clic sul pulsante meno (-) per rimuoverlo, quindi fai clic su 'Concedi' per aggiungerlo di nuovo.",
+            .portuguese: "Se ainda aparecer Bloqueado após ativar: Selecione 'Anchored' nas configurações de Acessibilidade, clique no botão menos (-) para removê-lo, e depois clique em 'Conceder' novamente.",
+            .romanian: "Dacă apare în continuare Blocat după activare: Selectați 'Anchored' în setările de accesibilitate, faceți clic pe butonul minus (-) pentru a-l elimina, apoi faceți clic pe 'Acordare' pentru a-l adăuga din nou.",
+            .japanese: "有効にしてもロックと表示される場合：アクセシビリティの設定で 'Anchored' を選択し、マイナス（-）ボタンをクリックして削除してから、もう一度「許可」をクリックして再登録してください。",
+            .korean: "권한을 허용했음에도 여전히 차단됨으로 표시되는 경우: 접근성 설정에서 'Anchored'를 선택한 후 마이너스(-) 버튼을 눌러 목록에서 제거하고, 다시 '허용하기' 버튼을 눌러 추가해 주세요.",
+            .vietnamese: "Nếu vẫn hiển thị Bị khóa sau khi bật: Chọn 'Anchored' trong cài đặt Trợ năng, nhấp vào nút trừ (-) để xóa, sau đó nhấp lại vào 'Cấp quyền' để thêm lại.",
+            .tagalog: "Kung naka-lock pa rin pagkatapos paganahin: Piliin ang 'Anchored' sa mga setting ng Accessibility, i-click ang minus (-) button upang alisin ito, at pagkatapos ay i-click muli ang 'Ipagkaloob'.",
+            .thai: "หากยังขึ้นว่าล็อกอยู่หลังเปิดใช้งาน: ให้เลือก 'Anchored' ในการตั้งค่าการเข้าถึง กดปุ่มลบ (-) เพื่อนำออก แล้วคลิก 'อนุญาต' อีกครั้งเพื่อลงทะเบียนใหม่"
+        ],
         "sail_title": [
             .pirate: "Ready to Set Sail!",
             .english: "Ready to Set Sail!",

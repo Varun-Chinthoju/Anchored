@@ -36,6 +36,30 @@ struct OnboardingBackground: View {
     }
 }
 
+// Safe system image loader for transparent AppKit hosted SwiftUI views
+struct SafeSystemImage: View {
+    let systemName: String
+    let size: CGFloat
+    var color: Color = PirateTheme.gold
+    
+    var body: some View {
+        if let nsImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .foregroundColor(color)
+        } else {
+            Image(systemName: systemName)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .foregroundColor(color)
+        }
+    }
+}
+
 // Glowing text component styled for the pirate theme
 struct GlowingText: View {
     let text: String

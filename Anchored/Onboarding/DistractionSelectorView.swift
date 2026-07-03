@@ -37,9 +37,7 @@ struct DistractionSelectorView: View {
                         .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "hand.raised.fill")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(PirateTheme.gold)
+                    SafeSystemImage(systemName: "hand.raised.fill", size: 32)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
@@ -127,9 +125,7 @@ struct DistractionSelectorView: View {
                                     toggleApp(bundleID)
                                 }) {
                                     HStack {
-                                        Image(systemName: icon)
-                                            .font(.system(size: 14))
-                                            .foregroundColor(isSelected ? PirateTheme.gold : PirateTheme.parchment.opacity(0.5))
+                                        SafeSystemImage(systemName: icon, size: 14, color: isSelected ? PirateTheme.gold : PirateTheme.parchment.opacity(0.5))
                                         Text(name)
                                             .font(.system(size: 12, weight: .semibold, design: .serif))
                                             .foregroundColor(isSelected ? PirateTheme.gold : PirateTheme.parchment)

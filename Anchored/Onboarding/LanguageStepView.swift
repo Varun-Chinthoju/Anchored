@@ -18,9 +18,7 @@ struct LanguageStepView: View {
                         .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "character.bubble.fill")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(PirateTheme.gold)
+                    SafeSystemImage(systemName: "character.bubble.fill", size: 32)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
@@ -103,9 +101,7 @@ struct LanguageStepView: View {
                                     .foregroundColor(langManager.currentLanguage == language ? PirateTheme.darkWood : PirateTheme.parchment)
                                 Spacer()
                                 if langManager.currentLanguage == language {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(langManager.currentLanguage == language ? PirateTheme.darkWood : PirateTheme.gold)
-                                        .font(.system(size: 12, weight: .bold))
+                                    SafeSystemImage(systemName: "checkmark", size: 12, color: langManager.currentLanguage == language ? PirateTheme.darkWood : PirateTheme.gold)
                                 }
                             }
                             .padding(.horizontal, 16)
