@@ -20,12 +20,16 @@ class OnboardingWindow: NSWindow {
         self.hasShadow = true
         self.titlebarAppearsTransparent = true
         self.titleVisibility = .hidden
-        self.isMovableByWindowBackground = true
+        self.isMovableByWindowBackground = false
         
         // Host the OnboardingView directly
-        let view = OnboardingView(onComplete: { [weak self] in
-            self?.fadeOutAndClose(onComplete: onComplete)
-        })
+        let view = OnboardingView(
+            windowWidth: screenFrame.width,
+            windowHeight: screenFrame.height,
+            onComplete: { [weak self] in
+                self?.fadeOutAndClose(onComplete: onComplete)
+            }
+        )
         
         self.contentView = NSHostingView(rootView: view)
     }

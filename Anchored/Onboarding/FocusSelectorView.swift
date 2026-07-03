@@ -2,10 +2,12 @@ import SwiftUI
 import AppKit
 
 struct FocusSelectorView: View {
+    let windowHeight: CGFloat
     let onNext: (() -> Void)?
     let showContinueButton: Bool
     
-    init(onNext: (() -> Void)? = nil, showContinueButton: Bool = true) {
+    init(windowHeight: CGFloat, onNext: (() -> Void)? = nil, showContinueButton: Bool = true) {
+        self.windowHeight = windowHeight
         self.onNext = onNext
         self.showContinueButton = showContinueButton
     }
@@ -202,7 +204,8 @@ struct FocusSelectorView: View {
                 }
                 .padding(.vertical, 2)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
+            .frame(height: max(300, windowHeight - 280))
         }
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

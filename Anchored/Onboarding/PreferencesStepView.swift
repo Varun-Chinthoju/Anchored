@@ -51,12 +51,12 @@ struct PreferencesStepView: View {
                 
                 if showSaveButton {
                     Button(action: {
-                        AudioEngine.shared.play(.chime)
+                        AudioEngine.shared.play(.tick)
                         onComplete?()
                     }) {
                         HStack {
-                            Text("Hoist Sails & Set Sail")
-                            Image(systemName: "checkmark")
+                            Text("Confirm Settings & Continue")
+                            Image(systemName: "arrow.right")
                         }
                         .font(.system(size: 14, weight: .bold, design: .serif))
                         .foregroundColor(PirateTheme.darkWood)
@@ -127,6 +127,27 @@ struct PreferencesStepView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
+                .padding(20)
+                .background(PirateTheme.darkWood.opacity(0.4))
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                )
+                
+                // Smart Nudges Toggle
+                Toggle(isOn: $prefs.enableSmartNudges) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enable Scout Sentinels (Smart Nudges)")
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .foregroundColor(PirateTheme.parchment)
+                        Text("Send scout warnings if background activities indicate distraction patterns.")
+                            .font(.system(size: 11, design: .serif))
+                            .foregroundColor(PirateTheme.parchment.opacity(0.6))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
                 .background(PirateTheme.darkWood.opacity(0.4))
                 .cornerRadius(12)

@@ -299,6 +299,128 @@ extension SQLiteSessionStore {
         return blocks
     }
     
+    
+    // MARK: - Analytics Query Extensions
+    
+    func focusTimePerHourForLast24Hours(relativeTo referenceDate: Date = Date(), calendar: Calendar = .current) -> [(Date, TimeInterval)] {
+        return queue.sync {
+            do {
+                return try dbQueue.read { db in
+                    let twentyFourHoursAgo = referenceDate.addingTimeInterval(-24 * 60 * 60)
+                    let sessions = try SessionEvent
+                        .filter(Column("type") == SessionEventType.sessionEnd.rawValue)
+                        .filter(Column("timestamp") >= twentyFourHoursAgo)
+                        .filter(Column("timestamp") <= referenceDate)
+                        .fetchAll(db)
+                    
+                    var hourlyBuckets: [Date: TimeInterval] = [:]
+                    
+                    // Pre-fill the 24 hour buckets
+                    let currentHourComponent = calendar.component(.hour, from: twentyFourHoursAgo)
+                    var currentHourStart = calendar.date(bySettingHour: currentHourComponent, minute: 0, second: 0, of: twentyFourHoursAgo)!
+                    for _ in 0..<25 {
+                        if currentHourStart >= twentyFourHoursAgo && currentHourStart <= referenceDate {
+                            hourlyBuckets[currentHourStart] = 0
+                        }
+                        currentHourStart = calendar.date(byAdding: .hour, value: 1, to: currentHourStart)!
+                    }
+                    
+                    for session in sessions {
+                        if let duration = session.sessionDurationSeconds {
+                            let hourStart = calendar.date(bySettingHour: calendar.component(.hour, from: session.timestamp), minute: 0, second: 0, of: session.timestamp)!
+                            if hourlyBuckets[hourStart] != nil {
+                                hourlyBuckets[hourStart, default: 0] += TimeInterval(duration)
+                            }
+                        }
+                    }
+                    
+                    return hourlyBuckets.sorted { $0.key < $1.key }
+                }
+            } catch {
+                print("SQLiteSessionStore Error: Failed to fetch hourly focus time: \(error.localizedDescription)")
+                return []
+            }
+        }
+    }
+    
+    func focusTimePerDay(since startDate: Date, to endDate: Date = Date(), calendar: Calendar = .current) -> [(Date, TimeInterval)] {
+        return queue.sync {
+            do {
+                return try dbQueue.read { db in
+                    let sessions = try SessionEvent
+                        .filter(Column("type") == SessionEventType.sessionEnd.rawValue)
+                        .filter(Column("timestamp") >= startDate)
+                        .filter(Column("timestamp") <= endDate)
+                        .fetchAll(db)
+                    
+                    var dailyBuckets: [Date: TimeInterval] = [:]
+                    
+                    // Pre-fill all days in range with 0
+                    var currentDayStart = calendar.startOfDay(for: startDate)
+                    let finalDayStart = calendar.startOfDay(for: endDate)
+                    while currentDayStart <= finalDayStart {
+                        dailyBuckets[currentDayStart] = 0
+                        currentDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart)!
+                    }
+                    
+                    for session in sessions {
+                        if let duration = session.sessionDurationSeconds {
+                            let dayStart = calendar.startOfDay(for: session.timestamp)
+                            if dailyBuckets[dayStart] != nil {
+                                dailyBuckets[dayStart, default: 0] += TimeInterval(duration)
+                            }
+                        }
+                    }
+                    
+                    return dailyBuckets.sorted { $0.key < $1.key }
+                }
+            } catch {
+                print("SQLiteSessionStore Error: Failed to fetch daily focus time: \(error.localizedDescription)")
+                return []
+            }
+        }
+    }
+    
+    func appDomainFocusDistribution(since startDate: Date, to endDate: Date = Date()) -> [String: (appName: String, duration: TimeInterval, domains: [String: TimeInterval])] {
+        return queue.sync {
+            do {
+                return try dbQueue.read { db in
+                    let sessions = try SessionEvent
+                        .filter(Column("type") == SessionEventType.sessionEnd.rawValue)
+                        .filter(Column("timestamp") >= startDate)
+                        .filter(Column("timestamp") <= endDate)
+                        .fetchAll(db)
+                    
+                    var distribution: [String: (appName: String, duration: TimeInterval, domains: [String: TimeInterval])] = [:]
+                    
+                    for session in sessions {
+                        let bundleID = session.appBundleID
+                        let appName = session.appName
+                        let duration = TimeInterval(session.sessionDurationSeconds ?? 0)
+                        
+                        // Extract domain if URL is present
+                        var domain: String? = nil
+                        if let urlString = session.url, let url = URL(string: urlString), let host = url.host {
+                            domain = host.lowercased().hasPrefix("www.") ? String(host.dropFirst(4)) : host
+                        }
+                        
+                        var current = distribution[bundleID] ?? (appName: appName, duration: 0, domains: [:])
+                        current.duration += duration
+                        if let dom = domain {
+                            current.domains[dom, default: 0] += duration
+                        }
+                        distribution[bundleID] = current
+                    }
+                    
+                    return distribution
+                }
+            } catch {
+                print("SQLiteSessionStore Error: Failed to fetch app-domain focus distribution: \(error.localizedDescription)")
+                return [:]
+            }
+        }
+    }
+    
     private func appName(for bundleID: String) -> String {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
             return url.deletingPathExtension().lastPathComponent
