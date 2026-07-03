@@ -122,22 +122,22 @@ public class SafariBrowserStrategy: BrowserStrategy {
     }
     
     public func getActiveContext() -> BrowserContext? {
-        // 1. Try to fetch URL using JavaScript execution first.
+        // 1. Try to fetch URL and title using JavaScript execution first.
         // This is necessary to detect if "Allow JavaScript from Apple Events" is enabled/disabled.
         let jsScriptSource = """
         tell application "Safari"
             if window 1 exists then
                 tell window 1
-                    do JavaScript "window.location.href" in current tab
+                    do JavaScript "document.title + '\\n' + window.location.href" in current tab
                 end tell
             end if
         end tell
         """
         
         do {
-            let urlString = try executor.execute(jsScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !urlString.isEmpty, let url = URL(string: urlString) {
-                return BrowserContext(title: "", url: url)
+            let response = try executor.execute(jsScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !response.isEmpty, let context = parseResponse(response) {
+                return context
             }
         } catch let error as AppleScriptError {
             switch error {
@@ -153,22 +153,41 @@ public class SafariBrowserStrategy: BrowserStrategy {
             // General error
         }
         
-        // 2. Fallback to standard URL property retrieval if JavaScript events are disabled.
+        // 2. Fallback to standard URL and title property retrieval if JavaScript events are disabled.
         let fallbackScriptSource = """
         tell application "Safari"
             if window 1 exists then
-                return URL of current tab of window 1
+                return (name of current tab of window 1) & "\\n" & (URL of current tab of window 1)
             end if
         end tell
         """
         
         do {
-            let urlString = try executor.execute(fallbackScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !urlString.isEmpty, let url = URL(string: urlString) else { return nil }
-            return BrowserContext(title: "", url: url)
+            let response = try executor.execute(fallbackScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !response.isEmpty, let context = parseResponse(response) else { return nil }
+            return context
         } catch {
             return nil
         }
+    }
+    
+    private func parseResponse(_ response: String) -> BrowserContext? {
+        let components = response.components(separatedBy: "\n")
+        let title: String
+        let urlString: String
+        
+        if components.count >= 2 {
+            urlString = components.last!.trimmingCharacters(in: .whitespacesAndNewlines)
+            title = components.dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if components.count == 1 {
+            urlString = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            title = ""
+        } else {
+            return nil
+        }
+        
+        guard !urlString.isEmpty, let url = URL(string: urlString), url.scheme != nil else { return nil }
+        return BrowserContext(title: title, url: url)
     }
     
     private func handleDisabledJavaScript() {
@@ -196,22 +215,27 @@ public class FirefoxBrowserStrategy: BrowserStrategy {
         
         let appRef = AXUIElementCreateApplication(firefoxApp.processIdentifier)
         
+        let targetWindow: AXUIElement
         var windowRef: AnyObject?
         let windowError = AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &windowRef)
-        guard windowError == .success, let activeWindow = windowRef else {
+        
+        if windowError == .success, let activeWindow = windowRef {
+            targetWindow = activeWindow as! AXUIElement
+        } else {
             var windowsRef: AnyObject?
             let windowsError = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &windowsRef)
             guard windowsError == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
                 return nil
             }
-            if let url = findURLInUIElement(windows[0]) {
-                return BrowserContext(title: "", url: url)
-            }
-            return nil
+            targetWindow = windows[0]
         }
         
-        if let url = findURLInUIElement(activeWindow as! AXUIElement) {
-            return BrowserContext(title: "", url: url)
+        var titleRef: AnyObject?
+        let titleError = AXUIElementCopyAttributeValue(targetWindow, kAXTitleAttribute as CFString, &titleRef)
+        let title = (titleError == .success ? titleRef as? String : nil) ?? ""
+        
+        if let url = findURLInUIElement(targetWindow) {
+            return BrowserContext(title: title, url: url)
         }
         return nil
     }

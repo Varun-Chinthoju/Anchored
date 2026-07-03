@@ -72,6 +72,8 @@ final class ShadowTrackingEngine {
             return
         }
         
+        let title = userInfo["title"] as? String
+        
         isFocusContextActive = isFocus
         updateTrackingState()
     }

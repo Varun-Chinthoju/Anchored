@@ -70,6 +70,20 @@ class ShadowTrackingEngineTests: XCTestCase {
         wait(for: [expectation], timeout: 2.5)
     }
     
+    func testShadowTrackingAccumulatesTimeWithTitleContext() {
+        // Given we are in focus context with a title and url
+        mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", url: URL(string: "https://apple.com"), title: "Xcode Project Window")
+        shadowEngine.forceUpdateTrackingState()
+        
+        // Wait a bit
+        let expectation = XCTestExpectation(description: "accumulate time with title context")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            XCTAssertGreaterThan(self.shadowEngine.getContinuousWorkTime(), 0.0)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.5)
+    }
+    
     func testShadowTrackingResetsOnDistractionOrNeutral() {
         // Start tracking
         mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")

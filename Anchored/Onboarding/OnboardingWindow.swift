@@ -4,12 +4,14 @@ import SwiftUI
 class OnboardingWindow: NSWindow {
     
     init(onComplete: @escaping () -> Void) {
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 800, height: 520)
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 520),
+            contentRect: screenFrame,
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        self.setFrame(screenFrame, display: true)
         
         self.title = "Anchored Setup"
         self.isOpaque = false
@@ -26,7 +28,6 @@ class OnboardingWindow: NSWindow {
         })
         
         self.contentView = NSHostingView(rootView: view)
-        self.center()
     }
     
     private func fadeOutAndClose(onComplete: @escaping () -> Void) {

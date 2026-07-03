@@ -18,6 +18,9 @@ final class FocusEngine {
     /// The URL of the current active page in the browser (if applicable).
     private(set) var currentURL: URL?
     
+    /// The title of the current active window or page.
+    private(set) var currentTitle: String = ""
+    
     /// The start date of the current work session (focused time).
     var workSessionStart: Date?
     
@@ -72,8 +75,8 @@ final class FocusEngine {
         self.profileManager = profileManager
         self.focusThreshold = focusThreshold
         
-        self.activityMonitor.onContextChange = { [weak self] bundleID, url in
-            self?.handleContextChange(bundleID: bundleID, url: url)
+        self.activityMonitor.onContextChange = { [weak self] bundleID, url, title in
+            self?.handleContextChange(bundleID: bundleID, url: url, title: title)
         }
         
         NotificationCenter.default.addObserver(
@@ -186,11 +189,12 @@ final class FocusEngine {
     }
     
     /// Handles context changes from the activity monitor.
-    private func handleContextChange(bundleID: String, url: URL?) {
+    private func handleContextChange(bundleID: String, url: URL?, title: String) {
         guard bundleID != "com.varun.Anchored" else { return }
         
         currentApp = bundleID
         currentURL = url
+        currentTitle = title
         let now = Date()
         
         let isFocus = isFocusContext(bundleID: bundleID, url: url)
@@ -200,6 +204,7 @@ final class FocusEngine {
             userInfo: [
                 "bundleID": bundleID,
                 "url": url as Any,
+                "title": title,
                 "isFocus": isFocus
             ]
         )
@@ -365,12 +370,9 @@ final class FocusEngine {
         
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
         
-        // Present Permission Gate if we have at least 10 completed sessions and accessibility is not yet granted
+        // Present Permission Gate immediately for testing if accessibility is not yet granted
         if !AXIsProcessTrusted() {
-            let sessionCount = sessionStore.allEvents().filter { $0.type == .sessionEnd }.count
-            if sessionCount >= 10 {
-                delegate?.didRequestPermissionGate()
-            }
+            delegate?.didRequestPermissionGate()
         }
     }
     

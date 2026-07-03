@@ -476,6 +476,82 @@ final class FocusEngineTests: XCTestCase {
         }
     }
     
+    func testTitlePropagation() {
+        let expectation = self.expectation(description: "FocusEngineContextDidChange notification fired")
+        
+        var receivedTitle: String?
+        var receivedBundleID: String?
+        
+        let token = NotificationCenter.default.addObserver(
+            forName: .focusEngineContextDidChange,
+            object: engine,
+            queue: .main
+        ) { notification in
+            if let userInfo = notification.userInfo {
+                receivedTitle = userInfo["title"] as? String
+                receivedBundleID = userInfo["bundleID"] as? String
+                expectation.fulfill()
+            }
+        }
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", url: URL(string: "https://apple.com"), title: "Xcode Project")
+        
+        waitForExpectations(timeout: 1.0)
+        NotificationCenter.default.removeObserver(token)
+        
+        XCTAssertEqual(receivedBundleID, "com.apple.dt.Xcode")
+        XCTAssertEqual(receivedTitle, "Xcode Project")
+        XCTAssertEqual(engine.currentTitle, "Xcode Project")
+    }
+    
+    func testTitlePropagationWithVariousTitles() {
+        let testCases: [(bundleID: String, url: URL?, title: String)] = [
+            ("com.apple.dt.Xcode", URL(string: "file:///some/project"), ""),
+            ("com.apple.Safari", URL(string: "https://github.com/Varun-Chinthoju/Anchored"), "GitHub - Varun-Chinthoju/Anchored: Focus app - Google Chrome"),
+            ("com.google.Chrome", URL(string: "https://youtube.com/watch?v=123"), "YouTube - Funny Cat Videos"),
+            ("com.apple.mail", nil, "Inbox (12) - varun@example.com - Mail ⚓"),
+            ("com.apple.dt.Xcode", URL(string: "https://apple.com"), "Xcode Project")
+        ]
+        
+        for (index, testCase) in testCases.enumerated() {
+            let expectation = self.expectation(description: "FocusEngineContextDidChange notification fired for case \(index)")
+            
+            var receivedTitle: String?
+            var receivedBundleID: String?
+            var receivedURL: URL?
+            
+            let token = NotificationCenter.default.addObserver(
+                forName: .focusEngineContextDidChange,
+                object: engine,
+                queue: .main
+            ) { notification in
+                if let userInfo = notification.userInfo {
+                    receivedTitle = userInfo["title"] as? String
+                    receivedBundleID = userInfo["bundleID"] as? String
+                    receivedURL = userInfo["url"] as? URL
+                    expectation.fulfill()
+                }
+            }
+            
+            mockActivityMonitor.simulateContextChange(bundleID: testCase.bundleID, url: testCase.url, title: testCase.title)
+            
+            waitForExpectations(timeout: 1.0)
+            NotificationCenter.default.removeObserver(token)
+            
+            XCTAssertEqual(receivedBundleID, testCase.bundleID)
+            XCTAssertEqual(receivedTitle, testCase.title)
+            if let expectedURL = testCase.url {
+                XCTAssertEqual(receivedURL, expectedURL)
+                XCTAssertEqual(engine.currentURL, expectedURL)
+            } else {
+                XCTAssertNil(receivedURL)
+                XCTAssertNil(engine.currentURL)
+            }
+            XCTAssertEqual(engine.currentTitle, testCase.title)
+            XCTAssertEqual(engine.currentApp, testCase.bundleID)
+        }
+    }
+    
     // MARK: - Helper Methods
     
     private func loadEventsFromDisk() -> [SessionEvent] {
@@ -488,7 +564,7 @@ final class FocusEngineTests: XCTestCase {
 // MARK: - Mock Classes
 
 class MockActivityMonitor: ActivityMonitor {
-    var onContextChange: ((_ bundleID: String, _ url: URL?) -> Void)?
+    var onContextChange: ((_ bundleID: String, _ url: URL?, _ title: String) -> Void)?
     var isStarted = false
     var isStopped = false
     
@@ -500,8 +576,8 @@ class MockActivityMonitor: ActivityMonitor {
         isStopped = true
     }
     
-    func simulateContextChange(bundleID: String, url: URL? = nil) {
-        onContextChange?(bundleID, url)
+    func simulateContextChange(bundleID: String, url: URL? = nil, title: String = "") {
+        onContextChange?(bundleID, url, title)
     }
 }
 

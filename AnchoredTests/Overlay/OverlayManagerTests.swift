@@ -134,7 +134,7 @@ final class OverlayManagerTests: XCTestCase {
 
 // MARK: - TestActivityMonitor
 private class TestActivityMonitor: ActivityMonitor {
-    var onContextChange: ((_ bundleID: String, _ url: URL?) -> Void)?
+    var onContextChange: ((_ bundleID: String, _ url: URL?, _ title: String) -> Void)?
     
     func start() {}
     func stop() {}

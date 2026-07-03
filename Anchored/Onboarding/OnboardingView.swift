@@ -18,7 +18,7 @@ struct OnboardingView: View {
                     HStack(spacing: 8) {
                         ForEach(0..<5) { index in
                             Circle()
-                                .fill(index == currentStep ? Color.accentColor : Color.secondary.opacity(0.3))
+                                .fill(index == currentStep ? PirateTheme.gold : Color.secondary.opacity(0.3))
                                 .frame(width: 8, height: 8)
                         }
                     }
@@ -47,17 +47,19 @@ struct OnboardingView: View {
                         EmptyView()
                     }
                 }
+                .frame(maxHeight: .infinity)
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: currentStep)
                 
                 Spacer()
                 
                 // Click-anywhere helper hint
-                Text(currentStep < 4 ? "Click anywhere on the background to continue" : "Click anywhere on the background to save & launch")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundColor(.secondary)
+                Text(currentStep < 4 ? "Click the deep ocean deck to continue your voyage" : "Click the deep ocean deck to hoist sails & launch")
+                    .font(.system(size: 11, weight: .medium, design: .serif))
+                    .foregroundColor(PirateTheme.parchment)
                     .opacity(0.4)
                     .padding(.bottom, 32)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

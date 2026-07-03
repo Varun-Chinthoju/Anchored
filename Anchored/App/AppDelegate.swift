@@ -12,11 +12,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var smartNudgeManager: SmartNudgeManager?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
-            startStandardFlow()
-        } else {
-            showOnboardingFlow()
-        }
+        // Reset key for onboarding testing
+        UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
+        setupMainMenu()
+        showOnboardingFlow()
     }
     
     private func startStandardFlow() {
@@ -61,6 +60,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         engine.start()
         print("FocusEngine started (focusThreshold: \(prefs.focusThreshold)s, countdown: \(prefs.countdownDuration)s)")
+        
+        // Re-setup main menu with menuBarController target populated
+        setupMainMenu()
     }
     
     private func showOnboardingFlow() {
@@ -73,6 +75,82 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+        
+        // 1. App Menu ("Anchored")
+        let appMenu = NSMenu(title: "Anchored")
+        appMenu.addItem(withTitle: "About the Vessel (About Anchored)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        
+        let prefsItem = NSMenuItem(title: "Ship Rigging (Preferences)...", action: #selector(MenuBarController.openPreferences), keyEquivalent: ",")
+        prefsItem.target = menuBarController
+        appMenu.addItem(prefsItem)
+        
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Hide Vessel", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthers)
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        
+        let quitItem = NSMenuItem(title: "Scuttle the Ship (Quit)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(quitItem)
+        
+        let appMenuItem = NSMenuItem()
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+        
+        // 2. Voyage Menu ("Voyage")
+        let voyageMenu = NSMenu(title: "Voyage")
+        
+        let startItem = NSMenuItem(title: "Set Sail (Start Session)...", action: #selector(MenuBarController.startSessionClicked), keyEquivalent: "s")
+        startItem.target = menuBarController
+        voyageMenu.addItem(startItem)
+        
+        let endItem = NSMenuItem(title: "Abandon Voyage (Mutiny!)", action: #selector(MenuBarController.endSessionClicked), keyEquivalent: "w")
+        endItem.target = menuBarController
+        voyageMenu.addItem(endItem)
+        
+        voyageMenu.addItem(NSMenuItem.separator())
+        
+        let logItem = NSMenuItem(title: "Peer into Captain's Log (Dashboard)...", action: #selector(MenuBarController.openDashboard), keyEquivalent: "d")
+        logItem.target = menuBarController
+        voyageMenu.addItem(logItem)
+        
+        let voyageMenuItem = NSMenuItem()
+        voyageMenuItem.submenu = voyageMenu
+        mainMenu.addItem(voyageMenuItem)
+        
+        // 3. Edit Menu ("Edit")
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: Selector(("cut:")), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: Selector(("copy:")), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: Selector(("paste:")), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
+        
+        let editMenuItem = NSMenuItem()
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+        
+        // 4. Window Menu ("Window")
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(NSMenuItem.separator())
+        windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        
+        let windowMenuItem = NSMenuItem()
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+        
+        NSApplication.shared.mainMenu = mainMenu
     }
     
     func applicationWillTerminate(_ notification: Notification) {

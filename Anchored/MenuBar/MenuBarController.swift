@@ -167,7 +167,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
         }
     }
     
-    @objc private func endSessionClicked() {
+    @objc func endSessionClicked() {
         focusEngine.endSession()
     }
     
@@ -179,11 +179,11 @@ class MenuBarController: NSObject, NSMenuDelegate {
         showSettingsWindow(section: .distractions)
     }
     
-    @objc private func openPreferences() {
+    @objc func openPreferences() {
         showSettingsWindow(section: .general)
     }
     
-    @objc private func openDashboard() {
+    @objc func openDashboard() {
         if let window = dashboardWindow {
             window.close()
         }
@@ -235,7 +235,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
         }
     }
     
-    @objc private func startSessionClicked() {
+    @objc func startSessionClicked() {
         if let window = startSessionWindow {
             window.close()
         }
@@ -261,7 +261,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
         }
     }
     
-    @objc private func quitApp() {
+    @objc func quitApp() {
         NSApplication.shared.terminate(nil)
     }
 }

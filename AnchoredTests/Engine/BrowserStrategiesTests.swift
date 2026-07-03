@@ -145,7 +145,7 @@ class BrowserStrategiesTests: XCTestCase {
         
         mockExecutor.executeCallback = { source in
             if source.contains("do JavaScript") {
-                return "https://www.apple.com"
+                return "Apple\nhttps://www.apple.com"
             }
             XCTFail("Should not fall back if JS is successful")
             return ""
@@ -154,7 +154,7 @@ class BrowserStrategiesTests: XCTestCase {
         let context = strategy.getActiveContext()
         XCTAssertNotNil(context)
         XCTAssertEqual(context?.url, URL(string: "https://www.apple.com"))
-        XCTAssertEqual(context?.title, "")
+        XCTAssertEqual(context?.title, "Apple")
         XCTAssertEqual(mockExecutor.executedScripts.count, 1)
         XCTAssertFalse(strategy.hasTriggeredWarning)
     }
@@ -186,9 +186,9 @@ class BrowserStrategiesTests: XCTestCase {
             if source.contains("do JavaScript") {
                 // Simulate JavaScript disabled error
                 throw AppleScriptError.executionFailed(code: 8, message: "You must enable 'Allow JavaScript from Apple Events'...")
-            } else if source.contains("return URL of current tab of window 1") {
+            } else if source.contains("(name of current tab of window 1)") {
                 // Fallback returns URL
-                return "https://www.apple.com/safari"
+                return "Apple Support\nhttps://www.apple.com/safari"
             }
             XCTFail("Unexpected script executed")
             return ""
@@ -201,7 +201,7 @@ class BrowserStrategiesTests: XCTestCase {
         
         XCTAssertNotNil(context)
         XCTAssertEqual(context?.url, URL(string: "https://www.apple.com/safari"))
-        XCTAssertEqual(context?.title, "")
+        XCTAssertEqual(context?.title, "Apple Support")
         XCTAssertTrue(delegate.didDetectDisabledJSCalled)
         XCTAssertTrue(callbackCalled)
         XCTAssertIdentical(delegate.detectedStrategy, strategy)
@@ -221,9 +221,11 @@ class BrowserStrategiesTests: XCTestCase {
         mockExecutor.executeCallback = { source in
             if source.contains("do JavaScript") {
                 throw AppleScriptError.executionFailed(code: 8, message: "Allow JavaScript from Apple Events error")
-            } else {
-                return "https://www.apple.com"
+            } else if source.contains("(name of current tab of window 1)") {
+                return "Apple\nhttps://www.apple.com"
             }
+            XCTFail("Unexpected script executed")
+            return ""
         }
         
         let context = strategy.getActiveContext()
@@ -237,7 +239,7 @@ class BrowserStrategiesTests: XCTestCase {
         
         XCTAssertNotNil(context)
         XCTAssertEqual(context?.url, URL(string: "https://www.apple.com"))
-        XCTAssertEqual(context?.title, "")
+        XCTAssertEqual(context?.title, "Apple")
         XCTAssertFalse(delegate.didDetectDisabledJSCalled)
     }
     

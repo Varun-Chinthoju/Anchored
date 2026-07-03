@@ -26,24 +26,24 @@ struct PreferencesStepView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(Color.pink.opacity(0.08))
+                        .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "slider.horizontal.3")
+                    Image(systemName: "gearshape.fill")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(.pink)
+                        .foregroundColor(PirateTheme.gold)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: "Customize\nBehavior",
-                        font: .system(size: 36, weight: .bold, design: .rounded),
-                        colors: [.pink, .purple]
+                        text: "Command\nDeck",
+                        font: .system(size: 36, weight: .bold, design: .serif),
+                        colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Tailor how Anchored helps you maintain momentum. Adjust thresholds, warnings, and system integration options.")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                    Text("Calibrate the helm of your vessel. Set when the anchor triggers, warning countdowns, and automatic sailing settings.")
+                        .font(.system(size: 14, design: .serif))
+                        .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
                 }
                 
@@ -55,22 +55,22 @@ struct PreferencesStepView: View {
                         onComplete?()
                     }) {
                         HStack {
-                            Text("Save & Launch Anchored")
+                            Text("Hoist Sails & Set Sail")
                             Image(systemName: "checkmark")
                         }
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .font(.system(size: 14, weight: .bold, design: .serif))
+                        .foregroundColor(PirateTheme.darkWood)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
                         .background(
                             LinearGradient(
-                                gradient: Gradient(colors: [.pink, .purple]),
+                                gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
                         .cornerRadius(10)
-                        .shadow(color: Color.pink.opacity(0.3), radius: 12, x: 0, y: 6)
+                        .shadow(color: PirateTheme.gold.opacity(0.3), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(.plain)
                 }
@@ -82,12 +82,13 @@ struct PreferencesStepView: View {
                 // Focus Threshold Picker
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Focus Threshold")
-                            .font(.system(size: 13, weight: .semibold))
+                        Text("Watch Time to Drop Anchor")
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .foregroundColor(PirateTheme.parchment)
                         Spacer()
-                        Text("Active time needed to trigger an anchor.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                        Text("Sailing time required to trigger anchor.")
+                            .font(.system(size: 11, design: .serif))
+                            .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                     
                     Picker("Focus Threshold", selection: $prefs.focusThreshold) {
@@ -99,22 +100,23 @@ struct PreferencesStepView: View {
                     .labelsHidden()
                 }
                 .padding(20)
-                .background(Color.primary.opacity(0.02))
+                .background(PirateTheme.darkWood.opacity(0.4))
                 .cornerRadius(12)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
                 )
                 
                 // Countdown Duration Picker
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Dimming Warning Countdown")
-                            .font(.system(size: 13, weight: .semibold))
+                        Text("Seconds Before Fog Rolls In")
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .foregroundColor(PirateTheme.parchment)
                         Spacer()
-                        Text("Seconds allowed on distraction before dimming.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                        Text("Seconds allowed in mutinous apps before dimming.")
+                            .font(.system(size: 11, design: .serif))
+                            .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                     
                     Picker("Countdown Duration", selection: $prefs.countdownDuration) {
@@ -126,31 +128,32 @@ struct PreferencesStepView: View {
                     .labelsHidden()
                 }
                 .padding(20)
-                .background(Color.primary.opacity(0.02))
+                .background(PirateTheme.darkWood.opacity(0.4))
                 .cornerRadius(12)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
                 )
                 
                 // Launch at Login Toggle
                 Toggle(isOn: $prefs.launchAtLogin) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Launch at Login")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Automatically start Anchored on system launch.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                        Text("Hoist Sails on Startup")
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .foregroundColor(PirateTheme.parchment)
+                        Text("Automatically launch Anchored and begin your voyage when you log in.")
+                            .font(.system(size: 11, design: .serif))
+                            .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                 }
                 .toggleStyle(.checkbox)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
-                .background(Color.primary.opacity(0.02))
+                .background(PirateTheme.darkWood.opacity(0.4))
                 .cornerRadius(12)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
                 )
             }
             .frame(maxWidth: .infinity)

@@ -5,7 +5,7 @@ import ApplicationServices
 /// and publishes the active application's bundle identifier and browser URL, if applicable.
 final class AppSwitchMonitor: ActivityMonitor {
     /// Callback invoked when a context change is detected.
-    var onContextChange: ((_ bundleID: String, _ url: URL?) -> Void)?
+    var onContextChange: ((_ bundleID: String, _ url: URL?, _ title: String) -> Void)?
     
     private var observer: NSObjectProtocol?
     private var isMonitoring = false
@@ -57,6 +57,32 @@ final class AppSwitchMonitor: ActivityMonitor {
         }
     }
     
+    private func getNativeWindowTitle(for bundleID: String) -> String {
+        guard AXIsProcessTrusted() else {
+            return ""
+        }
+        
+        guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) else {
+            return ""
+        }
+        
+        let appRef = AXUIElementCreateApplication(app.processIdentifier)
+        
+        var windowRef: AnyObject?
+        let windowError = AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &windowRef)
+        guard windowError == .success, let activeWindow = windowRef else {
+            return ""
+        }
+        
+        var titleRef: AnyObject?
+        let titleError = AXUIElementCopyAttributeValue(activeWindow as! AXUIElement, kAXTitleAttribute as CFString, &titleRef)
+        guard titleError == .success, let title = titleRef as? String else {
+            return ""
+        }
+        
+        return title
+    }
+
     private func handleApplicationActivation(bundleID: String) {
         cancelPollingTimer()
         
@@ -66,20 +92,23 @@ final class AppSwitchMonitor: ActivityMonitor {
             if AXIsProcessTrusted() {
                 // Fetch current URL immediately
                 let strategy = BrowserStrategyFactory.strategy(for: bundleID)
-                let currentURL = strategy?.getActiveContext()?.url
+                let context = strategy?.getActiveContext()
+                let currentURL = context?.url
+                let title = context?.title ?? ""
                 lastPolledURL = currentURL
-                onContextChange?(bundleID, currentURL)
+                onContextChange?(bundleID, currentURL, title)
                 
                 // Start background 2.5-second polling timer
                 startPollingTimer()
             } else {
                 // Treat browser as neutral since accessibility isn't granted
-                onContextChange?(bundleID, nil)
+                onContextChange?(bundleID, nil, "")
             }
         } else {
             activeBrowserBundleID = nil
             lastPolledURL = nil
-            onContextChange?(bundleID, nil)
+            let title = getNativeWindowTitle(for: bundleID)
+            onContextChange?(bundleID, nil, title)
         }
     }
     
@@ -102,11 +131,13 @@ final class AppSwitchMonitor: ActivityMonitor {
         }
         
         let strategy = BrowserStrategyFactory.strategy(for: bundleID)
-        let currentURL = strategy?.getActiveContext()?.url
+        let context = strategy?.getActiveContext()
+        let currentURL = context?.url
+        let title = context?.title ?? ""
         
         if currentURL != lastPolledURL {
             lastPolledURL = currentURL
-            onContextChange?(bundleID, currentURL)
+            onContextChange?(bundleID, currentURL, title)
         }
     }
     

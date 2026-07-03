@@ -9,14 +9,14 @@ struct HowItWorksStepView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(Color.blue.opacity(0.08))
+                        .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "sparkles")
+                    Image(systemName: "compass.fill")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(
                             LinearGradient(
-                                gradient: Gradient(colors: [.blue, .purple]),
+                                gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -25,14 +25,14 @@ struct HowItWorksStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: "Protecting\nYour Focus",
-                        font: .system(size: 36, weight: .bold, design: .rounded),
-                        colors: [.blue, .purple]
+                        text: "Chart Your\nCourse",
+                        font: .system(size: 36, weight: .bold, design: .serif),
+                        colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Anchored operates quietly in the background, matching your working pace and blocking notifications when you lock in.")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                    Text("Anchored operates quietly like a trusted navigator, tracking your progress and shielding your attention during your voyage.")
+                        .font(.system(size: 14, design: .serif))
+                        .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
                 }
                 
@@ -43,16 +43,22 @@ struct HowItWorksStepView: View {
                     onNext()
                 }) {
                     HStack {
-                        Text("Get Started")
+                        Text("Chart the Course")
                         Image(systemName: "arrow.right")
                     }
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .font(.system(size: 14, weight: .bold, design: .serif))
+                    .foregroundColor(PirateTheme.darkWood)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
-                    .background(Color.accentColor)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                     .cornerRadius(10)
-                    .shadow(color: Color.accentColor.opacity(0.3), radius: 10, x: 0, y: 5)
+                    .shadow(color: PirateTheme.gold.opacity(0.3), radius: 10, x: 0, y: 5)
                 }
                 .buttonStyle(.plain)
             }
@@ -61,24 +67,24 @@ struct HowItWorksStepView: View {
             // Right Column (Step-by-step Cards)
             VStack(spacing: 16) {
                 FeatureCard(
-                    icon: "sparkles",
-                    title: "1. Passive Focus Tracking",
-                    description: "Anchored silently watches your active window in the background. No start/stop buttons needed.",
-                    accentColor: .blue
+                    icon: "binoculars.fill",
+                    title: "1. Passive Lookout",
+                    description: "Our watchman silently monitors your active app and browser domain in the background. No manual buttons needed.",
+                    accentColor: PirateTheme.gold
                 )
                 
                 FeatureCard(
                     icon: "anchor",
-                    title: "2. Momentum Anchors",
-                    description: "When you switch to a distraction app after focused work, you are prompted to lock in a dedicated block.",
-                    accentColor: .purple
+                    title: "2. Drop the Anchor",
+                    description: "If you wander to a distracting site after deep work, you'll be prompted to drop anchor and lock in a session.",
+                    accentColor: PirateTheme.gold
                 )
                 
                 FeatureCard(
                     icon: "eye.slash.fill",
-                    title: "3. Ambient Escalation",
-                    description: "If you stray to distracted apps during a session, your screen dims to gently guide you back to work.",
-                    accentColor: .pink
+                    title: "3. Ocean Fog (Dimming)",
+                    description: "Straying into forbidden waters during a session causes a heavy dimming fog to roll in until you steer back to work.",
+                    accentColor: PirateTheme.gold
                 )
             }
             .frame(maxWidth: .infinity)
@@ -108,22 +114,22 @@ struct FeatureCard: View {
             
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.primary)
+                    .font(.system(size: 15, weight: .bold, design: .serif))
+                    .foregroundColor(PirateTheme.parchment)
                 Text(description)
-                    .font(.system(size: 12.5))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 12.5, design: .serif))
+                    .foregroundColor(PirateTheme.parchment.opacity(0.7))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
         }
         .padding(20)
-        .background(Color.primary.opacity(0.02))
+        .background(PirateTheme.darkWood.opacity(0.4))
         .cornerRadius(14)
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                .stroke(PirateTheme.gold.opacity(0.2), lineWidth: 1)
         )
     }
 }

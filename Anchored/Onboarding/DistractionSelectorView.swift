@@ -31,24 +31,24 @@ struct DistractionSelectorView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(Color.red.opacity(0.08))
+                        .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "shield.fill")
+                    Image(systemName: "hand.raised.fill")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(.red)
+                        .foregroundColor(PirateTheme.gold)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: "Select\nDistractions",
-                        font: .system(size: 36, weight: .bold, design: .rounded),
-                        colors: [.red, .pink]
+                        text: "Mutinous Apps",
+                        font: .system(size: 36, weight: .bold, design: .serif),
+                        colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Toggled applications will trigger focus dimming overlay triggers during active anchored sessions.")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                    Text("These applications represent forbidden waters. Steering your course into them during an active voyage triggers the dimming fog.")
+                        .font(.system(size: 14, design: .serif))
+                        .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
                 }
                 
@@ -59,17 +59,17 @@ struct DistractionSelectorView: View {
                 }) {
                     HStack {
                         Image(systemName: "plus")
-                        Text("Add Custom Application...")
+                        Text("Mark App as Mutinous...")
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.accentColor)
+                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                    .foregroundColor(PirateTheme.gold)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor.opacity(0.08))
+                    .background(PirateTheme.gold.opacity(0.08))
                     .cornerRadius(8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(Color.accentColor.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                            .strokeBorder(PirateTheme.gold.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4]))
                     )
                 }
                 .buttonStyle(.plain)
@@ -83,16 +83,22 @@ struct DistractionSelectorView: View {
                         onNext?()
                     }) {
                         HStack {
-                            Text("Continue")
+                            Text("Lock the Hold")
                             Image(systemName: "arrow.right")
                         }
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .font(.system(size: 14, weight: .bold, design: .serif))
+                        .foregroundColor(PirateTheme.darkWood)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
-                        .background(Color.accentColor)
+                        .background(
+                            LinearGradient(
+                                gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .cornerRadius(10)
-                        .shadow(color: Color.accentColor.opacity(0.3), radius: 10, x: 0, y: 5)
+                        .shadow(color: PirateTheme.gold.opacity(0.3), radius: 10, x: 0, y: 5)
                     }
                     .buttonStyle(.plain)
                 }
@@ -104,9 +110,9 @@ struct DistractionSelectorView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // Default Distraction Grid
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("POPULAR DISTRACTION CHANNELS")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.secondary)
+                        Text("MUTINOUS CHANNELS")
+                            .font(.system(size: 11, weight: .bold, design: .serif))
+                            .foregroundColor(PirateTheme.gold.opacity(0.8))
                             .tracking(1.0)
                         
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -120,23 +126,23 @@ struct DistractionSelectorView: View {
                                     HStack {
                                         Image(systemName: icon)
                                             .font(.system(size: 14))
-                                            .foregroundColor(isSelected ? .white : .secondary)
+                                            .foregroundColor(isSelected ? PirateTheme.gold : PirateTheme.parchment.opacity(0.5))
                                         Text(name)
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(isSelected ? .white : .primary)
+                                            .font(.system(size: 12, weight: .semibold, design: .serif))
+                                            .foregroundColor(isSelected ? PirateTheme.gold : PirateTheme.parchment)
                                         Spacer()
                                         if isSelected {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundColor(.white)
+                                            Image(systemName: "checkmark.seal.fill")
+                                                .foregroundColor(PirateTheme.gold)
                                         }
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 10)
-                                    .background(isSelected ? Color.red.opacity(0.85) : Color.primary.opacity(0.02))
+                                    .background(isSelected ? PirateTheme.gold.opacity(0.12) : PirateTheme.darkWood.opacity(0.4))
                                     .cornerRadius(10)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 10)
-                                            .stroke(isSelected ? Color.red.opacity(0.2) : Color.primary.opacity(0.04), lineWidth: 1)
+                                            .stroke(isSelected ? PirateTheme.gold : PirateTheme.gold.opacity(0.15), lineWidth: 1)
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -148,36 +154,36 @@ struct DistractionSelectorView: View {
                     let customApps = distractions.filter { !defaultApps.map(\.0).contains($0) }
                     if !customApps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("CUSTOM ADDED BLOCKED APPS")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.secondary)
+                            Text("CUSTOM BLACKLISTED SHIPS")
+                                .font(.system(size: 11, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.gold.opacity(0.8))
                                 .tracking(1.0)
                             
                             ForEach(customApps, id: \.self) { bundleID in
                                 HStack {
                                     Text(getAppName(for: bundleID))
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(.primary)
+                                        .font(.system(size: 12, weight: .semibold, design: .serif))
+                                        .foregroundColor(PirateTheme.parchment)
                                     Spacer()
                                     Text(bundleID)
                                         .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(PirateTheme.parchment.opacity(0.5))
                                     Button(action: {
                                         AudioEngine.shared.play(.tick)
                                         toggleApp(bundleID)
                                     }) {
                                         Image(systemName: "xmark.circle.fill")
-                                            .foregroundColor(.red.opacity(0.8))
+                                            .foregroundColor(PirateTheme.gold.opacity(0.8))
                                     }
                                     .buttonStyle(.plain)
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
-                                .background(Color.primary.opacity(0.02))
+                                .background(PirateTheme.darkWood.opacity(0.4))
                                 .cornerRadius(10)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 10)
-                                        .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
                                 )
                             }
                         }
@@ -185,7 +191,7 @@ struct DistractionSelectorView: View {
                 }
                 .padding(.vertical, 2)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

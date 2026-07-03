@@ -3,47 +3,40 @@ import SwiftUI
 struct OnboardingBackground: View {
     var body: some View {
         ZStack {
-            // Dark base canvas
-            Color(red: 0.04, green: 0.04, blue: 0.06)
+            // Dark ocean base canvas
+            Color(red: 0.04, green: 0.05, blue: 0.07)
                 .edgesIgnoringSafeArea(.all)
             
-            // Glowing ambient circles (neon green, red, blue, pink)
+            // Glowing ambient gold and teal circles
             GeometryReader { geo in
                 ZStack {
-                    // Blue glow
+                    // Gold glow (top left)
                     Circle()
-                        .fill(Color(red: 0.1, green: 0.4, blue: 0.9).opacity(0.12))
-                        .frame(width: 500, height: 500)
-                        .blur(radius: 90)
-                        .position(x: 100, y: 150)
+                        .fill(Color(red: 0.9, green: 0.75, blue: 0.3).opacity(0.08))
+                        .frame(width: 550, height: 550)
+                        .blur(radius: 100)
+                        .position(x: 100, y: 100)
                     
-                    // Pink glow
+                    // Deep Teal/Aqua glow (bottom right)
                     Circle()
-                        .fill(Color(red: 0.9, green: 0.2, blue: 0.6).opacity(0.1))
-                        .frame(width: 500, height: 500)
-                        .blur(radius: 90)
+                        .fill(Color(red: 0.0, green: 0.4, blue: 0.5).opacity(0.1))
+                        .frame(width: 600, height: 600)
+                        .blur(radius: 110)
                         .position(x: geo.size.width - 150, y: geo.size.height - 150)
                     
-                    // Green glow
+                    // Warm Bronze/Amber glow (center right)
                     Circle()
-                        .fill(Color(red: 0.2, green: 0.8, blue: 0.4).opacity(0.07))
+                        .fill(Color(red: 0.6, green: 0.4, blue: 0.1).opacity(0.07))
                         .frame(width: 450, height: 450)
-                        .blur(radius: 85)
-                        .position(x: geo.size.width - 250, y: 200)
-                    
-                    // Red glow
-                    Circle()
-                        .fill(Color(red: 0.95, green: 0.15, blue: 0.25).opacity(0.06))
-                        .frame(width: 400, height: 400)
-                        .blur(radius: 80)
-                        .position(x: 250, y: geo.size.height - 200)
+                        .blur(radius: 90)
+                        .position(x: geo.size.width - 250, y: 250)
                 }
             }
         }
     }
 }
 
-// Glowing text component
+// Glowing text component styled for the pirate theme
 struct GlowingText: View {
     let text: String
     let font: Font
@@ -60,6 +53,15 @@ struct GlowingText: View {
                     endPoint: .trailing
                 )
             )
-            .shadow(color: colors.first?.opacity(0.3) ?? .clear, radius: 10, x: 0, y: 0)
+            .shadow(color: colors.first?.opacity(0.4) ?? .clear, radius: 8, x: 0, y: 0)
     }
+}
+
+// Global pirate theme colors
+struct PirateTheme {
+    static let gold = Color(red: 0.9, green: 0.75, blue: 0.3)
+    static let darkGold = Color(red: 0.75, green: 0.6, blue: 0.2)
+    static let parchment = Color(red: 0.95, green: 0.95, blue: 0.9)
+    static let darkWood = Color(red: 0.12, green: 0.09, blue: 0.07)
+    static let deepBlue = Color(red: 0.05, green: 0.15, blue: 0.25)
 }

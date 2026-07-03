@@ -8,33 +8,29 @@ struct WelcomeStepView: View {
         VStack(spacing: 32) {
             Spacer()
             
-            // Large Glowing Anchor Logo with breathing animation
+            // Large Glowing Anchor Logo with a pirate hat on top!
             ZStack {
                 // Outer breathing halo
                 Circle()
                     .fill(
                         LinearGradient(
-                            gradient: Gradient(colors: [Color(red: 0.1, green: 0.5, blue: 1.0), Color(red: 0.9, green: 0.3, blue: 0.7)]),
+                            gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 140, height: 140)
-                    .blur(radius: animateGlow ? 20 : 10)
+                    .blur(radius: animateGlow ? 22 : 12)
                     .opacity(animateGlow ? 0.3 : 0.15)
                 
                 // Frosted card backing
                 Circle()
-                    .fill(Color.primary.opacity(0.03))
+                    .fill(PirateTheme.darkWood.opacity(0.6))
                     .frame(width: 120, height: 120)
                     .overlay(
                         Circle()
                             .stroke(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [.blue.opacity(0.3), .pink.opacity(0.3)]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
+                                PirateTheme.gold.opacity(0.4),
                                 lineWidth: 1.5
                             )
                     )
@@ -42,14 +38,14 @@ struct WelcomeStepView: View {
                 // SVG / Vector-like Anchor Symbol
                 Image(systemName: "anchor")
                     .font(.system(size: 56, weight: .semibold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            gradient: Gradient(colors: [Color(red: 0.2, green: 0.6, blue: 1.0), Color(red: 0.95, green: 0.35, blue: 0.75)]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .shadow(color: .pink.opacity(0.4), radius: 12, x: 0, y: 4)
+                    .foregroundColor(PirateTheme.gold)
+                    .shadow(color: PirateTheme.darkGold.opacity(0.6), radius: 12, x: 0, y: 4)
+                
+                // Pirate flag offset on top of the anchor to act as a pirate hat!
+                Text("🏴‍☠️")
+                    .font(.system(size: 40))
+                    .offset(x: 0, y: -60)
+                    .shadow(color: .black.opacity(0.5), radius: 3, x: 0, y: 2)
             }
             .padding(.bottom, 12)
             .onAppear {
@@ -63,15 +59,16 @@ struct WelcomeStepView: View {
             
             VStack(spacing: 12) {
                 GlowingText(
-                    text: "Welcome to Anchored",
-                    font: .system(size: 38, weight: .bold, design: .rounded),
-                    colors: [Color(red: 0.1, green: 0.6, blue: 1.0), Color(red: 0.95, green: 0.4, blue: 0.8)]
+                    text: "Ahoy, Captain!",
+                    font: .system(size: 38, weight: .bold, design: .serif),
+                    colors: [PirateTheme.gold, PirateTheme.parchment]
                 )
                 
-                Text("Ambient flow state protection for macOS. Stay locked into your deep work.")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.secondary)
+                Text("Commandeer your focus and guard your flow state from the mutinous distractions of the deep web. Stand ready to anchor your vessel.")
+                    .font(.system(size: 15, weight: .medium, design: .serif))
+                    .foregroundColor(PirateTheme.parchment.opacity(0.85))
                     .multilineTextAlignment(.center)
+                    .lineSpacing(4)
                     .frame(maxWidth: 500)
             }
             
@@ -81,20 +78,20 @@ struct WelcomeStepView: View {
                 AudioEngine.shared.play(.tick)
                 onNext()
             }) {
-                Text("Set Up Anchored")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(width: 260)
+                Text("Board the Vessel & Set Sail")
+                    .font(.system(size: 15, weight: .bold, design: .serif))
+                    .foregroundColor(PirateTheme.darkWood)
+                    .frame(width: 280)
                     .padding(.vertical, 14)
                     .background(
                         LinearGradient(
-                            gradient: Gradient(colors: [Color(red: 0.1, green: 0.5, blue: 1.0), Color(red: 0.9, green: 0.3, blue: 0.7)]),
+                            gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .cornerRadius(12)
-                    .shadow(color: Color.pink.opacity(0.3), radius: 15, x: 0, y: 8)
+                    .shadow(color: PirateTheme.gold.opacity(0.35), radius: 15, x: 0, y: 8)
             }
             .buttonStyle(.plain)
             

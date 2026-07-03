@@ -20,24 +20,24 @@ struct FocusSelectorView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(Color.green.opacity(0.08))
+                        .fill(PirateTheme.gold.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
-                    Image(systemName: "target")
+                    Image(systemName: "anchor")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(.green)
+                        .foregroundColor(PirateTheme.gold)
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: "Focus Apps",
-                        font: .system(size: 36, weight: .bold, design: .rounded),
-                        colors: [.green, .emeraldGreen]
+                        text: "Focus Vessels",
+                        font: .system(size: 36, weight: .bold, design: .serif),
+                        colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Only the selected applications will accumulate focus progress. Secondary/neutral apps won't build focus, resolving window switching assumptions.")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                    Text("Only selected applications count as active voyages. Neutral and background apps won't accumulate focus progress, keeping your journey steady.")
+                        .font(.system(size: 14, design: .serif))
+                        .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
                 }
                 
@@ -48,17 +48,17 @@ struct FocusSelectorView: View {
                 }) {
                     HStack {
                         Image(systemName: "plus")
-                        Text("Add Custom Application...")
+                        Text("Commission Custom Vessel...")
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.accentColor)
+                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                    .foregroundColor(PirateTheme.gold)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor.opacity(0.08))
+                    .background(PirateTheme.gold.opacity(0.08))
                     .cornerRadius(8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(Color.accentColor.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                            .strokeBorder(PirateTheme.gold.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4]))
                     )
                 }
                 .buttonStyle(.plain)
@@ -72,16 +72,22 @@ struct FocusSelectorView: View {
                         onNext?()
                     }) {
                         HStack {
-                            Text("Continue")
+                            Text("Secure the Rigging")
                             Image(systemName: "arrow.right")
                         }
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .font(.system(size: 14, weight: .bold, design: .serif))
+                        .foregroundColor(PirateTheme.darkWood)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
-                        .background(Color.accentColor)
+                        .background(
+                            LinearGradient(
+                                gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .cornerRadius(10)
-                        .shadow(color: Color.accentColor.opacity(0.3), radius: 10, x: 0, y: 5)
+                        .shadow(color: PirateTheme.gold.opacity(0.3), radius: 10, x: 0, y: 5)
                     }
                     .buttonStyle(.plain)
                 }
@@ -93,34 +99,34 @@ struct FocusSelectorView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // Active Focus Apps Grid
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("ACTIVE FOCUS APPS")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.secondary)
+                        Text("ACTIVE FOCUS VESSELS")
+                            .font(.system(size: 11, weight: .bold, design: .serif))
+                            .foregroundColor(PirateTheme.gold.opacity(0.8))
                             .tracking(1.0)
                         
                         if focusApps.isEmpty {
-                            Text("No focus apps selected. Select suggestions below or add a custom app.")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
+                            Text("No focus vessels chartered. Select recommendations below or commission a custom app.")
+                                .font(.system(size: 12, design: .serif))
+                                .foregroundColor(PirateTheme.parchment.opacity(0.6))
                                 .padding(.vertical, 24)
                                 .frame(maxWidth: .infinity, alignment: .center)
-                                .background(Color.primary.opacity(0.02))
+                                .background(PirateTheme.darkWood.opacity(0.3))
                                 .cornerRadius(10)
                         } else {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                 ForEach(focusApps, id: \.self) { bundleID in
                                     HStack {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.green)
+                                            .foregroundColor(PirateTheme.gold)
                                             .font(.system(size: 13))
                                         
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(getAppName(for: bundleID))
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundColor(.primary)
+                                                .font(.system(size: 12, weight: .bold, design: .serif))
+                                                .foregroundColor(PirateTheme.parchment)
                                             Text(bundleID)
                                                 .font(.system(size: 9))
-                                                .foregroundColor(.secondary)
+                                                .foregroundColor(PirateTheme.parchment.opacity(0.5))
                                                 .lineLimit(1)
                                         }
                                         
@@ -137,11 +143,11 @@ struct FocusSelectorView: View {
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
-                                    .background(Color.primary.opacity(0.02))
+                                    .background(PirateTheme.darkWood.opacity(0.4))
                                     .cornerRadius(10)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 10)
-                                            .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                                            .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
                                     )
                                 }
                             }
@@ -151,9 +157,9 @@ struct FocusSelectorView: View {
                     // Scanned Installed Recommendations
                     if !suggestions.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("SUGGESTED PRODUCTIVITY TOOLS (INSTALLED)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.secondary)
+                            Text("SUGGESTED VESSELS (INSTALLED)")
+                                .font(.system(size: 11, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.gold.opacity(0.8))
                                 .tracking(1.0)
                             
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -164,16 +170,16 @@ struct FocusSelectorView: View {
                                     }) {
                                         HStack {
                                             Image(systemName: "plus.circle")
-                                                .foregroundColor(.accentColor)
+                                                .foregroundColor(PirateTheme.gold)
                                                 .font(.system(size: 13))
                                             
                                             VStack(alignment: .leading, spacing: 1) {
                                                 Text(name)
-                                                    .font(.system(size: 12, weight: .semibold))
-                                                    .foregroundColor(.primary)
+                                                    .font(.system(size: 12, weight: .semibold, design: .serif))
+                                                    .foregroundColor(PirateTheme.parchment)
                                                 Text(bundleID)
                                                     .font(.system(size: 9))
-                                                    .foregroundColor(.secondary)
+                                                    .foregroundColor(PirateTheme.parchment.opacity(0.5))
                                                     .lineLimit(1)
                                             }
                                             
@@ -181,11 +187,11 @@ struct FocusSelectorView: View {
                                         }
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(Color.accentColor.opacity(0.04))
+                                        .background(PirateTheme.gold.opacity(0.05))
                                         .cornerRadius(10)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 10)
-                                                .stroke(Color.accentColor.opacity(0.12), lineWidth: 1)
+                                                .stroke(PirateTheme.gold.opacity(0.2), lineWidth: 1)
                                         )
                                     }
                                     .buttonStyle(.plain)
@@ -196,7 +202,7 @@ struct FocusSelectorView: View {
                 }
                 .padding(.vertical, 2)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -247,8 +253,4 @@ struct FocusSelectorView: View {
         }
         return bundleID.split(separator: ".").last.map(String.init)?.capitalized ?? bundleID
     }
-}
-
-extension Color {
-    static let emeraldGreen = Color(red: 0.1, green: 0.8, blue: 0.5)
 }
