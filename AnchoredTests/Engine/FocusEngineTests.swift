@@ -238,7 +238,7 @@ final class FocusEngineTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.1)
         
         XCTAssertFalse(engine.isDimming)
-        XCTAssertEqual(mockDelegate.returnsToWork, 0)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
         
         let events = loadEventsFromDisk()
         XCTAssertEqual(events.count, 2) // sessionStart + distractionDetected (no escalationTriggered)
@@ -736,6 +736,78 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(receivedBundleID, "com.example.TestApp")
         XCTAssertEqual(receivedTitle, "Test Page")
         XCTAssertNotNil(receivedIsFocus)
+    }
+    
+    func testSmartWebClassifierPreventsDimmingForCodingForum() {
+        let profile = WorkProfile(
+            name: "Coding Forum Profile",
+            distractionApps: [],
+            distractionDomains: ["reddit.com", "youtube.com"],
+            allowedDomains: []
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        // Enter a coding forum on reddit.com
+        let forumURL = URL(string: "https://www.reddit.com/r/swift/comments/123")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: forumURL, title: "Swift Programming Forum Thread")
+        
+        // The delegate should NOT receive distraction detection call because of the AI override!
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        
+        // Enter a coding tutorial on youtube.com
+        let tutorialURL = URL(string: "https://www.youtube.com/watch?v=swift-tutorial")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: tutorialURL, title: "Build an App in Swift - YouTube")
+        
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+    }
+    
+    func testSmartAppClassifierAllowsUnregisteredApp() {
+        // Assert that Terminal is dynamically resolved as a productive/focus app even if it isn't in allowlist
+        XCTAssertTrue(SmartAppClassifier.isProductiveApp(bundleID: "com.apple.Terminal"))
+    }
+    
+    func testPauseAndResumeSessionTimeShifting() {
+        let profile = WorkProfile(
+            name: "TimeShiftProfile",
+            distractionApps: ["com.spotify.client"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        engine.start()
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        
+        let initialStartDate = engine.activeSession?.startDate ?? Date()
+        
+        // Enter distraction -> starts distraction countdown
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        
+        // Trigger distraction countdown expiration -> dims screen and pauses session
+        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
+        
+        XCTAssertTrue(engine.isDimming)
+        XCTAssertNotNil(engine.pausedDate)
+        
+        // Wait a small duration (e.g. 0.05 seconds) to simulate distraction time elapsed
+        let expectation = XCTestExpectation(description: "Wait for distraction pause duration")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+        
+        // Return to work -> resumes session and shifts activeSession.startDate forward
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertNil(engine.pausedDate)
+        
+        let resumedStartDate = engine.activeSession?.startDate ?? Date()
+        XCTAssertGreaterThan(resumedStartDate.timeIntervalSince(initialStartDate), 0.04)
     }
     
     // MARK: - Helper Methods

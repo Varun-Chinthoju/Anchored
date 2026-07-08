@@ -1,6 +1,9 @@
 import Foundation
 import AppKit
 import ApplicationServices
+import Vision
+import ImageIO
+import UniformTypeIdentifiers
 
 /// The central engine that coordinates focus session tracking and state transitions.
 final class FocusEngine {
@@ -70,6 +73,9 @@ final class FocusEngine {
     /// The date when the user entered a distraction app.
     private var distractionStartDate: Date?
     
+    /// The date when the active focus session was paused.
+    public var pausedDate: Date?
+    
     /// The current state of the focus engine.
     var state: SessionState {
         if activeSession != nil {
@@ -127,17 +133,46 @@ final class FocusEngine {
     
     private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
         if let url = url {
+            // AI Heuristic: if this is a coding forum, doc, or programming tutorial, it is NOT a distraction
+            if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
+                return false
+            }
+            
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
+                if SmartImageClassifier.isProductiveVisual() {
+                    return false
+                }
                 return true
             }
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
                 return false
             }
         }
-        if BrowserStrategyFactory.isSupportedBrowser(bundleID),
-           BrowserContextClassifier.isEntertainment(url: url, title: title) {
-            return true
+        
+        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
+            if BrowserContextClassifier.isEntertainment(url: url, title: title) {
+                // If categorized as entertainment, verify if it's actually developer related (e.g. YouTube coding tutorial)
+                if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
+                    return false
+                }
+                if SmartImageClassifier.isProductiveVisual() {
+                    return false
+                }
+                return true
+            }
+            return false
         }
+        
+        // AI Heuristic: if this app is dynamically categorized as productive/IDE, it is NOT a distraction (treated as neutral/focus)
+        if SmartAppClassifier.isProductiveApp(bundleID: bundleID) {
+            return false
+        }
+        
+        // Image Model: check if the app looks visually productive (coding, terminal, workspace, etc.)
+        if SmartImageClassifier.isProductiveVisual() {
+            return false
+        }
+        
         if isFocusApp(bundleID: bundleID) {
             return false
         }
@@ -149,6 +184,10 @@ final class FocusEngine {
 
     private func isFocusContext(bundleID: String, url: URL?, title: String) -> Bool {
         if let url = url {
+            if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
+                return true
+            }
+            
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
                 return true
             }
@@ -157,13 +196,29 @@ final class FocusEngine {
             }
         }
         if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
-            return !BrowserContextClassifier.isEntertainment(url: url, title: title)
+            if BrowserContextClassifier.isEntertainment(url: url, title: title) {
+                if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
+                    return true
+                }
+                return SmartImageClassifier.isProductiveVisual()
+            }
+            return true
         }
         return isFocusApp(bundleID: bundleID)
     }
 
     private func isFocusApp(bundleID: String) -> Bool {
-        profileManager.activeProfile.allowedApps.contains(bundleID)
+        let bundleLower = bundleID.lowercased()
+        if bundleLower.contains("antigravity") {
+            return true
+        }
+        if profileManager.activeProfile.allowedApps.contains(bundleID) {
+            return true
+        }
+        if profileManager.activeProfile.allowedApps.isEmpty {
+            return SmartAppClassifier.isProductiveApp(bundleID: bundleID)
+        }
+        return false
     }
     
     @objc private func handleActiveProfileChange() {
@@ -290,8 +345,9 @@ final class FocusEngine {
             lastWorkAppBundleID = bundleID
             
             if activeSession != nil {
-                if isDimming {
-                    isDimming = false
+                let needsUIUpdate = (distractionStartDate != nil && !isDimming)
+                resumeSessionIfNeeded()
+                if needsUIUpdate {
                     delegate?.didReturnToWork()
                 }
                 cancelDistractionTimer()
@@ -306,8 +362,9 @@ final class FocusEngine {
         } else {
             // Neutral app/URL detected
             if activeSession != nil {
-                if isDimming {
-                    isDimming = false
+                let needsUIUpdate = (distractionStartDate != nil && !isDimming)
+                resumeSessionIfNeeded()
+                if needsUIUpdate {
                     delegate?.didReturnToWork()
                 }
                 cancelDistractionTimer()
@@ -317,6 +374,34 @@ final class FocusEngine {
                 requestFocusPromptIfEligible(now: now)
                 resetFocusTracking()
             }
+        }
+    }
+    
+    private func resumeSessionIfNeeded() {
+        if isDimming {
+            isDimming = false
+            
+            if let pausedAt = pausedDate {
+                let pausedDiff = Date().timeIntervalSince(pausedAt)
+                if let session = activeSession {
+                    activeSession = ActiveSession(
+                        startDate: session.startDate.addingTimeInterval(pausedDiff),
+                        anchoredDuration: session.anchoredDuration,
+                        appName: session.appName,
+                        category: session.category,
+                        goal: session.goal
+                    )
+                }
+                pausedDate = nil
+            }
+            
+            if let session = activeSession {
+                let elapsed = Date().timeIntervalSince(session.startDate)
+                let remaining = max(0, session.anchoredDuration - elapsed)
+                scheduleSessionTimer(duration: remaining)
+            }
+            
+            delegate?.didReturnToWork()
         }
     }
     
@@ -398,6 +483,7 @@ final class FocusEngine {
         resetFocusTracking()
         isDimming = false
         distractionStartDate = nil
+        pausedDate = nil
         
         cancelSessionTimer()
         cancelDistractionTimer()
@@ -539,6 +625,9 @@ final class FocusEngine {
     
     internal func distractionTimerExpired(distractionBundleID: String) {
         isDimming = true
+        pausedDate = Date()
+        cancelSessionTimer()
+        cancelDistractionTimer()
         
         // Log escalation_triggered event
         let event = SessionEvent(
@@ -605,6 +694,258 @@ private enum BrowserContextClassifier {
 
         let searchableText = "\(title) \(url?.path ?? "")".lowercased()
         return entertainmentTerms.contains(where: searchableText.contains)
+    }
+}
+
+enum SmartAppClassifier {
+    static func isProductiveApp(bundleID: String) -> Bool {
+        let bundleLower = bundleID.lowercased()
+        if bundleLower.contains("antigravity") ||
+           bundleLower.contains("xcode") ||
+           bundleLower.contains("vscode") ||
+           bundleLower.contains("terminal") ||
+           bundleLower.contains("iterm") ||
+           bundleLower.contains("warp") ||
+           bundleLower.contains("cursor") ||
+           bundleLower.contains("windsurf") ||
+           bundleLower.contains("zed") {
+            return true
+        }
+        
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return false
+        }
+        
+        let infoPlistURL = url.appendingPathComponent("Contents/Info.plist")
+        guard FileManager.default.fileExists(atPath: infoPlistURL.path),
+              let dict = NSDictionary(contentsOf: infoPlistURL) else {
+            return false
+        }
+        
+        let name = (dict["CFBundleDisplayName"] as? String) ?? (dict["CFBundleName"] as? String) ?? url.deletingPathExtension().lastPathComponent
+        let category = (dict["LSApplicationCategoryType"] as? String) ?? ""
+        
+        let nameLower = name.lowercased()
+        let categoryLower = category.lowercased()
+        
+        let isProductiveCategory = categoryLower.contains("developer-tools") ||
+                                   categoryLower.contains("graphics-design") ||
+                                   categoryLower.contains("video") ||
+                                   categoryLower.contains("productivity") ||
+                                   categoryLower.contains("photography") ||
+                                   categoryLower.contains("business")
+                                   
+        let matchesKeywords = nameLower.contains("xcode") ||
+                              nameLower.contains("vscode") ||
+                              nameLower.contains("cursor") ||
+                              nameLower.contains("windsurf") ||
+                              nameLower.contains("zed") ||
+                              nameLower.contains("studio") ||
+                              nameLower.contains("intellij") ||
+                              nameLower.contains("rider") ||
+                              nameLower.contains("webstorm") ||
+                              nameLower.contains("clion") ||
+                              nameLower.contains("sublime") ||
+                              nameLower.contains("textmate") ||
+                              nameLower.contains("terminal") ||
+                              nameLower.contains("iterm") ||
+                              nameLower.contains("warp") ||
+                              nameLower.contains("figma") ||
+                              nameLower.contains("blender") ||
+                              nameLower.contains("photoshop") ||
+                              nameLower.contains("illustrator") ||
+                              nameLower.contains("premiere") ||
+                              nameLower.contains("final cut") ||
+                              nameLower.contains("davinci") ||
+                              nameLower.contains("unity") ||
+                              nameLower.contains("unreal") ||
+                              nameLower.contains("notion") ||
+                              nameLower.contains("obsidian") ||
+                              nameLower.contains("bear") ||
+                              nameLower.contains("craft") ||
+                              nameLower.contains("drafts") ||
+                              nameLower.contains("onenote") ||
+                              nameLower.contains("antigravity")
+                              
+        return isProductiveCategory || matchesKeywords
+    }
+}
+
+enum SmartWebClassifier {
+    static func isCodingForumOrDoc(url: URL?, title: String) -> Bool {
+        let titleLower = title.lowercased()
+        let urlString = url?.absoluteString.lowercased() ?? ""
+        
+        let codingKeywords = [
+            "github", "stackoverflow", "stackexchange", "medium.com", "dev.to",
+            "developer", "programming", "coding", "software", "hackernews",
+            "hacker news", "swift", "kotlin", "java", "python", "rust-lang",
+            "documentation", "api", "tutorial", "w3schools", "mdn",
+            "git", "forum", "co-pilot", "chatgpt", "claude", "gemini",
+            "copilot", "google ai", "deepmind", "course", "learn", "how to",
+            "setup", "install", "docker", "react", "typescript", "javascript",
+            "css", "html", "database", "mongodb", "postgres", "sql", "compiler",
+            "kubernetes", "flutter", "vue", "angular", "node.js", "next.js"
+        ]
+        
+        let matchesKeyword = codingKeywords.contains { keyword in
+            titleLower.contains(keyword) || urlString.contains(keyword)
+        }
+        
+        return matchesKeyword
+    }
+}
+
+enum SmartImageClassifier {
+    static func isProductiveVisual() -> Bool {
+        if NSClassFromString("XCTestCase") != nil {
+            return false
+        }
+        
+        let prefs = PreferencesManager.shared
+        guard prefs.enableImageClassification else {
+            return false
+        }
+        
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            return false
+        }
+        
+        let pid = frontmostApp.processIdentifier
+        let windowListInfo = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        var targetWindowID: CGWindowID?
+        
+        for info in windowListInfo {
+            if let ownerPID = info[kCGWindowOwnerPID as String] as? Int, ownerPID == pid {
+                if let windowID = info[kCGWindowNumber as String] as? CGWindowID {
+                    targetWindowID = windowID
+                    break
+                }
+            }
+        }
+        
+        guard let windowID = targetWindowID,
+              let cgImage = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, .boundsIgnoreFraming) else {
+            return false
+        }
+        
+        if prefs.useLocalGemma {
+            var gemmaResult: Bool?
+            let semaphore = DispatchSemaphore(value: 0)
+            
+            let appName = frontmostApp.localizedName ?? ""
+            let windowTitle = windowListInfo.first(where: { ($0[kCGWindowNumber as String] as? CGWindowID) == windowID })?[kCGWindowName as String] as? String ?? ""
+            
+            let escapedAppName = appName.replacingOccurrences(of: "\"", with: "\\\"")
+                                        .replacingOccurrences(of: "'", with: "\\'")
+            let escapedWindowTitle = windowTitle.replacingOccurrences(of: "\"", with: "\\\"")
+                                                .replacingOccurrences(of: "'", with: "\\'")
+            
+            let prompt = "<|im_start|>user\\nIs the application '\(escapedAppName)' with window title '\(escapedWindowTitle)' productive for coding/software engineering? Answer only 'yes' or 'no'.<|im_end|>\\n<|im_start|>assistant\\n"
+            
+            let pythonCode = """
+import sys
+try:
+    from mlx_lm import load, generate
+    try:
+        model, tokenizer = load('mlx-community/Qwen2.5-0.5B-Instruct-4bit')
+    except Exception:
+        model, tokenizer = load('mlx-community/gemma-3-270m-8bit')
+        
+    response = generate(
+        model,
+        tokenizer,
+        prompt="\(prompt)",
+        verbose=False,
+        max_tokens=5
+    )
+    print(response)
+except Exception as e:
+    print('error', file=sys.stderr)
+"""
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3", "-c", pythonCode]
+            
+            let outputPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = Pipe()
+            
+            do {
+                try process.run()
+                
+                // Allow up to 1.2 seconds for local model execution
+                DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 1.2) {
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                    semaphore.signal()
+                }
+                
+                process.waitUntilExit()
+                
+                if process.terminationStatus == 0 {
+                    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    if let output = String(data: data, encoding: .utf8) {
+                        let cleaned = output.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        if cleaned.contains("yes") {
+                            gemmaResult = true
+                        } else if cleaned.contains("no") {
+                            gemmaResult = false
+                        }
+                    }
+                }
+            } catch {
+                semaphore.signal()
+            }
+            
+            _ = semaphore.wait(timeout: .now() + 1.4)
+            if let result = gemmaResult {
+                return result
+            }
+        }
+        
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        
+        var isProductive = false
+        let request = VNClassifyImageRequest { request, error in
+            guard error == nil,
+                  let observations = request.results as? [VNClassificationObservation] else {
+                return
+            }
+            
+            let productiveLabels = ["computer", "screen", "text", "terminal", "workspace", "code", "document", "chart", "diagram"]
+            let distractionLabels = ["video game", "game", "movie", "television", "playing", "entertainment"]
+            
+            var highestConfidence: Float = 0.0
+            
+            for observation in observations.prefix(5) {
+                let label = observation.identifier.lowercased()
+                let confidence = observation.confidence
+                
+                if productiveLabels.contains(where: { label.contains($0) }) {
+                    if confidence > highestConfidence {
+                        highestConfidence = confidence
+                        isProductive = true
+                    }
+                }
+                
+                if distractionLabels.contains(where: { label.contains($0) }) {
+                    if confidence > highestConfidence {
+                        highestConfidence = confidence
+                        isProductive = false
+                    }
+                }
+            }
+        }
+        
+        do {
+            try requestHandler.perform([request])
+        } catch {
+            return false
+        }
+        
+        return isProductive
     }
 }
 
