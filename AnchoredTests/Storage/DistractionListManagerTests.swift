@@ -6,18 +6,26 @@ final class DistractionListManagerTests: XCTestCase {
     
     private var suiteName: String!
     private var testDefaults: UserDefaults!
+    private var tempDirectoryURL: URL!
     private var cancellables: Set<AnyCancellable>!
     
     override func setUp() {
         super.setUp()
         suiteName = "com.varun.Anchored.DistractionListManagerTests.\(UUID().uuidString)"
         testDefaults = UserDefaults(suiteName: suiteName)
+        tempDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Anchored-DistractionListManagerTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         cancellables = []
     }
     
     override func tearDown() {
         testDefaults.removePersistentDomain(forName: suiteName)
+        if let tempDirectoryURL {
+            try? FileManager.default.removeItem(at: tempDirectoryURL)
+        }
         testDefaults = nil
+        tempDirectoryURL = nil
         cancellables = nil
         super.tearDown()
     }
@@ -173,5 +181,59 @@ final class DistractionListManagerTests: XCTestCase {
         XCTAssertFalse(notificationTriggered)
         
         NotificationCenter.default.removeObserver(token)
+    }
+    
+    func testInstalledSuggestionsScansNestedApplicationFoldersForChatApps() throws {
+        let rootURL = tempDirectoryURL.appendingPathComponent("Applications", isDirectory: true)
+        let nestedAppURL = rootURL
+            .appendingPathComponent("Teams", isDirectory: true)
+            .appendingPathComponent("OrbitChat.app", isDirectory: true)
+        let topLevelAppURL = rootURL.appendingPathComponent("WorkChat.app", isDirectory: true)
+        
+        try createFakeApp(
+            at: nestedAppURL,
+            bundleID: "com.example.OrbitChat",
+            displayName: "OrbitChat",
+            category: "public.app-category.social-networking"
+        )
+        try createFakeApp(
+            at: topLevelAppURL,
+            bundleID: "com.example.WorkChat",
+            displayName: "WorkChat",
+            category: "public.app-category.business"
+        )
+        
+        let manager = DistractionListManager(
+            defaults: testDefaults,
+            applicationSearchRoots: [rootURL]
+        )
+        
+        let suggestions = manager.installedSuggestions
+        XCTAssertTrue(suggestions.contains { $0.bundleID == "com.example.OrbitChat" && $0.name == "OrbitChat" })
+        XCTAssertTrue(suggestions.contains { $0.bundleID == "com.example.WorkChat" && $0.name == "WorkChat" })
+    }
+    
+    private func createFakeApp(
+        at appURL: URL,
+        bundleID: String,
+        displayName: String,
+        category: String
+    ) throws {
+        let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+        
+        let infoPlist: [String: Any] = [
+            "CFBundleIdentifier": bundleID,
+            "CFBundleDisplayName": displayName,
+            "CFBundleName": displayName,
+            "LSApplicationCategoryType": category
+        ]
+        
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: infoPlist,
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: contentsURL.appendingPathComponent("Info.plist"))
     }
 }

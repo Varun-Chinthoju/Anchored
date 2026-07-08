@@ -13,6 +13,7 @@ public final class DistractionListManager: ObservableObject {
     
     private let userDefaultsKey = "com.varun.Anchored.distractionList"
     private let defaults: UserDefaults
+    private let applicationSearchRoots: [URL]
     
     // Backing set for O(1) lookups
     private var distractionSet: Set<String>
@@ -32,8 +33,9 @@ public final class DistractionListManager: ObservableObject {
         "com.apple.Music"
     ]
     
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard, applicationSearchRoots: [URL]? = nil) {
         self.defaults = defaults
+        self.applicationSearchRoots = applicationSearchRoots ?? Self.defaultApplicationSearchRoots()
         if let stored = defaults.stringArray(forKey: userDefaultsKey) {
             self.distractionSet = Set(stored)
             self.allDistractions = stored
@@ -69,32 +71,42 @@ public final class DistractionListManager: ObservableObject {
     /// Scans installed apps and returns ones that look like distractions
     /// (social, entertainment, gaming, messaging) not already in the distraction list.
     public var installedSuggestions: [(bundleID: String, name: String)] {
+        scanInstalledApplications(in: applicationSearchRoots)
+    }
+
+    private static func defaultApplicationSearchRoots() -> [URL] {
+        [
+            "/Applications",
+            "/Applications/Utilities",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            NSHomeDirectory() + "/Applications"
+        ].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    private func scanInstalledApplications(in roots: [URL]) -> [(bundleID: String, name: String)] {
         let fileManager = FileManager.default
         var discovered: [(bundleID: String, name: String)] = []
         var seen = Set<String>()
         
-        let searchPaths = [
-            "/Applications",
-            "/Applications/Utilities",
-            NSHomeDirectory() + "/Applications"
-        ]
-        
-        for path in searchPaths {
-            guard let urls = try? fileManager.contentsOfDirectory(
-                at: URL(fileURLWithPath: path),
-                includingPropertiesForKeys: nil,
-                options: .skipsHiddenFiles
+        for root in roots where fileManager.fileExists(atPath: root.path) {
+            guard let enumerator = fileManager.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
             ) else { continue }
             
-            for url in urls where url.pathExtension == "app" {
+            while let url = enumerator.nextObject() as? URL {
+                guard url.pathExtension == "app" else { continue }
+                
                 let infoPlistURL = url.appendingPathComponent("Contents/Info.plist")
                 guard fileManager.fileExists(atPath: infoPlistURL.path),
                       let dict = NSDictionary(contentsOf: infoPlistURL),
                       let bundleID = dict["CFBundleIdentifier"] as? String else { continue }
                 
+                guard bundleID != "com.varun.Anchored" else { continue }
                 guard !distractionSet.contains(bundleID) else { continue }
                 guard !seen.contains(bundleID) else { continue }
-                guard bundleID != "com.varun.Anchored" else { continue }
                 
                 let name = (dict["CFBundleDisplayName"] as? String)
                     ?? (dict["CFBundleName"] as? String)
@@ -107,7 +119,11 @@ public final class DistractionListManager: ObservableObject {
                 let isDistractionCategory =
                     catLower.contains("games") ||
                     catLower.contains("entertainment") ||
-                    catLower.contains("social-networking") ||
+                    catLower.contains("social") ||
+                    catLower.contains("communication") ||
+                    catLower.contains("messaging") ||
+                    catLower.contains("business") ||
+                    catLower.contains("productivity") ||
                     catLower.contains("music") ||
                     catLower.contains("news") ||
                     catLower.contains("sports") ||
@@ -121,6 +137,22 @@ public final class DistractionListManager: ObservableObject {
                     nameLower.contains("whatsapp") ||
                     nameLower.contains("signal") ||
                     nameLower.contains("messenger") ||
+                    nameLower.contains("message") ||
+                    nameLower.contains("messages") ||
+                    nameLower.contains("chat") ||
+                    nameLower.contains("teams") ||
+                    nameLower.contains("zoom") ||
+                    nameLower.contains("weixin") ||
+                    nameLower.contains("wechat") ||
+                    nameLower.contains("line") ||
+                    nameLower.contains("skype") ||
+                    nameLower.contains("viber") ||
+                    nameLower.contains("mattermost") ||
+                    nameLower.contains("zulip") ||
+                    nameLower.contains("element") ||
+                    nameLower.contains("wire") ||
+                    nameLower.contains("threema") ||
+                    nameLower.contains("kakao") ||
                     nameLower.contains("twitter") ||
                     nameLower.contains("reddit") ||
                     nameLower.contains("youtube") ||
@@ -145,6 +177,8 @@ public final class DistractionListManager: ObservableObject {
                     seen.insert(bundleID)
                     discovered.append((bundleID: bundleID, name: name))
                 }
+                
+                enumerator.skipDescendants()
             }
         }
         
