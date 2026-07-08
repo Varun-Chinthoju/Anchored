@@ -2,6 +2,12 @@
 
 Anchored is a zero-ritual, context-aware macOS focus utility for scallywags. Unlike traditional focus blockers that demand upfront commitments or invasive permission handshakes, Anchored passive-actively guards yer flow. It detects when ye step away from yer work, prompts ye to protect yer momentum (Ghost Mode), and escalates using gentle ambient friction if ye stray.
 
+## License
+
+Anchored is licensed under PolyForm Noncommercial 1.0.0. You may contribute and
+use it for noncommercial purposes, but commercial sale or use is not allowed.
+See [LICENSE](LICENSE) for the full terms.
+
 ---
 
 ## 💡 The Captain's Code
