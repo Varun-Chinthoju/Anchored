@@ -15,7 +15,7 @@ struct PermissionStepView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(PirateTheme.gold.opacity(0.08))
+                        .fill(PirateTheme.gold.opacity(0.10))
                         .frame(width: 80, height: 80)
                     
                     SafeSystemImage(systemName: "scope", size: 32)
@@ -46,17 +46,17 @@ struct PermissionStepView: View {
                     // Status Badge Icon
                     ZStack {
                         Circle()
-                            .fill(isGranted ? PirateTheme.gold.opacity(0.12) : Color.red.opacity(0.08))
+                            .fill(isGranted ? PirateTheme.gold.opacity(0.12) : PirateTheme.bronze.opacity(0.10))
                             .frame(width: 90, height: 90)
                         
-                        SafeSystemImage(systemName: isGranted ? "checkmark.seal.fill" : "lock.fill", size: 40, color: isGranted ? PirateTheme.gold : .red)
-                            .shadow(color: (isGranted ? PirateTheme.gold : .red).opacity(0.3), radius: 8)
+                        SafeSystemImage(systemName: isGranted ? "checkmark.seal.fill" : "lock.fill", size: 40, color: isGranted ? PirateTheme.gold : PirateTheme.bronze)
+                            .shadow(color: (isGranted ? PirateTheme.gold : PirateTheme.bronze).opacity(0.3), radius: 8)
                     }
                     
                     VStack(spacing: 8) {
                         Text(isGranted ? t("perm_status_unlocked") : t("perm_status_locked"))
                             .font(.system(size: 18, weight: .bold, design: .serif))
-                            .foregroundColor(isGranted ? PirateTheme.gold : .red)
+                            .foregroundColor(isGranted ? PirateTheme.gold : PirateTheme.bronze)
                         
                         Text(isGranted ? 
                              "Ye've unlocked full browser domain and window title monitoring!" :
@@ -70,7 +70,7 @@ struct PermissionStepView: View {
                         if !isGranted {
                             Text(t("perm_warning"))
                                 .font(.system(size: 11, design: .serif))
-                                .foregroundColor(Color.red.opacity(0.85))
+                                .foregroundColor(PirateTheme.bronze.opacity(0.9))
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(3)
                                 .padding(.horizontal, 24)
@@ -80,7 +80,7 @@ struct PermissionStepView: View {
                 }
                 .padding(.vertical, 32)
                 .frame(maxWidth: .infinity)
-                .background(PirateTheme.darkWood.opacity(0.4))
+                .background(PirateTheme.darkWood.opacity(0.45))
                 .cornerRadius(16)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
@@ -145,10 +145,10 @@ struct PermissionStepView: View {
                             AudioEngine.shared.play(.tick)
                             onNext()
                         }) {
-                            Text("Skip For Now (Distraction site detection will be disabled)")
-                                .font(.system(size: 11, weight: .medium, design: .serif))
-                                .foregroundColor(PirateTheme.parchment.opacity(0.5))
-                                .padding(.vertical, 6)
+                        Text("Skip For Now (Distraction site detection will be disabled)")
+                            .font(.system(size: 11, weight: .medium, design: .serif))
+                            .foregroundColor(PirateTheme.parchment.opacity(0.5))
+                            .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)
                     }

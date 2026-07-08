@@ -63,7 +63,47 @@ class LanguageManager: ObservableObject {
            let lang = AppLanguage(rawValue: storedLang) {
             self.currentLanguage = lang
         } else {
-            self.currentLanguage = .pirate
+            let detected = Self.detectSystemLanguage()
+            self.currentLanguage = detected
+            UserDefaults.standard.set(detected.rawValue, forKey: "com.varun.Anchored.language")
+        }
+    }
+    
+    static func detectSystemLanguage() -> AppLanguage {
+        guard let preferred = Locale.preferredLanguages.first?.lowercased() else {
+            return .pirate
+        }
+        
+        if preferred.hasPrefix("zh") {
+            return .chinese
+        } else if preferred.hasPrefix("es-es") {
+            return .spanishES
+        } else if preferred.hasPrefix("es") {
+            return .spanishLA
+        } else if preferred.hasPrefix("hi") {
+            return .hindi
+        } else if preferred.hasPrefix("te") {
+            return .telugu
+        } else if preferred.hasPrefix("fr") {
+            return .french
+        } else if preferred.hasPrefix("it") {
+            return .italian
+        } else if preferred.hasPrefix("pt") {
+            return .portuguese
+        } else if preferred.hasPrefix("ro") {
+            return .romanian
+        } else if preferred.hasPrefix("ja") {
+            return .japanese
+        } else if preferred.hasPrefix("ko") {
+            return .korean
+        } else if preferred.hasPrefix("vi") {
+            return .vietnamese
+        } else if preferred.hasPrefix("tl") || preferred.hasPrefix("fil") {
+            return .tagalog
+        } else if preferred.hasPrefix("th") {
+            return .thai
+        } else {
+            return .pirate // Default to pirate for English and other unsupported languages
         }
     }
     
@@ -860,8 +900,8 @@ class LanguageManager: ObservableObject {
             .thai: "เปิดใช้งาน Anchored และเริ่มต้นระบบโดยอัตโนมัติเมื่อคุณเข้าสู่ระบบ Mac"
         ],
         "pref_nudges_title": [
-            .pirate: "Enable Scout Sentinels (Smart Nudges)",
-            .english: "Enable Smart Nudges",
+            .pirate: "Enable Anchor Bells",
+            .english: "Focus Alerts",
             .chinese: "启用智能微调提醒",
             .spanishLA: "Activar Alertas Inteligentes",
             .spanishES: "Activar Nudges Inteligentes",
@@ -878,8 +918,8 @@ class LanguageManager: ObservableObject {
             .thai: "เปิดใช้งานระบบการสะกิดเตือนอัจฉเบรีย"
         ],
         "pref_nudges_desc": [
-            .pirate: "Send scout warnings if background activities indicate distraction patterns.",
-            .english: "Receive smart warnings if active background applications indicate potential distraction patterns.",
+            .pirate: "Show a warning when focus auto-starts.",
+            .english: "Show an alert when a focus session auto-starts.",
             .chinese: "当后台应用程序活动显示潜在分心迹象时，向您发送智能提醒。",
             .spanishLA: "Recibe alertas si las aplicaciones en segundo plano indican posibles patrones de distracción.",
             .spanishES: "Recibe avisos si las aplicaciones en segundo plano muestran patrones de distracción potencial.",

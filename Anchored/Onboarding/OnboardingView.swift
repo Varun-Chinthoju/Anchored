@@ -20,9 +20,9 @@ struct OnboardingView: View {
                 // Header / Step dots
                 if currentStep > 0 {
                     HStack(spacing: 8) {
-                        ForEach(0..<8) { index in
+                        ForEach(0..<6) { index in
                             Circle()
-                                .fill(index == currentStep ? PirateTheme.gold : Color.secondary.opacity(0.3))
+                                .fill(index == currentStep ? PirateTheme.gold : PirateTheme.separator)
                                 .frame(width: 8, height: 8)
                         }
                     }
@@ -33,35 +33,29 @@ struct OnboardingView: View {
                 Group {
                     switch currentStep {
                     case 0:
-                        LanguageStepView(windowHeight: windowHeight, onNext: { self.nextStep() })
-                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 1:
                         WelcomeStepView(onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 handleBackgroundTap()
                             }
-                    case 2:
+                    case 1:
                         HowItWorksStepView(onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 handleBackgroundTap()
                             }
-                    case 3:
-                        FocusSelectorView(windowHeight: windowHeight, onNext: { self.nextStep() })
-                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 4:
+                    case 2:
                         DistractionSelectorView(windowHeight: windowHeight, onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 5:
+                    case 3:
                         PreferencesStepView(onComplete: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 6:
+                    case 4:
                         PermissionStepView(windowHeight: windowHeight, onNext: { self.nextStep() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                    case 7:
+                    case 5:
                         SetSailStepView(onComplete: { self.onComplete() })
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                     default:
@@ -72,7 +66,7 @@ struct OnboardingView: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: currentStep)
                 
                 // Click-anywhere helper hint (only shown for non-interactive pages)
-                if currentStep == 1 || currentStep == 2 {
+                if currentStep == 0 || currentStep == 1 {
                     Text(t("how_btn")) // Standard prompt
                         .font(.system(size: 11, weight: .medium, design: .serif))
                         .foregroundColor(PirateTheme.parchment)
@@ -90,13 +84,13 @@ struct OnboardingView: View {
     }
     
     private func nextStep() {
-        if currentStep < 7 {
+        if currentStep < 5 {
             currentStep += 1
         }
     }
     
     private func handleBackgroundTap() {
-        if currentStep == 1 || currentStep == 2 {
+        if currentStep == 0 || currentStep == 1 {
             AudioEngine.shared.play(.tick)
             nextStep()
         }

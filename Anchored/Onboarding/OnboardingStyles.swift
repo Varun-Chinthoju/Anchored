@@ -3,30 +3,33 @@ import SwiftUI
 struct OnboardingBackground: View {
     var body: some View {
         ZStack {
-            // Dark ocean base canvas
-            Color(red: 0.04, green: 0.05, blue: 0.07)
-                .edgesIgnoringSafeArea(.all)
+            LinearGradient(
+                colors: [
+                    PirateTheme.canvas,
+                    PirateTheme.surface.opacity(0.95)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .edgesIgnoringSafeArea(.all)
             
-            // Glowing ambient gold and teal circles
+            // Glowing ambient layers tied to the active theme.
             GeometryReader { geo in
                 ZStack {
-                    // Gold glow (top left)
                     Circle()
-                        .fill(Color(red: 0.9, green: 0.75, blue: 0.3).opacity(0.08))
+                        .fill(PirateTheme.ambientGlow.opacity(0.75))
                         .frame(width: 550, height: 550)
                         .blur(radius: 100)
                         .position(x: 100, y: 100)
-                    
-                    // Deep Teal/Aqua glow (bottom right)
+
                     Circle()
-                        .fill(Color(red: 0.0, green: 0.4, blue: 0.5).opacity(0.1))
+                        .fill(PirateTheme.surfaceRaised.opacity(0.45))
                         .frame(width: 600, height: 600)
                         .blur(radius: 110)
                         .position(x: geo.size.width - 150, y: geo.size.height - 150)
-                    
-                    // Warm Bronze/Amber glow (center right)
+
                     Circle()
-                        .fill(Color(red: 0.6, green: 0.4, blue: 0.1).opacity(0.07))
+                        .fill(PirateTheme.surfaceSubtle.opacity(0.8))
                         .frame(width: 450, height: 450)
                         .blur(radius: 90)
                         .position(x: geo.size.width - 250, y: 250)
@@ -43,7 +46,8 @@ struct SafeSystemImage: View {
     var color: Color = PirateTheme.gold
     
     var body: some View {
-        if let nsImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) {
+        if let symbolName = resolvedSystemName(),
+           let nsImage = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) {
             Image(nsImage: nsImage)
                 .resizable()
                 .renderingMode(.template)
@@ -51,11 +55,32 @@ struct SafeSystemImage: View {
                 .frame(width: size, height: size)
                 .foregroundColor(color)
         } else {
-            Image(systemName: systemName)
+            Image(systemName: "circle.hexagongrid.fill")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
                 .foregroundColor(color)
+        }
+    }
+
+    private func resolvedSystemName() -> String? {
+        symbolCandidates(for: systemName).first {
+            NSImage(systemSymbolName: $0, accessibilityDescription: nil) != nil
+        }
+    }
+
+    private func symbolCandidates(for systemName: String) -> [String] {
+        switch systemName {
+        case "compass.fill":
+            return ["safari.fill", "location.north.fill", "location.north.line.fill"]
+        case "binoculars.fill":
+            return ["eye.fill", "eye.circle.fill", "scope"]
+        case "shield.fill":
+            return ["checkmark.shield.fill", "shield.lefthalf.filled", "shield"]
+        case "eye.slash.fill":
+            return ["eye.slash", "eye.trianglebadge.exclamationmark", "moon.stars.fill"]
+        default:
+            return [systemName]
         }
     }
 }
@@ -81,11 +106,77 @@ struct GlowingText: View {
     }
 }
 
-// Global pirate theme colors
+// Shared theme colors backed by the selected appearance palette.
 struct PirateTheme {
-    static let gold = Color(red: 0.9, green: 0.75, blue: 0.3)
-    static let darkGold = Color(red: 0.75, green: 0.6, blue: 0.2)
-    static let parchment = Color(red: 0.95, green: 0.95, blue: 0.9)
-    static let darkWood = Color(red: 0.12, green: 0.09, blue: 0.07)
-    static let deepBlue = Color(red: 0.05, green: 0.15, blue: 0.25)
+    private static var palette: ThemePalette {
+        PreferencesManager.shared.selectedThemePalette
+    }
+
+    static var gold: Color {
+        palette.accentColor
+    }
+
+    static var darkGold: Color {
+        palette.accentShadowColor
+    }
+
+    static var parchment: Color {
+        palette.parchmentColor
+    }
+
+    static var darkWood: Color {
+        palette.darkWoodColor
+    }
+
+    static var deepBlue: Color {
+        palette.deepBlueColor
+    }
+
+    static var seaFoam: Color {
+        palette.seaFoamColor
+    }
+
+    static var bronze: Color {
+        palette.bronzeColor
+    }
+
+    static var canvas: Color {
+        palette.canvasColor
+    }
+
+    static var ambientGlow: Color {
+        palette.ambientGlowColor
+    }
+
+    static var surface: Color {
+        palette.surfaceColor
+    }
+
+    static var surfaceRaised: Color {
+        palette.surfaceRaisedColor
+    }
+
+    static var surfaceSubtle: Color {
+        palette.surfaceSubtleColor
+    }
+
+    static var border: Color {
+        palette.borderColor
+    }
+
+    static var separator: Color {
+        palette.separatorColor
+    }
+
+    static var meterTrack: Color {
+        palette.meterTrackColor
+    }
+
+    static var textPrimary: Color {
+        palette.textPrimaryColor
+    }
+
+    static var textSecondary: Color {
+        palette.textSecondaryColor
+    }
 }

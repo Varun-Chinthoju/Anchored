@@ -23,6 +23,7 @@ class OnboardingWindow: NSWindow {
         self.isMovableByWindowBackground = false
         
         // Host the OnboardingView directly
+        let themeAccent = PirateTheme.gold
         let view = OnboardingView(
             windowWidth: screenFrame.width,
             windowHeight: screenFrame.height,
@@ -30,6 +31,8 @@ class OnboardingWindow: NSWindow {
                 self?.fadeOutAndClose(onComplete: onComplete)
             }
         )
+        .accentColor(themeAccent)
+        .tint(themeAccent)
         
         self.contentView = NSHostingView(rootView: view)
     }

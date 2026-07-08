@@ -67,7 +67,7 @@ struct HowItWorksStepView: View {
                 )
                 
                 FeatureCard(
-                    icon: "anchor",
+                    icon: "shield.fill",
                     title: t("how_card2_title"),
                     description: t("how_desc2"),
                     accentColor: PirateTheme.gold
