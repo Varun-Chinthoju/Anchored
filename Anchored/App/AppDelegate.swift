@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func startStandardFlow() {
+        NSApp.setActivationPolicy(.accessory)
         appSwitchMonitor = AppSwitchMonitor()
         let prefs = PreferencesManager.shared
         
@@ -87,6 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func showOnboardingFlow() {
+        NSApp.setActivationPolicy(.regular)
         let window = OnboardingWindow { [weak self] in
             guard let self = self else { return }
             UserDefaults.standard.set(true, forKey: Self.onboardingCompletionKey)

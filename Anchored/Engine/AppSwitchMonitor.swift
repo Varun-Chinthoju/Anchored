@@ -95,7 +95,7 @@ final class AppSwitchMonitor: ActivityMonitor {
                 let strategy = BrowserStrategyFactory.strategy(for: bundleID)
                 let context = strategy?.getActiveContext()
                 let currentURL = context?.url
-                let title = context?.title ?? ""
+                let title = (context?.title.isEmpty == false) ? context!.title : getNativeWindowTitle(for: bundleID)
                 lastPolledURL = currentURL
                 lastPolledTitle = title
                 onContextChange?(bundleID, currentURL, title)
@@ -136,7 +136,7 @@ final class AppSwitchMonitor: ActivityMonitor {
         let strategy = BrowserStrategyFactory.strategy(for: bundleID)
         let context = strategy?.getActiveContext()
         let currentURL = context?.url
-        let title = context?.title ?? ""
+        let title = (context?.title.isEmpty == false) ? context!.title : getNativeWindowTitle(for: bundleID)
         
         if currentURL != lastPolledURL || title != lastPolledTitle {
             lastPolledURL = currentURL

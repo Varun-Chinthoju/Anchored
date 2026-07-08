@@ -76,11 +76,16 @@ class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(statusItem)
             
             let now = Date()
-            let elapsed = now.timeIntervalSince(session.startDate)
+            let elapsed: TimeInterval
+            if let pausedAt = focusEngine.pausedDate {
+                elapsed = pausedAt.timeIntervalSince(session.startDate)
+            } else {
+                elapsed = now.timeIntervalSince(session.startDate)
+            }
             let remaining = max(0, session.anchoredDuration - elapsed)
             let remainingMin = Int(remaining / 60)
             let remainingSec = Int(remaining) % 60
-            let timeString = remainingMin > 0 ? "\(remainingMin)m \(remainingSec)s" : "\(remainingSec)s"
+            let timeString = focusEngine.pausedDate != nil ? "\(remainingMin)m \(remainingSec)s (Paused)" : (remainingMin > 0 ? "\(remainingMin)m \(remainingSec)s" : "\(remainingSec)s")
             
             let timeItem = NSMenuItem(title: "Time Remaining: \(timeString)", action: nil, keyEquivalent: "")
             timeItem.isEnabled = false
@@ -183,6 +188,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
             window.close()
         }
         
+        NSApp.setActivationPolicy(.regular)
         let window = SettingsWindow(focusEngine: focusEngine, initialSection: section)
         
         NotificationCenter.default.addObserver(
@@ -201,6 +207,10 @@ class MenuBarController: NSObject, NSMenuDelegate {
         if let window = notification.object as? NSWindow, window == settingsWindow {
             settingsWindow = nil
             NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+            
+            if startSessionWindow == nil {
+                NSApp.setActivationPolicy(.accessory)
+            }
         }
     }
 
@@ -209,6 +219,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
             window.close()
         }
         
+        NSApp.setActivationPolicy(.regular)
         let window = StartSessionWindow(focusEngine: focusEngine)
         
         NotificationCenter.default.addObserver(
@@ -227,6 +238,10 @@ class MenuBarController: NSObject, NSMenuDelegate {
         if let window = notification.object as? NSWindow, window == startSessionWindow {
             startSessionWindow = nil
             NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+            
+            if settingsWindow == nil {
+                NSApp.setActivationPolicy(.accessory)
+            }
         }
     }
     

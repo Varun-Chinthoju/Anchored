@@ -183,8 +183,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         // If we are currently escalated/dimming, adjust overlay windows to cover the new screen configuration
         guard !dimWindows.isEmpty else { return }
         
-        // We can capture the current state/alpha value (e.g. 0.5) from one of the active windows
-        let currentAlpha = dimWindows.first?.alphaValue ?? 0.5
+        // We can capture the current state/alpha value from one of the active windows
+        let currentAlpha = dimWindows.first?.alphaValue ?? DimOverlayWindow.maxAlpha
         
         // Close current windows
         for window in dimWindows {
@@ -199,7 +199,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             window.makeKeyAndOrderFront(nil)
             
             // If it wasn't fully dimmed yet, we can continue escalation animation
-            if currentAlpha < 0.5 {
+            if currentAlpha < DimOverlayWindow.maxAlpha {
                 window.startEscalation()
             }
             dimWindows.append(window)

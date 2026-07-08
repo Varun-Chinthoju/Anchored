@@ -26,22 +26,21 @@ public final class DimOverlayWindow: NSWindow {
         self.hasShadow = false
     }
     
-    /// Starts the ambient escalation animation, ramping opacity to 0.5 over 15 seconds.
+    public static let maxAlpha: CGFloat = 0.85
+    public static let escalationDuration: TimeInterval = 3.0
+    
+    /// Starts the ambient escalation animation, ramping opacity to maxAlpha over escalationDuration.
     public func startEscalation() {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 15.0
+            context.duration = Self.escalationDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            self.animator().alphaValue = 0.5
+            self.animator().alphaValue = Self.maxAlpha
         }
     }
     
     /// Fades out the overlay and removes the window.
     public func liftOverlay() {
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.3
-            self.animator().alphaValue = 0.0
-        }, completionHandler: { [weak self] in
-            self?.close()
-        })
+        self.alphaValue = 0.0
+        self.close()
     }
 }
