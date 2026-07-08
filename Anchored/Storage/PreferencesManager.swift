@@ -26,6 +26,9 @@ public final class PreferencesManager: ObservableObject {
         public static let enableSmartNudges = "com.varun.Anchored.enableSmartNudges"
         public static let focusPromptExperimentEnabled = "com.varun.Anchored.focusPromptExperimentEnabled"
         public static let selectedThemeID = "com.varun.Anchored.selectedThemeID"
+        public static let enableImageClassification = "com.varun.Anchored.enableImageClassification"
+        public static let useLocalGemma = "com.varun.Anchored.useLocalGemma"
+        public static let localModelEndpoint = "com.varun.Anchored.localModelEndpoint"
     }
     
     // Default values
@@ -76,6 +79,27 @@ public final class PreferencesManager: ObservableObject {
         }
     }
     
+    /// Whether the AI image model is allowed to analyze active application window visuals
+    @Published public var enableImageClassification: Bool {
+        didSet {
+            defaults.set(enableImageClassification, forKey: Keys.enableImageClassification)
+        }
+    }
+
+    /// Whether to run local Gemma 3 270m or another LLM model for screen classification
+    @Published public var useLocalGemma: Bool {
+        didSet {
+            defaults.set(useLocalGemma, forKey: Keys.useLocalGemma)
+        }
+    }
+
+    /// The endpoint URL of the local model server (Ollama or llama.cpp)
+    @Published public var localModelEndpoint: String {
+        didSet {
+            defaults.set(localModelEndpoint, forKey: Keys.localModelEndpoint)
+        }
+    }
+    
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
     ///   - defaults: The `UserDefaults` instance to use (defaults to `.standard`).
@@ -101,6 +125,11 @@ public final class PreferencesManager: ObservableObject {
         if defaults.string(forKey: Keys.selectedThemeID) != resolvedTheme {
             defaults.set(resolvedTheme, forKey: Keys.selectedThemeID)
         }
+        
+        // Load image classification preferences
+        self.enableImageClassification = defaults.object(forKey: Keys.enableImageClassification) as? Bool ?? true
+        self.useLocalGemma = defaults.object(forKey: Keys.useLocalGemma) as? Bool ?? false
+        self.localModelEndpoint = defaults.string(forKey: Keys.localModelEndpoint) ?? "http://localhost:11434/api/generate"
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status
@@ -184,6 +213,50 @@ public final class PreferencesManager: ObservableObject {
                 }
             } else {
                 defaults.set(false, forKey: Keys.launchAtLogin)
+            }
+        }
+    }
+    
+    @Published public var gemmaDownloadStatus: String = "Not Downloaded"
+
+    public func downloadGemmaModel() {
+        gemmaDownloadStatus = "Installing mlx-lm..."
+        
+        DispatchQueue.global(qos: .background).async {
+            let installProcess = Process()
+            installProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            installProcess.arguments = ["python3", "-m", "pip", "install", "mlx-lm", "pillow"]
+            
+            do {
+                try installProcess.run()
+                installProcess.waitUntilExit()
+            } catch {
+                // continue to download
+            }
+            
+            DispatchQueue.main.async {
+                self.gemmaDownloadStatus = "Downloading..."
+            }
+            
+            let downloadProcess = Process()
+            downloadProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            downloadProcess.arguments = ["python3", "-c", "import mlx_lm; mlx_lm.load('mlx-community/SmolVLM-256M-Instruct-4bit')"]
+            
+            do {
+                try downloadProcess.run()
+                downloadProcess.waitUntilExit()
+                
+                DispatchQueue.main.async {
+                    if downloadProcess.terminationStatus == 0 {
+                        self.gemmaDownloadStatus = "Downloaded"
+                    } else {
+                        self.gemmaDownloadStatus = "Failed (Check python3)"
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.gemmaDownloadStatus = "Failed to run python3"
+                }
             }
         }
     }

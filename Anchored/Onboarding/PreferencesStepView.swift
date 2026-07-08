@@ -155,6 +155,79 @@ struct PreferencesStepView: View {
                         .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
                 )
                 
+                // AI Visual Productivity Check Toggle
+                Toggle(isOn: $prefs.enableImageClassification) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(t("pref_image_model_title"))
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .foregroundColor(PirateTheme.parchment)
+                        Text(t("pref_image_model_desc"))
+                            .font(.system(size: 11, design: .serif))
+                            .foregroundColor(PirateTheme.parchment.opacity(0.6))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+                .background(PirateTheme.darkWood.opacity(0.4))
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                )
+                
+                // Nested Gemma 3 270M Toggle if Image Classification is Enabled
+                if prefs.enableImageClassification {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $prefs.useLocalGemma) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(t("pref_use_gemma_title"))
+                                    .font(.system(size: 12, weight: .semibold, design: .serif))
+                                    .foregroundColor(PirateTheme.parchment)
+                                Text(t("pref_use_gemma_desc"))
+                                    .font(.system(size: 10, design: .serif))
+                                    .foregroundColor(PirateTheme.parchment.opacity(0.6))
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                        
+                        if prefs.useLocalGemma {
+                            HStack(spacing: 12) {
+                                Button(action: {
+                                    prefs.downloadGemmaModel()
+                                }) {
+                                    Text(t(prefs.gemmaDownloadStatus))
+                                        .font(.system(size: 11, weight: .bold, design: .serif))
+                                        .foregroundColor(PirateTheme.darkWood)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(PirateTheme.gold)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." || prefs.gemmaDownloadStatus == "Downloaded")
+                                
+                                if prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." {
+                                    ProgressView()
+                                        .scaleEffect(0.5)
+                                        .frame(width: 16, height: 16)
+                                }
+                            }
+                            .padding(.leading, 24)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 20)
+                    .background(PirateTheme.darkWood.opacity(0.2))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(PirateTheme.gold.opacity(0.1), lineWidth: 1)
+                    )
+                    .padding(.leading, 16)
+                }
+                
                 // Launch at Login Toggle
                 Toggle(isOn: $prefs.launchAtLogin) {
                     VStack(alignment: .leading, spacing: 4) {

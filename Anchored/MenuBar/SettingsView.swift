@@ -548,9 +548,54 @@ struct GeneralSettingsPane: View {
                     SettingsRow(
                         label: settingsCopy("Focus Alerts", pirate: "Anchor Bells", isPirateMode: isPirateMode),
                         description: settingsCopy("Show an alert when a focus session auto-starts.", pirate: "Show a warning when a focus session auto-starts.", isPirateMode: isPirateMode),
-                        showDivider: false
+                        showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.enableSmartNudges)
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("AI Visual Productivity Check", pirate: "AI Spyglass (Visual Check)", isPirateMode: isPirateMode),
+                        description: settingsCopy("Use local image classification to prevent false alarms. 100% private.", pirate: "Check screens locally to protect your voyage. 100% private.", isPirateMode: isPirateMode),
+                        showDivider: prefs.enableImageClassification
+                    ) {
+                        Toggle("", isOn: $prefs.enableImageClassification)
+                    }
+
+                    if prefs.enableImageClassification {
+                        SettingsRow(
+                            label: settingsCopy("Use SmolVLM 256M (Local VLM)", pirate: "Call SmolVLM 256M (Local VLM)", isPirateMode: isPirateMode),
+                            description: settingsCopy("Queries a local SmolVLM 4-bit vision model (only 145 MB).", pirate: "Steer visual checks to local SmolVLM 4-bit model.", isPirateMode: isPirateMode),
+                            showDivider: prefs.useLocalGemma
+                        ) {
+                            Toggle("", isOn: $prefs.useLocalGemma)
+                        }
+
+                        if prefs.useLocalGemma {
+                            HStack {
+                                Spacer()
+                                Button(action: {
+                                    prefs.downloadGemmaModel()
+                                }) {
+                                    Text(makeSettingsStatus(prefs.gemmaDownloadStatus, isPirateMode: isPirateMode))
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(SettingsTheme.surface)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(SettingsTheme.accent)
+                                        .cornerRadius(5)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." || prefs.gemmaDownloadStatus == "Downloaded")
+                                
+                                if prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." {
+                                    ProgressView()
+                                        .scaleEffect(0.5)
+                                        .frame(width: 14, height: 14)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                        }
                     }
                 }
             }
@@ -1193,4 +1238,24 @@ private func emptyState(_ text: String) -> some View {
 
 private func settingsCopy(_ standard: String, pirate: String, isPirateMode: Bool) -> String {
     isPirateMode ? pirate : standard
+}
+
+private func makeSettingsStatus(_ status: String, isPirateMode: Bool) -> String {
+    if isPirateMode {
+        switch status {
+        case "Not Downloaded": return "Get SmolVLM (MLX)"
+        case "Installing mlx-lm...": return "Boarding mlx-lm..."
+        case "Downloading...": return "Hauling SmolVLM..."
+        case "Downloaded": return "SmolVLM Aboard ✅"
+        default: return status
+        }
+    } else {
+        switch status {
+        case "Not Downloaded": return "Download SmolVLM (MLX)"
+        case "Installing mlx-lm...": return "Installing mlx-lm..."
+        case "Downloading...": return "Downloading SmolVLM..."
+        case "Downloaded": return "SmolVLM Downloaded ✅"
+        default: return status
+        }
+    }
 }
