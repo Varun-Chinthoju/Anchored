@@ -22,7 +22,9 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Core runtime loop: `AppSwitchMonitor -> FocusEngine -> OverlayManager/MenuBarController/SessionStore`
 - Current context model: `bundleID + optional URL + title`, surfaced as `AppContext`
 - Work profiles now persist per-profile `allowedApps` alongside distraction apps and domains
-- Focus classification uses profile `allowedApps`/domains for native apps and explicit browser rules, with a local browser-content heuristic suppressing known gaming and entertainment contexts
+- Focus classification uses profile `allowedApps`/domains for native apps and explicit browser rules, with a local browser-content heuristic suppressing known gaming and entertainment contexts, smart AI classification layers (`SmartAppClassifier` and `SmartWebClassifier`) dynamically classifying unregistered productive IDEs/apps and web coding forums/tutorials, and an on-device visual AI classification layer (`SmartImageClassifier` utilizing macOS native Vision framework or a local Apple Silicon MLX vision-language model like `SmolVLM-256M-Instruct-4bit`) to inspect the active window's visual layout and prevent false alarms.
+- The application includes privacy controls to toggle the AI Visual Productivity Check (`PreferencesManager.enableImageClassification`) and choose/download the local MLX VLM model (`useLocalGemma` and `downloadGemmaModel()`) during onboarding and in settings.
+- The application dynamically updates its `NSApplication` activation policy: it runs as a background-only accessory app (no Dock or Cmd+Tab app switcher icon) by default, but elevates to a regular application (showing the Dock/Cmd+Tab icon) when onboarding, settings, or focus session windows are open.
 - The onboarding focus threshold and distraction countdown remain separate: focus threshold controls session establishment, while countdown duration controls fog/dimming after distraction
 - Auto Voyage now runs continuously in the normal runtime: `ShadowTrackingEngine` watches focus context on device, and `SmartNudgeManager` only adds an optional local notification when auto-focus starts
 - Context history now persists sanitized observations into a dedicated `context_observations` table through `ContextHistoryPipeline` and `ContextHistoryStore`
@@ -410,6 +412,8 @@ Owns:
 - smart nudges enablement
 - hidden focus-prompt experiment rollout state
 - selected settings theme
+- AI Visual Productivity Check (`enableImageClassification`)
+- SmolVLM 256M VLM model toggle (`useLocalGemma`) and download status (`gemmaDownloadStatus`)
 
 Architecture notes:
 
@@ -438,7 +442,7 @@ Scans installed applications for suggestions used by profile configuration. It o
 
 Important behavior:
 
-- first run scans installed apps and seeds likely productive apps
+- scans installed applications, categorizes them (Coding, Video, Writing, Distractions), and seeds them dynamically to their respective default profiles on first run or via a one-time migration
 - tests special-case `XCTest` so focus behavior defaults differently under test
 
 This special test branch matters when debugging classification behavior.
