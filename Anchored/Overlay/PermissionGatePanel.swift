@@ -31,6 +31,7 @@ public class PermissionGatePanel: NSPanel {
         onDismiss: @escaping () -> Void
     ) {
         isDismissing = false
+        let themeAccent = PirateTheme.gold
         
         let view = PermissionGateView(
             onGrant: { [weak self] in
@@ -40,6 +41,8 @@ public class PermissionGatePanel: NSPanel {
                 self?.handleDismiss(callback: onDismiss)
             }
         )
+        .accentColor(themeAccent)
+        .tint(themeAccent)
         
         let hostingView = NSHostingView(rootView: view)
         self.contentView = hostingView

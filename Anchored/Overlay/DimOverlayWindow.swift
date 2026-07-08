@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// A borderless, click-through window covering a display screen that gradually dims the view.
 public final class DimOverlayWindow: NSWindow {
@@ -17,7 +18,7 @@ public final class DimOverlayWindow: NSWindow {
             self.level = .screenSaver
         }
         
-        self.backgroundColor = NSColor.black.withAlphaComponent(0.0)
+        self.backgroundColor = NSColor(PirateTheme.canvas)
         self.alphaValue = 0.0
         self.isOpaque = false
         self.ignoresMouseEvents = true

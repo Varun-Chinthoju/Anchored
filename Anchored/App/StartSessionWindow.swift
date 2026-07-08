@@ -20,8 +20,11 @@ class StartSessionWindow: NSWindow {
         self.minSize = NSSize(width: 544, height: 544)
         self.maxSize = NSSize(width: 544, height: 544)
         
+        let themeAccent = PreferencesManager.shared.selectedThemePalette.accentColor
         let view = StartSessionWindowFormView(focusEngine: focusEngine, window: self)
             .preferredColorScheme(.dark)
+            .accentColor(themeAccent)
+            .tint(themeAccent)
         self.contentView = NSHostingView(rootView: view)
         self.center()
     }
@@ -32,18 +35,37 @@ struct StartSessionWindowFormView: View {
     weak var window: NSWindow?
     
     @ObservedObject private var profileManager = ProfileManager.shared
+    @ObservedObject private var prefs = PreferencesManager.shared
     
     @State private var minutes: Int = 25
     @State private var selectedProfileID: UUID
     @State private var goal: String = ""
     
-    // Raycast-style Pirate Dark Theme Colors
-    private let raycastBlack = Color(red: 0.07, green: 0.07, blue: 0.08)       // #121214
-    private let raycastRowBg = Color(red: 0.11, green: 0.11, blue: 0.12)       // #1C1C1E
-    private let raycastBorder = Color(red: 0.18, green: 0.18, blue: 0.20)      // #2E2E33
-    private let goldColor = Color(red: 0.9, green: 0.75, blue: 0.3)            // #E5C158
-    private let textPrimary = Color(red: 0.95, green: 0.95, blue: 0.96)        // #F2F2F7
-    private let textSecondary = Color(red: 0.55, green: 0.55, blue: 0.6)       // #8E8E93
+    private var themeAccent: Color {
+        prefs.selectedThemePalette.accentColor
+    }
+
+    private var themeSurface: Color {
+        prefs.selectedThemePalette.surfaceColor
+    }
+
+    private var themeSurfaceElevated: Color {
+        prefs.selectedThemePalette.surfaceRaisedColor
+    }
+
+    private var themeTextPrimary: Color {
+        prefs.selectedThemePalette.textPrimaryColor
+    }
+
+    private var themeTextSecondary: Color {
+        prefs.selectedThemePalette.textSecondaryColor
+    }
+
+    private func readableForeground(for color: Color) -> Color {
+        let resolved = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.white
+        let luminance = 0.2126 * resolved.redComponent + 0.7152 * resolved.greenComponent + 0.0722 * resolved.blueComponent
+        return luminance > 0.66 ? .black : .white
+    }
     
     init(focusEngine: FocusEngine, window: NSWindow?) {
         self.focusEngine = focusEngine
@@ -59,7 +81,7 @@ struct StartSessionWindowFormView: View {
                 HStack(spacing: 8) {
                     Text("PLOT VOYAGE")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(goldColor)
+                        .foregroundColor(themeAccent)
                         .tracking(1.5)
                     Spacer()
                 }
@@ -68,20 +90,20 @@ struct StartSessionWindowFormView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(goldColor)
+                        .foregroundColor(themeAccent)
                     
                     TextField("What is yer loot goal for this voyage, Cap'n?", text: $goal)
                         .textFieldStyle(.plain)
                         .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(textPrimary)
+                        .foregroundColor(themeTextPrimary)
                 }
                 .padding(.vertical, 14)
                 .padding(.horizontal, 16)
-                .background(raycastRowBg)
+                .background(themeSurfaceElevated)
                 .cornerRadius(10)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(raycastBorder, lineWidth: 1)
+                        .stroke(themeSurface.opacity(0.9), lineWidth: 1)
                 )
             }
             .padding(.horizontal, 24)
@@ -89,7 +111,7 @@ struct StartSessionWindowFormView: View {
             .padding(.bottom, 20)
             
             Divider()
-                .background(raycastBorder)
+                .background(themeSurface.opacity(0.9))
             
             // Configuration List Rows
             ScrollView {
@@ -99,11 +121,11 @@ struct StartSessionWindowFormView: View {
                         HStack {
                             Text("Voyage Duration")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(textPrimary)
+                                .foregroundColor(themeTextPrimary)
                             Spacer()
                             Text("\(minutes) Leagues (min)")
                                 .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                .foregroundColor(goldColor)
+                                .foregroundColor(themeAccent)
                         }
                         
                         // Presets
@@ -114,14 +136,14 @@ struct StartSessionWindowFormView: View {
                                 }) {
                                     Text("\(min) Bells")
                                         .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(minutes == min ? raycastBlack : textPrimary)
+                                        .foregroundColor(minutes == min ? readableForeground(for: themeAccent) : themeTextPrimary)
                                         .padding(.vertical, 8)
                                         .padding(.horizontal, 12)
-                                        .background(minutes == min ? goldColor : raycastBlack.opacity(0.4))
+                                        .background(minutes == min ? themeAccent : themeSurface.opacity(0.4))
                                         .cornerRadius(6)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 6)
-                                                .stroke(minutes == min ? Color.clear : raycastBorder, lineWidth: 1)
+                                                .stroke(minutes == min ? Color.clear : themeSurface.opacity(0.9), lineWidth: 1)
                                         )
                                 }
                                 .buttonStyle(.plain)
@@ -132,21 +154,21 @@ struct StartSessionWindowFormView: View {
                             get: { Double(minutes) },
                             set: { minutes = Int($0) }
                         ), in: 5...120, step: 5)
-                        .accentColor(goldColor)
+                        .accentColor(themeAccent)
                     }
                     .padding(16)
-                    .background(raycastRowBg)
+                    .background(themeSurfaceElevated)
                     .cornerRadius(10)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(raycastBorder, lineWidth: 1)
+                            .stroke(themeSurface.opacity(0.9), lineWidth: 1)
                     )
                     
                     // Profile Row
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Active Flagship (Profile)")
+                        Text("Active Profile")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(textPrimary)
+                            .foregroundColor(themeTextPrimary)
                         
                         Picker("", selection: $selectedProfileID) {
                             ForEach(profileManager.profiles) { profile in
@@ -158,11 +180,11 @@ struct StartSessionWindowFormView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .padding(16)
-                    .background(raycastRowBg)
+                    .background(themeSurfaceElevated)
                     .cornerRadius(10)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(raycastBorder, lineWidth: 1)
+                            .stroke(themeSurface.opacity(0.9), lineWidth: 1)
                     )
                 }
                 .padding(.horizontal, 24)
@@ -170,7 +192,7 @@ struct StartSessionWindowFormView: View {
             }
             
             Divider()
-                .background(raycastBorder)
+                .background(themeSurface.opacity(0.9))
             
             // Raycast-style Action Bar at the bottom
             HStack {
@@ -179,12 +201,12 @@ struct StartSessionWindowFormView: View {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
-                        .background(raycastRowBg)
+                        .background(themeSurfaceElevated)
                         .cornerRadius(3)
-                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(raycastBorder, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(themeSurface.opacity(0.9), lineWidth: 1))
                     Text("to navigate")
                         .font(.system(size: 11))
-                        .foregroundColor(textSecondary)
+                        .foregroundColor(themeTextSecondary)
                 }
                 
                 Spacer()
@@ -199,13 +221,13 @@ struct StartSessionWindowFormView: View {
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 2)
-                                .background(raycastRowBg)
+                                .background(themeSurfaceElevated)
                                 .cornerRadius(3)
-                                .overlay(RoundedRectangle(cornerRadius: 3).stroke(raycastBorder, lineWidth: 1))
+                                .overlay(RoundedRectangle(cornerRadius: 3).stroke(themeSurface.opacity(0.9), lineWidth: 1))
                             Text("Abandon")
                                 .font(.system(size: 12, weight: .medium))
                         }
-                        .foregroundColor(textSecondary)
+                        .foregroundColor(themeTextSecondary)
                         .padding(.vertical, 6)
                         .padding(.horizontal, 10)
                     }
@@ -230,15 +252,15 @@ struct StartSessionWindowFormView: View {
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 2)
-                                .background(Color.black.opacity(0.2))
+                                .background(themeSurface.opacity(0.3))
                                 .cornerRadius(3)
                             Text("Set Sail")
                                 .font(.system(size: 12, weight: .bold))
                         }
-                        .foregroundColor(raycastBlack)
+                        .foregroundColor(readableForeground(for: themeAccent))
                         .padding(.vertical, 6)
                         .padding(.horizontal, 12)
-                        .background(goldColor)
+                        .background(themeAccent)
                         .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
@@ -246,9 +268,17 @@ struct StartSessionWindowFormView: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
-            .background(raycastBlack.opacity(0.5))
+            .background(themeSurface.opacity(0.5))
         }
+        .accentColor(themeAccent)
+        .tint(themeAccent)
         .frame(width: 544, height: 544)
-        .background(raycastBlack)
+        .background(
+            LinearGradient(
+                colors: [PirateTheme.canvas, themeSurface.opacity(0.92), themeSurfaceElevated.opacity(0.88)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 }

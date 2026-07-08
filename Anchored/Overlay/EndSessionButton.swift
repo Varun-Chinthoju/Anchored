@@ -16,29 +16,29 @@ public struct EndSessionButton: View {
                     .font(.system(size: 14))
                 Text("Anchored")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(PirateTheme.parchment)
             }
             .opacity(0.9)
             
             Divider()
                 .frame(height: 16)
-                .background(Color.white.opacity(0.2))
+                .background(PirateTheme.separator)
             
             Button(action: onEndSession) {
                 Text("End Session")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(PirateTheme.parchment)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(
                         LinearGradient(
-                            colors: isButtonHovered ? [Color.red.opacity(0.8), Color.orange.opacity(0.8)] : [Color.red.opacity(0.6), Color.red.opacity(0.8)],
+                            colors: isButtonHovered ? [PirateTheme.surfaceRaised.opacity(0.92), PirateTheme.gold.opacity(0.88)] : [PirateTheme.surface.opacity(0.92), PirateTheme.surfaceRaised.opacity(0.92)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .cornerRadius(8)
-                    .shadow(color: Color.red.opacity(0.3), radius: isButtonHovered ? 6 : 2, x: 0, y: 2)
+                    .shadow(color: PirateTheme.bronze.opacity(0.3), radius: isButtonHovered ? 6 : 2, x: 0, y: 2)
             }
             .buttonStyle(.plain)
             .onHover { hovering in
@@ -51,14 +51,14 @@ public struct EndSessionButton: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 14)
-                .fill(Color.black.opacity(0.4))
+                .fill(PirateTheme.surface.opacity(0.72))
                 .background(.ultraThinMaterial)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14)
                 .stroke(
                     LinearGradient(
-                        colors: [.white.opacity(0.2), .white.opacity(0.05)],
+                        colors: [PirateTheme.border, PirateTheme.separator],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),

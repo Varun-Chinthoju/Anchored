@@ -3,7 +3,36 @@ import SwiftUI
 struct MenuBarPopoverView: View {
     @ObservedObject var viewModel: MenuBarViewModel
     @ObservedObject private var profileManager = ProfileManager.shared
+    @ObservedObject private var prefs = PreferencesManager.shared
     @State private var showStartForm = false
+
+    private var themeAccent: Color {
+        prefs.selectedThemePalette.accentColor
+    }
+
+    private var themeSurface: Color {
+        prefs.selectedThemePalette.surfaceColor
+    }
+
+    private var themeSurfaceRaised: Color {
+        prefs.selectedThemePalette.surfaceRaisedColor
+    }
+
+    private var themeSurfaceSubtle: Color {
+        prefs.selectedThemePalette.surfaceSubtleColor
+    }
+
+    private var themeBorder: Color {
+        prefs.selectedThemePalette.borderColor
+    }
+
+    private var themeTextPrimary: Color {
+        prefs.selectedThemePalette.textPrimaryColor
+    }
+
+    private var themeTextSecondary: Color {
+        prefs.selectedThemePalette.textSecondaryColor
+    }
     
     var body: some View {
         VStack(spacing: 16) {
@@ -48,7 +77,7 @@ struct MenuBarPopoverView: View {
                     .foregroundColor(.accentColor)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12))
+                    .background(themeSurfaceSubtle)
                     .cornerRadius(8)
                 }
                 .menuStyle(.borderlessButton)
@@ -57,23 +86,23 @@ struct MenuBarPopoverView: View {
                 if viewModel.activeSession != nil {
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(Color.green)
+                            .fill(themeAccent)
                             .frame(width: 8, height: 8)
                         Text("Active")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundColor(.green)
+                            .foregroundColor(themeAccent)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(Color.green.opacity(0.15))
+                    .background(themeAccent.opacity(0.15))
                     .cornerRadius(12)
                 } else {
                     Text("Idle")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(themeTextSecondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Color.primary.opacity(0.05))
+                        .background(themeSurfaceRaised.opacity(0.45))
                         .cornerRadius(12)
                 }
             }
@@ -95,11 +124,11 @@ struct MenuBarPopoverView: View {
                                     Text("via \(session.appName)")
                                 }
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(themeTextSecondary)
                             } else {
                                 Text("Focusing on")
                                     .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(themeTextSecondary)
                                 Text(session.appName)
                                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                             }
@@ -113,8 +142,8 @@ struct MenuBarPopoverView: View {
                         // Progress Bar
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.secondary.opacity(0.2))
+                            RoundedRectangle(cornerRadius: 3)
+                                    .fill(themeSurfaceRaised.opacity(0.55))
                                     .frame(height: 6)
                                 
                                 RoundedRectangle(cornerRadius: 3)
@@ -130,10 +159,10 @@ struct MenuBarPopoverView: View {
                         }) {
                             Text("End Session")
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white)
+                                .foregroundColor(themeTextPrimary)
                                 .padding(.horizontal, 24)
                                 .padding(.vertical, 8)
-                                .background(Color.red.opacity(0.85))
+                                .background(themeSurfaceSubtle)
                                 .cornerRadius(8)
                         }
                         .buttonStyle(.plain)
@@ -141,11 +170,11 @@ struct MenuBarPopoverView: View {
                     }
                     .padding(.vertical, 16)
                     .padding(.horizontal, 12)
-                    .background(Color.primary.opacity(0.03))
+                    .background(themeSurface.opacity(0.78))
                     .cornerRadius(12)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                            .stroke(themeBorder, lineWidth: 1)
                     )
                 } else {
                     if showStartForm {
@@ -154,14 +183,14 @@ struct MenuBarPopoverView: View {
                         VStack(spacing: 8) {
                             Image(systemName: "bolt.shield")
                                 .font(.system(size: 28))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(themeTextSecondary)
                             
                             Text("Ready to Anchor")
                                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                             
                             Text("Focused time is tracked automatically.\nWork in a productive app to trigger a focus block.")
                                 .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(themeTextSecondary)
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(2)
                             
@@ -170,10 +199,10 @@ struct MenuBarPopoverView: View {
                             }) {
                                 Text("Start Focus Session...")
                                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(themeTextPrimary)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 6)
-                                    .background(Color.accentColor)
+                                    .background(themeAccent)
                                     .cornerRadius(6)
                             }
                             .buttonStyle(.plain)
@@ -182,11 +211,11 @@ struct MenuBarPopoverView: View {
                         .padding(.vertical, 20)
                         .padding(.horizontal, 16)
                         .frame(maxWidth: .infinity)
-                        .background(Color.primary.opacity(0.02))
+                        .background(themeSurface.opacity(0.65))
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                                .stroke(themeBorder, lineWidth: 1)
                         )
                     }
                 }
@@ -197,7 +226,7 @@ struct MenuBarPopoverView: View {
                 StatCard(
                     title: "Focus Time",
                     value: formatDuration(viewModel.stats.focusedTimeToday),
-                    icon: "hourglass"
+                    icon: "timer"
                 )
                 StatCard(
                     title: "Sessions",
@@ -215,23 +244,23 @@ struct MenuBarPopoverView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Recent Sessions")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(themeTextSecondary)
                     .padding(.horizontal, 4)
                 
                 VStack(spacing: 8) {
                     if viewModel.recentSessions.isEmpty {
                         Text("No sessions logged today")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(themeTextSecondary)
                             .padding(.vertical, 12)
                             .frame(maxWidth: .infinity)
-                            .background(Color.primary.opacity(0.01))
+                            .background(themeSurface.opacity(0.55))
                             .cornerRadius(8)
                     } else {
                         ForEach(viewModel.recentSessions, id: \.id) { session in
                             HStack {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green.opacity(0.8))
+                                    .foregroundColor(themeAccent)
                                     .font(.system(size: 12))
                                 
                                 VStack(alignment: .leading, spacing: 2) {
@@ -239,18 +268,18 @@ struct MenuBarPopoverView: View {
                                         .font(.system(size: 12, weight: .semibold))
                                     Text(formatTime(session.timestamp))
                                         .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(themeTextSecondary)
                                 }
                                 
                                 Spacer()
                                 
                                 Text(formatDuration(Double(session.sessionDurationSeconds ?? 0)))
                                     .font(.system(size: 11, weight: .medium, design: .rounded))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(themeTextSecondary)
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .background(Color.primary.opacity(0.02))
+                            .background(themeSurface.opacity(0.65))
                             .cornerRadius(8)
                         }
                     }
@@ -259,9 +288,18 @@ struct MenuBarPopoverView: View {
         }
         .padding(16)
         .frame(width: 320)
+        .background(
+            LinearGradient(
+                colors: [PirateTheme.canvas, themeSurface.opacity(0.88)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
         .onAppear {
             viewModel.refresh()
         }
+        .accentColor(themeAccent)
+        .tint(themeAccent)
     }
     
     private func formatDuration(_ seconds: Double) -> String {
@@ -288,20 +326,20 @@ struct StatCard: View {
         VStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.system(size: 14))
-                .foregroundColor(.accentColor)
+                .foregroundColor(PirateTheme.gold)
             Text(value)
                 .font(.system(size: 13, weight: .bold, design: .rounded))
             Text(title)
                 .font(.system(size: 9, weight: .medium))
-                .foregroundColor(.secondary)
+                .foregroundColor(PirateTheme.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .background(Color.primary.opacity(0.02))
+        .background(PirateTheme.surface.opacity(0.68))
         .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                .stroke(PirateTheme.border, lineWidth: 1)
         )
     }
 }
@@ -309,11 +347,32 @@ struct StatCard: View {
 struct StartSessionFormView: View {
     @ObservedObject var viewModel: MenuBarViewModel
     @ObservedObject private var profileManager = ProfileManager.shared
+    @ObservedObject private var prefs = PreferencesManager.shared
     @Binding var isPresented: Bool
     
     @State private var minutes: Int = 25
     @State private var selectedProfileID: UUID
     @State private var goal: String = ""
+
+    private var themeAccent: Color {
+        prefs.selectedThemePalette.accentColor
+    }
+
+    private var themeSurface: Color {
+        prefs.selectedThemePalette.surfaceColor
+    }
+
+    private var themeSurfaceRaised: Color {
+        prefs.selectedThemePalette.surfaceRaisedColor
+    }
+
+    private var themeTextPrimary: Color {
+        prefs.selectedThemePalette.textPrimaryColor
+    }
+
+    private var themeTextSecondary: Color {
+        prefs.selectedThemePalette.textSecondaryColor
+    }
     
     init(viewModel: MenuBarViewModel, isPresented: Binding<Bool>) {
         self.viewModel = viewModel
@@ -326,14 +385,14 @@ struct StartSessionFormView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Start Focus Session")
                 .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
+                .foregroundColor(themeTextPrimary)
                 .padding(.bottom, 2)
             
             // Duration Selection
             VStack(alignment: .leading, spacing: 4) {
                 Text("Duration")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(themeTextSecondary)
                 
                 HStack(spacing: 6) {
                     ForEach([15, 25, 45, 60], id: \.self) { min in
@@ -342,10 +401,10 @@ struct StartSessionFormView: View {
                         }) {
                             Text("\(min)m")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(minutes == min ? .white : .primary)
+                                .foregroundColor(themeTextPrimary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 5)
-                                .background(minutes == min ? Color.accentColor : Color.primary.opacity(0.06))
+                                .background(minutes == min ? themeAccent : themeSurfaceRaised.opacity(0.45))
                                 .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
@@ -369,7 +428,7 @@ struct StartSessionFormView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Category (Profile)")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(themeTextSecondary)
                 
                 Picker("", selection: $selectedProfileID) {
                     ForEach(profileManager.profiles) { profile in
@@ -385,13 +444,13 @@ struct StartSessionFormView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Goal / Name")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(themeTextSecondary)
                 
                 TextField("e.g. Code database migrations...", text: $goal)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .padding(6)
-                    .background(Color.primary.opacity(0.04))
+                    .background(themeSurfaceRaised.opacity(0.45))
                     .cornerRadius(6)
             }
             
@@ -402,10 +461,10 @@ struct StartSessionFormView: View {
                 }) {
                     Text("Cancel")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(themeTextPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .background(Color.primary.opacity(0.08))
+                        .background(themeSurfaceRaised.opacity(0.5))
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -427,10 +486,10 @@ struct StartSessionFormView: View {
                 }) {
                     Text("Start")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(themeTextPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .background(Color.accentColor)
+                        .background(themeAccent)
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -438,11 +497,19 @@ struct StartSessionFormView: View {
             .padding(.top, 4)
         }
         .padding(12)
-        .background(Color.primary.opacity(0.02))
+        .background(
+            LinearGradient(
+                colors: [themeSurface.opacity(0.92), themeSurfaceRaised.opacity(0.78)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                .stroke(PirateTheme.border, lineWidth: 1)
         )
+        .accentColor(themeAccent)
+        .tint(themeAccent)
     }
 }

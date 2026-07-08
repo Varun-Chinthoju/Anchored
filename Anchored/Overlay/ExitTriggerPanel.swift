@@ -39,6 +39,7 @@ public class ExitTriggerPanel: NSPanel {
         cancelTimer()
         isDismissing = false
         currentDismissCallback = onDismiss
+        let themeAccent = PirateTheme.gold
         
         let formatted = formatDuration(duration)
         
@@ -52,6 +53,8 @@ public class ExitTriggerPanel: NSPanel {
                 self?.handleDismissSelection()
             }
         )
+        .accentColor(themeAccent)
+        .tint(themeAccent)
         
         let hostingView = NSHostingView(rootView: view)
         self.contentView = hostingView

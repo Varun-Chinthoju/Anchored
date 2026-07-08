@@ -2,6 +2,7 @@ import AppKit
 import Combine
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let onboardingCompletionKey = "hasCompletedOnboarding"
     private var appSwitchMonitor: AppSwitchMonitor?
     private var focusEngine: FocusEngine?
     private var overlayManager: OverlayManager?
@@ -10,12 +11,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var preferencesCancellables = Set<AnyCancellable>()
     private var shadowTrackingEngine: ShadowTrackingEngine?
     private var smartNudgeManager: SmartNudgeManager?
+    private var contextHistoryStore: ContextHistoryStore?
+    private var contextHistoryPipeline: ContextHistoryPipeline?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Reset key for onboarding testing
-        UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
         setupMainMenu()
-        showOnboardingFlow()
+        if shouldShowOnboardingFlow() {
+            showOnboardingFlow()
+        } else {
+            startStandardFlow()
+        }
+    }
+
+    internal func shouldShowOnboardingFlow(defaults: UserDefaults = .standard) -> Bool {
+        !defaults.bool(forKey: Self.onboardingCompletionKey)
     }
     
     private func startStandardFlow() {
@@ -27,16 +36,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             activityMonitor: appSwitchMonitor!,
             distractionListManager: listManager,
             sessionStore: .shared,
-            focusThreshold: prefs.focusThreshold          // Read from user preferences
+            focusThreshold: prefs.effectiveFocusThreshold
         )
+        engine.distractionCountdownThreshold = TimeInterval(prefs.countdownDuration)
+        engine.focusPromptsEnabled = false
         focusEngine = engine
+
+        let shadowEngine = ShadowTrackingEngine(focusEngine: engine, preferencesManager: prefs)
+        shadowTrackingEngine = shadowEngine
+        smartNudgeManager = SmartNudgeManager(
+            shadowEngine: shadowEngine,
+            focusEngine: engine,
+            preferencesManager: prefs
+        )
         
         // Keep engine in sync when the user changes settings
         prefs.$focusThreshold
             .dropFirst()
-            .sink { [weak engine] newThreshold in
-                engine?.focusThreshold = newThreshold
-                print("FocusEngine: threshold updated to \(newThreshold)s")
+            .sink { [weak self, weak engine] _ in
+                let effectiveThreshold = prefs.effectiveFocusThreshold
+                engine?.focusThreshold = effectiveThreshold
+                self?.shadowTrackingEngine?.nudgeThreshold = effectiveThreshold
+                print("FocusEngine: threshold updated to \(effectiveThreshold)s")
             }
             .store(in: &preferencesCancellables)
         
@@ -47,16 +68,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("FocusEngine: countdown updated to \(newDuration)s")
             }
             .store(in: &preferencesCancellables)
-        
+
         let overlay = OverlayManager(focusEngine: engine)
         overlayManager = overlay
         engine.delegate = overlay
+
+        let historyStore = ContextHistoryStore(sqliteStore: SQLiteSessionStore.shared, isEnabled: false)
+        contextHistoryStore = historyStore
+        contextHistoryPipeline = ContextHistoryPipeline(focusEngine: engine, historyStore: historyStore)
         
         menuBarController = MenuBarController(focusEngine: engine)
-        
-        let shadowEngine = ShadowTrackingEngine(focusEngine: engine, preferencesManager: prefs)
-        self.shadowTrackingEngine = shadowEngine
-        self.smartNudgeManager = SmartNudgeManager(shadowEngine: shadowEngine, focusEngine: engine, preferencesManager: prefs)
         
         engine.start()
         print("FocusEngine started (focusThreshold: \(prefs.focusThreshold)s, countdown: \(prefs.countdownDuration)s)")
@@ -68,7 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showOnboardingFlow() {
         let window = OnboardingWindow { [weak self] in
             guard let self = self else { return }
-            UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+            UserDefaults.standard.set(true, forKey: Self.onboardingCompletionKey)
             self.onboardingWindow = nil
             self.startStandardFlow()
         }
@@ -85,7 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "About the Vessel (About Anchored)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
         
-        let prefsItem = NSMenuItem(title: "Ship Rigging (Preferences)...", action: #selector(MenuBarController.openPreferences), keyEquivalent: ",")
+        let prefsItem = NSMenuItem(title: "Settings...", action: #selector(MenuBarController.openPreferences), keyEquivalent: ",")
         prefsItem.target = menuBarController
         appMenu.addItem(prefsItem)
         
@@ -97,27 +118,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
         
-        let quitItem = NSMenuItem(title: "Scuttle the Ship (Quit)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Anchored", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenu.addItem(quitItem)
         
         let appMenuItem = NSMenuItem()
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
         
-        // 2. Voyage Menu ("Voyage")
-        let voyageMenu = NSMenu(title: "Voyage")
+        // 2. Focus Menu
+        let voyageMenu = NSMenu(title: "Focus")
         
-        let startItem = NSMenuItem(title: "Set Sail (Start Session)...", action: #selector(MenuBarController.startSessionClicked), keyEquivalent: "s")
+        let startItem = NSMenuItem(title: "Start Focus Session...", action: #selector(MenuBarController.startSessionClicked), keyEquivalent: "s")
         startItem.target = menuBarController
         voyageMenu.addItem(startItem)
         
-        let endItem = NSMenuItem(title: "Abandon Voyage (Mutiny!)", action: #selector(MenuBarController.endSessionClicked), keyEquivalent: "w")
+        let endItem = NSMenuItem(title: "End Focus Session", action: #selector(MenuBarController.endSessionClicked), keyEquivalent: "w")
         endItem.target = menuBarController
         voyageMenu.addItem(endItem)
         
         voyageMenu.addItem(NSMenuItem.separator())
         
-        let logItem = NSMenuItem(title: "Peer into Captain's Log (Dashboard)...", action: #selector(MenuBarController.openDashboard), keyEquivalent: "d")
+        let logItem = NSMenuItem(title: "Open Captain's Log...", action: #selector(MenuBarController.openDashboard), keyEquivalent: "d")
         logItem.target = menuBarController
         voyageMenu.addItem(logItem)
         
@@ -155,5 +176,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationWillTerminate(_ notification: Notification) {
         focusEngine?.stop()
+        contextHistoryPipeline = nil
+        contextHistoryStore = nil
     }
 }

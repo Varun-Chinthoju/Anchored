@@ -11,30 +11,30 @@ public struct CountdownPillView: View {
         HStack(spacing: 10) {
             // Pulsing gold indicator dot
             Circle()
-                .fill(Color(red: 0.9, green: 0.75, blue: 0.3))
+                .fill(PirateTheme.gold)
                 .frame(width: 8, height: 8)
-                .shadow(color: Color(red: 0.9, green: 0.75, blue: 0.3).opacity(0.8), radius: 4)
+                .shadow(color: PirateTheme.gold.opacity(0.8), radius: 4)
             
             Text("Plundering…")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundColor(PirateTheme.parchment.opacity(0.8))
             
             Text("Sirens in \(secondsRemaining)s")
                 .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 0.9, green: 0.75, blue: 0.3))
+                .foregroundColor(PirateTheme.gold)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
             Capsule()
-                .fill(Color(red: 0.08, green: 0.07, blue: 0.06).opacity(0.85))
+                .fill(PirateTheme.darkWood.opacity(0.85))
                 .background(.ultraThinMaterial)
         )
         .overlay(
             Capsule()
                 .stroke(
                     LinearGradient(
-                        colors: [Color(red: 0.9, green: 0.75, blue: 0.3).opacity(0.4), Color(red: 0.9, green: 0.75, blue: 0.3).opacity(0.1)],
+                        colors: [PirateTheme.gold.opacity(0.4), PirateTheme.gold.opacity(0.1)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),

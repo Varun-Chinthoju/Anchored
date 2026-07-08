@@ -6,10 +6,21 @@ public struct ExitTriggerView: View {
     let onAnchor: (TimeInterval) -> Void
     let onDismiss: () -> Void
     
-    // Pirate colors
-    private let goldColor = Color(red: 0.9, green: 0.75, blue: 0.3)
-    private let parchmentWhite = Color(red: 0.95, green: 0.95, blue: 0.9)
-    private let darkWood = Color(red: 0.12, green: 0.09, blue: 0.07)
+    private var themeAccent: Color {
+        PirateTheme.gold
+    }
+
+    private var themeSurface: Color {
+        PirateTheme.surface
+    }
+
+    private var themeSurfaceElevated: Color {
+        PirateTheme.surfaceRaised
+    }
+
+    private var themeTextPrimary: Color {
+        PirateTheme.textPrimary
+    }
     
     public init(
         formattedDuration: String,
@@ -24,31 +35,31 @@ public struct ExitTriggerView: View {
     }
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Hold Fast Yer Momentum!")
+                Text("Start a focus session?")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundColor(goldColor)
+                    .foregroundColor(themeAccent)
                 
-                Text("Ye just logged \(formattedDuration) of focus plunder in \(appName). Will ye guard this treasure?")
+                Text("You have been focused in \(appName) for \(formattedDuration).")
                     .font(.system(size: 13))
-                    .foregroundColor(parchmentWhite.opacity(0.8))
-                    .lineLimit(3)
+                    .foregroundColor(themeTextPrimary.opacity(0.8))
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
             
             HStack {
                 Button(action: onDismiss) {
-                    Text("Adrift (Take a Break)")
+                    Text("Not now")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(parchmentWhite.opacity(0.8))
+                        .foregroundColor(themeTextPrimary.opacity(0.8))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(Color.red.opacity(0.25))
+                        .background(themeSurfaceElevated.opacity(0.35))
                         .cornerRadius(6)
                         .overlay(
                             RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.red.opacity(0.4), lineWidth: 1)
+                                .stroke(themeAccent.opacity(0.25), lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
@@ -57,53 +68,53 @@ public struct ExitTriggerView: View {
                 
                 HStack(spacing: 8) {
                     Button(action: { onAnchor(900) }) {
-                        Text("15 Bells")
+                        Text("15 min")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(parchmentWhite)
+                            .foregroundColor(themeTextPrimary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .background(Color.black.opacity(0.3))
+                            .background(themeSurface.opacity(0.35))
                             .cornerRadius(6)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .stroke(goldColor.opacity(0.3), lineWidth: 1)
+                                    .stroke(themeAccent.opacity(0.3), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
                     
                     Button(action: { onAnchor(1500) }) {
-                        Text("25 Bells")
+                        Text("25 min")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(parchmentWhite)
+                            .foregroundColor(themeTextPrimary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .background(Color.black.opacity(0.3))
+                            .background(themeSurface.opacity(0.35))
                             .cornerRadius(6)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .stroke(goldColor.opacity(0.3), lineWidth: 1)
+                                    .stroke(themeAccent.opacity(0.3), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
                     
                     Button(action: { onAnchor(2700) }) {
-                        Text("45 Bells")
+                        Text("45 min")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(darkWood)
+                            .foregroundColor(themeSurface)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(goldColor)
+                            .background(themeAccent)
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
-        .padding(24)
-        .frame(width: 480)
+        .padding(20)
+        .frame(width: 440)
         .background(
             LinearGradient(
-                colors: [Color(red: 0.15, green: 0.12, blue: 0.1), Color(red: 0.08, green: 0.07, blue: 0.06)],
+                colors: [themeSurface, themeSurfaceElevated],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -111,7 +122,7 @@ public struct ExitTriggerView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(goldColor.opacity(0.2), lineWidth: 1.5)
+                .stroke(themeAccent.opacity(0.2), lineWidth: 1.5)
         )
         .shadow(color: Color.black.opacity(0.4), radius: 16, x: 0, y: 8)
     }
