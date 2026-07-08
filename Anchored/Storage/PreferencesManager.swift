@@ -21,8 +21,11 @@ public final class PreferencesManager: ObservableObject {
     public enum Keys {
         public static let countdownDuration = "com.varun.Anchored.countdownDuration"
         public static let focusThreshold = "com.varun.Anchored.focusThreshold"
+        public static let focusThresholdOverride = "com.varun.Anchored.focusThresholdOverride"
         public static let launchAtLogin = "com.varun.Anchored.launchAtLogin"
         public static let enableSmartNudges = "com.varun.Anchored.enableSmartNudges"
+        public static let focusPromptExperimentEnabled = "com.varun.Anchored.focusPromptExperimentEnabled"
+        public static let selectedThemeID = "com.varun.Anchored.selectedThemeID"
     }
     
     // Default values
@@ -61,6 +64,17 @@ public final class PreferencesManager: ObservableObject {
             defaults.set(enableSmartNudges, forKey: Keys.enableSmartNudges)
         }
     }
+
+    /// The currently selected theme identifier used by theme-aware settings surfaces.
+    @Published public var selectedThemeID: String {
+        didSet {
+            if !ThemeCatalog.containsTheme(id: selectedThemeID) {
+                selectedThemeID = ThemeCatalog.defaultThemeID
+                return
+            }
+            defaults.set(selectedThemeID, forKey: Keys.selectedThemeID)
+        }
+    }
     
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
@@ -79,6 +93,14 @@ public final class PreferencesManager: ObservableObject {
         
         // Load smart nudges preference
         self.enableSmartNudges = defaults.object(forKey: Keys.enableSmartNudges) as? Bool ?? true
+
+        // Load theme selection
+        let storedTheme = defaults.string(forKey: Keys.selectedThemeID) ?? ThemeCatalog.defaultThemeID
+        let resolvedTheme = ThemeCatalog.containsTheme(id: storedTheme) ? storedTheme : ThemeCatalog.defaultThemeID
+        self.selectedThemeID = resolvedTheme
+        if defaults.string(forKey: Keys.selectedThemeID) != resolvedTheme {
+            defaults.set(resolvedTheme, forKey: Keys.selectedThemeID)
+        }
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status
@@ -91,6 +113,35 @@ public final class PreferencesManager: ObservableObject {
         if launchAtLogin != isRegistered {
             launchAtLogin = isRegistered
         }
+    }
+
+    /// The active theme definition resolved from the stored theme identifier.
+    public var selectedTheme: AppTheme {
+        ThemeCatalog.theme(for: selectedThemeID)
+    }
+
+    /// The active palette resolved from the stored theme identifier.
+    public var selectedThemePalette: ThemePalette {
+        selectedTheme.palette
+    }
+
+    /// A hidden launch-time override used for short live verification runs.
+    public var runtimeFocusThresholdOverride: TimeInterval? {
+        guard let override = defaults.object(forKey: Keys.focusThresholdOverride) as? NSNumber else {
+            return nil
+        }
+        let value = override.doubleValue
+        return value > 0 ? value : nil
+    }
+
+    /// The focus threshold used by the running engine.
+    public var effectiveFocusThreshold: TimeInterval {
+        runtimeFocusThresholdOverride ?? focusThreshold
+    }
+
+    /// Hidden rollout switch. Auto Voyage remains the fallback when this experiment is disabled.
+    public var focusPromptExperimentEnabled: Bool {
+        defaults.object(forKey: Keys.focusPromptExperimentEnabled) as? Bool ?? true
     }
     
     private func updateLaunchAtLogin(_ enabled: Bool) {

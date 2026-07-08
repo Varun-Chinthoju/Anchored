@@ -12,12 +12,12 @@ final class ShadowTrackingEngine {
     
     var onThresholdCrossed: (() -> Void)?
     
-    // Default threshold is 5 minutes (300 seconds)
-    var nudgeThreshold: TimeInterval = 300.0
+    var nudgeThreshold: TimeInterval
     
     init(focusEngine: FocusEngine, preferencesManager: PreferencesManager = .shared) {
         self.focusEngine = focusEngine
         self.preferencesManager = preferencesManager
+        self.nudgeThreshold = preferencesManager.effectiveFocusThreshold
         
         setupObservers()
         updateTrackingState()
@@ -91,12 +91,10 @@ final class ShadowTrackingEngine {
     private func updateTrackingState() {
         // Only track if:
         // 1. Focus session is NOT active (i.e. focusEngine.state != .anchored)
-        // 2. Preferences enable smart nudges
-        // 3. System is NOT sleeping
-        // 4. Current context is a focus context
-        
+        // 2. System is NOT sleeping
+        // 3. Current context is a focus context
+
         let shouldTrack = (focusEngine.state != .anchored) &&
-                          preferencesManager.enableSmartNudges &&
                           !isSleeping &&
                           isFocusContextActive
         

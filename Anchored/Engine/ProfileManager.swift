@@ -18,7 +18,9 @@ public class ProfileManager: ObservableObject {
     @Published public var activeProfile: WorkProfile
     
     public static var defaultProfiles: [WorkProfile] {
-        let codingApps = [
+        let categorized = InstalledAppSuggestionProvider.shared.categorizeAllInstalledApps()
+        
+        let codingApps = Array(Set([
             "com.hnc.Discord",
             "com.tinyspeck.slackmacgap",
             "com.apple.MobileSMS",
@@ -26,17 +28,18 @@ public class ProfileManager: ObservableObject {
             "com.valvesoftware.steam",
             "com.spotify.client",
             "com.apple.Music"
-        ].filter { DistractionListManager.defaultDistractions.contains($0) }
+        ].filter { DistractionListManager.defaultDistractions.contains($0) } + categorized.distractionApps)).sorted()
         
-        let videoApps = [
+        let videoApps = Array(Set([
             "com.hnc.Discord",
             "com.apple.MobileSMS",
             "ru.keepcoder.Telegram",
             "com.valvesoftware.steam",
             "com.tinyspeck.slackmacgap"
-        ].filter { DistractionListManager.defaultDistractions.contains($0) }
+        ].filter { DistractionListManager.defaultDistractions.contains($0) } + categorized.distractionApps)).sorted()
+            .filter { $0 != "com.spotify.client" && $0 != "com.apple.Music" }
         
-        let writingApps = [
+        let writingApps = Array(Set([
             "com.hnc.Discord",
             "com.tinyspeck.slackmacgap",
             "com.apple.MobileSMS",
@@ -44,25 +47,40 @@ public class ProfileManager: ObservableObject {
             "com.valvesoftware.steam",
             "com.spotify.client",
             "com.apple.Music"
-        ].filter { DistractionListManager.defaultDistractions.contains($0) }
+        ].filter { DistractionListManager.defaultDistractions.contains($0) } + categorized.distractionApps)).sorted()
+        
+        var codingAllowed = Array(Set(["com.apple.dt.Xcode", "com.microsoft.VSCode", "com.apple.Terminal", "com.figma.Desktop"] + categorized.codingApps))
+        
+        var videoAllowed = categorized.videoApps
+        if videoAllowed.isEmpty {
+            videoAllowed = ["com.apple.FinalCut", "com.adobe.PremierePro.24", "com.figma.Desktop"]
+        }
+        
+        var writingAllowed = categorized.writingApps
+        if writingAllowed.isEmpty {
+            writingAllowed = ["com.apple.iWork.Pages", "com.microsoft.Word"]
+        }
         
         return [
             WorkProfile(
                 name: "Coding",
                 distractionApps: codingApps,
                 distractionDomains: ["youtube.com", "twitter.com", "x.com", "reddit.com", "instagram.com", "tiktok.com", "facebook.com", "twitch.tv", "netflix.com"],
+                allowedApps: codingAllowed.sorted(),
                 allowedDomains: ["github.com", "stackoverflow.com", "developer.apple.com", "docs.python.org", "npmjs.com", "crates.io", "pkg.go.dev"]
             ),
             WorkProfile(
                 name: "Video",
                 distractionApps: videoApps,
                 distractionDomains: ["twitter.com", "x.com", "reddit.com", "instagram.com", "tiktok.com", "facebook.com", "netflix.com"],
+                allowedApps: videoAllowed.sorted(),
                 allowedDomains: ["youtube.com", "studio.youtube.com", "frame.io", "vimeo.com"]
             ),
             WorkProfile(
                 name: "Writing",
                 distractionApps: writingApps,
                 distractionDomains: ["youtube.com", "twitter.com", "x.com", "reddit.com", "instagram.com", "tiktok.com", "twitch.tv", "netflix.com"],
+                allowedApps: writingAllowed.sorted(),
                 allowedDomains: ["docs.google.com", "wikipedia.org", "scholar.google.com", "notion.so", "medium.com"]
             )
         ]
@@ -82,16 +100,55 @@ public class ProfileManager: ObservableObject {
         
         // Retrieve or initialize active profile
         let activeName = defaults.string(forKey: activeProfileKey) ?? "Coding"
-        let foundActive = loadedProfiles.first(where: { $0.name.localizedCaseInsensitiveCompare(activeName) == .orderedSame })
+        var foundActive = loadedProfiles.first(where: { $0.name.localizedCaseInsensitiveCompare(activeName) == .orderedSame })
             ?? loadedProfiles.first
             ?? WorkProfile(name: "Coding")
+            
+        var didModifyProfiles = false
+        let didInitialAppScanKey = "com.varun.Anchored.didInitialAppScan"
+        if !defaults.bool(forKey: didInitialAppScanKey) {
+            let categorized = InstalledAppSuggestionProvider.shared.categorizeAllInstalledApps()
+            
+            // Merge for Coding profile
+            if let codingIndex = loadedProfiles.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare("Coding") == .orderedSame }) {
+                var profile = loadedProfiles[codingIndex]
+                profile.allowedApps = Array(Set(profile.allowedApps + categorized.codingApps)).sorted()
+                profile.distractionApps = Array(Set(profile.distractionApps + categorized.distractionApps)).sorted()
+                loadedProfiles[codingIndex] = profile
+                didModifyProfiles = true
+            }
+            
+            // Merge for Video profile
+            if let videoIndex = loadedProfiles.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare("Video") == .orderedSame }) {
+                var profile = loadedProfiles[videoIndex]
+                profile.allowedApps = Array(Set(profile.allowedApps + categorized.videoApps)).sorted()
+                profile.distractionApps = Array(Set(profile.distractionApps + categorized.distractionApps)).sorted()
+                loadedProfiles[videoIndex] = profile
+                didModifyProfiles = true
+            }
+            
+            // Merge for Writing profile
+            if let writingIndex = loadedProfiles.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare("Writing") == .orderedSame }) {
+                var profile = loadedProfiles[writingIndex]
+                profile.allowedApps = Array(Set(profile.allowedApps + categorized.writingApps)).sorted()
+                profile.distractionApps = Array(Set(profile.distractionApps + categorized.distractionApps)).sorted()
+                loadedProfiles[writingIndex] = profile
+                didModifyProfiles = true
+            }
+            
+            if let activeUpdated = loadedProfiles.first(where: { $0.id == foundActive.id }) {
+                foundActive = activeUpdated
+            }
+            
+            defaults.set(true, forKey: didInitialAppScanKey)
+        }
         
         // Initialize stored properties using Published wrappers to avoid initialization sequence issues
         self._profiles = Published(initialValue: loadedProfiles)
         self._activeProfile = Published(initialValue: foundActive)
         
-        // If they were not persisted yet, persist them now
-        if defaults.data(forKey: profilesKey) == nil {
+        // If they were not persisted yet, or if we modified them, persist them now
+        if defaults.data(forKey: profilesKey) == nil || didModifyProfiles {
             saveToUserDefaults()
         }
     }

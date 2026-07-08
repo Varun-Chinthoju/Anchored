@@ -18,7 +18,9 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
         super.init()
         
         setupNudgeCallback()
-        requestNotificationPermission()
+        if preferencesManager.enableSmartNudges {
+            requestNotificationPermission()
+        }
         UNUserNotificationCenter.current().delegate = self
     }
     
@@ -32,7 +34,9 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
             self.focusEngine.anchorSession(duration: duration, category: activeProfileName, goal: "Auto-chartered Voyage")
             
             // Alert the user via a local notification
-            self.sendAutoAnchorNotification()
+            if self.preferencesManager.enableSmartNudges {
+                self.sendAutoAnchorNotification()
+            }
         }
     }
     
@@ -49,7 +53,7 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
     private func sendAutoAnchorNotification() {
         let content = UNMutableNotificationContent()
         content.title = "Voyage Automatically Anchored"
-        content.body = "Ye have sailed for 5 minutes, so Anchored has automatically dropped anchor to protect yer momentum!"
+        content.body = "Anchored detected sustained focus and automatically started a session."
         content.sound = UNNotificationSound.default
         content.categoryIdentifier = "com.varun.Anchored.autoanchor"
         

@@ -40,10 +40,34 @@ final class ProfileManagerTests: XCTestCase {
         if let codingProfile = manager.profiles.first(where: { $0.name == "Coding" }) {
             XCTAssertTrue(codingProfile.distractionApps.contains("com.hnc.Discord"))
             XCTAssertTrue(codingProfile.distractionDomains.contains("youtube.com"))
+            XCTAssertTrue(codingProfile.allowedApps.contains("com.apple.dt.Xcode"))
             XCTAssertTrue(codingProfile.allowedDomains.contains("github.com"))
         } else {
             XCTFail("Coding profile should exist")
         }
+    }
+
+    func testLegacyProfileDecodingDefaultsAllowedAppsToEmptyArray() {
+        let legacyProfileJSON = """
+        [
+          {
+            "id": "D8E246F0-4F95-4F76-8FA8-5E5EEC9D2A2F",
+            "name": "Legacy",
+            "distractionApps": ["com.spotify.client"],
+            "distractionDomains": ["youtube.com"],
+            "allowedDomains": ["github.com"]
+          }
+        ]
+        """
+
+        testDefaults.set(legacyProfileJSON.data(using: .utf8), forKey: "com.varun.Anchored.profiles")
+        testDefaults.set("Legacy", forKey: "com.varun.Anchored.activeProfileName")
+
+        let manager = ProfileManager(defaults: testDefaults)
+
+        XCTAssertEqual(manager.profiles.count, 1)
+        XCTAssertEqual(manager.activeProfile.name, "Legacy")
+        XCTAssertEqual(manager.activeProfile.allowedApps, [])
     }
     
     func testSerializationAndPersistence() {
@@ -107,6 +131,7 @@ final class ProfileManagerTests: XCTestCase {
             name: "CustomFocus",
             distractionApps: ["com.custom.app"],
             distractionDomains: ["distraction.com"],
+            allowedApps: ["com.custom.productivity"],
             allowedDomains: ["allowed.com"]
         )
         
@@ -138,6 +163,7 @@ final class ProfileManagerTests: XCTestCase {
         // When updating distractionDomains and allowedDomains for the active profile
         var activeProfile = manager.activeProfile
         activeProfile.distractionDomains = ["tiktok.com", "reddit.com"]
+        activeProfile.allowedApps = ["com.apple.dt.Xcode", "com.apple.Terminal"]
         activeProfile.allowedDomains = ["github.com", "google.com"]
         
         manager.updateProfile(activeProfile)
@@ -146,6 +172,7 @@ final class ProfileManagerTests: XCTestCase {
         let updatedProfile = manager.profiles.first(where: { $0.id == activeProfile.id })
         XCTAssertNotNil(updatedProfile)
         XCTAssertEqual(updatedProfile?.distractionDomains, ["tiktok.com", "reddit.com"])
+        XCTAssertEqual(updatedProfile?.allowedApps, ["com.apple.dt.Xcode", "com.apple.Terminal"])
         XCTAssertEqual(updatedProfile?.allowedDomains, ["github.com", "google.com"])
         
         // And they should persist in a new instance of ProfileManager
@@ -153,7 +180,7 @@ final class ProfileManagerTests: XCTestCase {
         let loadedProfile = newManager.profiles.first(where: { $0.id == activeProfile.id })
         XCTAssertNotNil(loadedProfile)
         XCTAssertEqual(loadedProfile?.distractionDomains, ["tiktok.com", "reddit.com"])
+        XCTAssertEqual(loadedProfile?.allowedApps, ["com.apple.dt.Xcode", "com.apple.Terminal"])
         XCTAssertEqual(loadedProfile?.allowedDomains, ["github.com", "google.com"])
     }
 }
-

@@ -36,8 +36,13 @@ final class PreferencesManagerTests: XCTestCase {
         // Then it should have default values
         XCTAssertEqual(manager.countdownDuration, PreferencesManager.defaultCountdownDuration)
         XCTAssertEqual(manager.focusThreshold, PreferencesManager.defaultFocusThreshold)
+        XCTAssertNil(manager.runtimeFocusThresholdOverride)
+        XCTAssertEqual(manager.effectiveFocusThreshold, PreferencesManager.defaultFocusThreshold)
         XCTAssertFalse(manager.launchAtLogin)
         XCTAssertTrue(manager.enableSmartNudges)
+        XCTAssertTrue(manager.focusPromptExperimentEnabled)
+        XCTAssertEqual(manager.selectedThemeID, ThemeCatalog.defaultThemeID)
+        XCTAssertEqual(manager.selectedThemePalette, ThemePalette.baldr)
     }
     
     func testInitializationWithStoredSettings() {
@@ -45,6 +50,7 @@ final class PreferencesManagerTests: XCTestCase {
         testDefaults.set(15, forKey: PreferencesManager.Keys.countdownDuration)
         testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
         testDefaults.set(false, forKey: PreferencesManager.Keys.enableSmartNudges)
+        testDefaults.set(false, forKey: PreferencesManager.Keys.focusPromptExperimentEnabled)
         mockService.status = .enabled
         
         // When initializing PreferencesManager
@@ -53,8 +59,22 @@ final class PreferencesManagerTests: XCTestCase {
         // Then it should load the stored values and status
         XCTAssertEqual(manager.countdownDuration, 15)
         XCTAssertEqual(manager.focusThreshold, 300.0)
+        XCTAssertNil(manager.runtimeFocusThresholdOverride)
+        XCTAssertEqual(manager.effectiveFocusThreshold, 300.0)
         XCTAssertTrue(manager.launchAtLogin)
         XCTAssertFalse(manager.enableSmartNudges)
+        XCTAssertFalse(manager.focusPromptExperimentEnabled)
+    }
+
+    func testRuntimeFocusThresholdOverrideWinsForEngineUse() {
+        testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
+        testDefaults.set(5.0, forKey: PreferencesManager.Keys.focusThresholdOverride)
+
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        XCTAssertEqual(manager.focusThreshold, 300.0)
+        XCTAssertEqual(manager.runtimeFocusThresholdOverride, 5.0)
+        XCTAssertEqual(manager.effectiveFocusThreshold, 5.0)
     }
     
     func testCountdownDurationClamping() {
@@ -85,6 +105,21 @@ final class PreferencesManagerTests: XCTestCase {
         // Then it should update the property and persist to defaults
         XCTAssertEqual(manager.focusThreshold, 120.0)
         XCTAssertEqual(testDefaults.double(forKey: PreferencesManager.Keys.focusThreshold), 120.0)
+    }
+
+    func testThemeSelectionPersistence() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.selectedThemeID = "thor"
+
+        XCTAssertEqual(manager.selectedThemeID, "thor")
+        XCTAssertEqual(testDefaults.string(forKey: PreferencesManager.Keys.selectedThemeID), "thor")
+        XCTAssertEqual(manager.selectedThemePalette.accent.hex, ThemeCatalog.theme(for: "thor").primary.stops.first?.hex)
+
+        let reloaded = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+        XCTAssertEqual(reloaded.selectedThemeID, "thor")
+        XCTAssertEqual(reloaded.selectedTheme.name, "Thor")
+        XCTAssertEqual(reloaded.selectedThemePalette.parchment.hex, ThemePalette.baldr.parchment.hex)
     }
     
     func testToggleLaunchAtLoginSuccessful() {

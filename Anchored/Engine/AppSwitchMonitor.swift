@@ -14,6 +14,7 @@ final class AppSwitchMonitor: ActivityMonitor {
     private var pollingTimer: Timer?
     private var activeBrowserBundleID: String?
     private var lastPolledURL: URL?
+    private var lastPolledTitle = ""
     
     init() {}
     
@@ -96,6 +97,7 @@ final class AppSwitchMonitor: ActivityMonitor {
                 let currentURL = context?.url
                 let title = context?.title ?? ""
                 lastPolledURL = currentURL
+                lastPolledTitle = title
                 onContextChange?(bundleID, currentURL, title)
                 
                 // Start background 2.5-second polling timer
@@ -107,6 +109,7 @@ final class AppSwitchMonitor: ActivityMonitor {
         } else {
             activeBrowserBundleID = nil
             lastPolledURL = nil
+            lastPolledTitle = ""
             let title = getNativeWindowTitle(for: bundleID)
             onContextChange?(bundleID, nil, title)
         }
@@ -135,8 +138,9 @@ final class AppSwitchMonitor: ActivityMonitor {
         let currentURL = context?.url
         let title = context?.title ?? ""
         
-        if currentURL != lastPolledURL {
+        if currentURL != lastPolledURL || title != lastPolledTitle {
             lastPolledURL = currentURL
+            lastPolledTitle = title
             onContextChange?(bundleID, currentURL, title)
         }
     }

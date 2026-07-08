@@ -21,6 +21,9 @@ final class FocusEngine {
     /// The title of the current active window or page.
     private(set) var currentTitle: String = ""
     
+    /// The current context of the active window/tab.
+    private(set) var currentContext: AppContext?
+    
     /// The start date of the current work session (focused time).
     var workSessionStart: Date?
     
@@ -33,8 +36,23 @@ final class FocusEngine {
     /// A flag indicating whether the user is currently being escalated/dimmed.
     private(set) var isDimming = false
     
-    /// The default focus threshold (default 10 minutes / 600 seconds).
-    var focusThreshold: TimeInterval
+    /// Productive time selected in onboarding before a focus-session prompt appears.
+    var focusThreshold: TimeInterval {
+        didSet {
+            scheduleFocusPromptTimer()
+        }
+    }
+
+    /// Whether the onboarding Smart Nudges preference allows proactive prompts.
+    var focusPromptsEnabled = true {
+        didSet {
+            if focusPromptsEnabled {
+                scheduleFocusPromptTimer()
+            } else {
+                cancelFocusPromptTimer()
+            }
+        }
+    }
     
     /// The threshold for the distraction countdown pill (default 10 seconds).
     var distractionCountdownThreshold: TimeInterval = 10.0
@@ -42,6 +60,8 @@ final class FocusEngine {
     // Timers
     private var distractionTimer: Timer?
     private var sessionTimer: Timer?
+    private var focusPromptTimer: Timer?
+    private var hasPromptedForCurrentFocusRun = false
     
     // Idle tracking
     var totalIdleTime: TimeInterval = 0.0
@@ -101,10 +121,11 @@ final class FocusEngine {
         activityMonitor.stop()
         cancelSessionTimer()
         cancelDistractionTimer()
+        cancelFocusPromptTimer()
         cancelIdleTimer()
     }
     
-    private func isDistraction(bundleID: String, url: URL?) -> Bool {
+    private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
         if let url = url {
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
                 return true
@@ -112,11 +133,21 @@ final class FocusEngine {
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
                 return false
             }
+        }
+        if BrowserStrategyFactory.isSupportedBrowser(bundleID),
+           BrowserContextClassifier.isEntertainment(url: url, title: title) {
+            return true
+        }
+        if isFocusApp(bundleID: bundleID) {
+            return false
+        }
+        if !profileManager.activeProfile.allowedApps.isEmpty {
+            return true
         }
         return profileManager.activeProfile.distractionApps.contains(bundleID)
     }
-    
-    private func isFocusContext(bundleID: String, url: URL?) -> Bool {
+
+    private func isFocusContext(bundleID: String, url: URL?, title: String) -> Bool {
         if let url = url {
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
                 return true
@@ -125,14 +156,25 @@ final class FocusEngine {
                 return false
             }
         }
-        return FocusListManager.shared.isFocusApp(bundleID)
+        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
+            return !BrowserContextClassifier.isEntertainment(url: url, title: title)
+        }
+        return isFocusApp(bundleID: bundleID)
+    }
+
+    private func isFocusApp(bundleID: String) -> Bool {
+        profileManager.activeProfile.allowedApps.contains(bundleID)
     }
     
     @objc private func handleActiveProfileChange() {
         guard let currentApp = currentApp else { return }
         
         let now = Date()
-        let isCurrentlyDistraction = isDistraction(bundleID: currentApp, url: currentURL)
+        let isCurrentlyDistraction = isDistraction(
+            bundleID: currentApp,
+            url: currentURL,
+            title: currentTitle
+        )
         
         if isCurrentlyDistraction {
             // It is now a distraction under the new active profile
@@ -157,14 +199,10 @@ final class FocusEngine {
                 }
             } else {
                 // No active session
-                if let start = workSessionStart {
-                    let elapsed = now.timeIntervalSince(start)
-                    if elapsed >= focusThreshold {
-                        let focusedAppName = getAppName(for: lastWorkAppBundleID ?? currentApp)
-                        delegate?.didRequestExitTrigger(duration: elapsed, appName: focusedAppName)
-                    }
+                if workSessionStart != nil {
+                    requestFocusPromptIfEligible(now: now)
                 }
-                workSessionStart = nil
+                resetFocusTracking()
             }
         } else {
             // It is now allowed (NOT a distraction) under the new active profile
@@ -178,11 +216,13 @@ final class FocusEngine {
                 distractionStartDate = nil
             } else {
                 // No active session: it is now a work or neutral app
-                if isFocusContext(bundleID: currentApp, url: currentURL) {
+                if isFocusContext(bundleID: currentApp, url: currentURL, title: currentTitle) {
                     lastWorkAppBundleID = currentApp
                     if workSessionStart == nil {
                         workSessionStart = now
+                        hasPromptedForCurrentFocusRun = false
                     }
+                    scheduleFocusPromptTimer()
                 }
             }
         }
@@ -197,7 +237,14 @@ final class FocusEngine {
         currentTitle = title
         let now = Date()
         
-        let isFocus = isFocusContext(bundleID: bundleID, url: url)
+        let context = AppContext(
+            bundleIdentifier: bundleID,
+            localizedName: getAppName(for: bundleID),
+            title: title
+        )
+        currentContext = context
+        
+        let isFocus = isFocusContext(bundleID: bundleID, url: url, title: title)
         NotificationCenter.default.post(
             name: .focusEngineContextDidChange,
             object: self,
@@ -205,11 +252,12 @@ final class FocusEngine {
                 "bundleID": bundleID,
                 "url": url as Any,
                 "title": title,
-                "isFocus": isFocus
+                "isFocus": isFocus,
+                "context": context
             ]
         )
         
-        if isDistraction(bundleID: bundleID, url: url) {
+        if isDistraction(bundleID: bundleID, url: url, title: title) {
             // Distraction app/URL detected
             if activeSession != nil {
                 // Distraction app detected + active session -> delegate call to show countdown pill
@@ -234,18 +282,10 @@ final class FocusEngine {
                 }
             } else {
                 // Distraction app detected + no session
-                if let start = workSessionStart {
-                    let elapsed = now.timeIntervalSince(start)
-                    if elapsed >= focusThreshold {
-                        // elapsed > threshold -> delegate call to show exit-trigger capsule
-                        let focusedAppName = getAppName(for: lastWorkAppBundleID ?? bundleID)
-                        delegate?.didRequestExitTrigger(duration: elapsed, appName: focusedAppName)
-                    }
-                }
-                // distraction app detected + no session -> resets workSessionStart
-                workSessionStart = nil
+                requestFocusPromptIfEligible(now: now)
+                resetFocusTracking()
             }
-        } else if isFocusContext(bundleID: bundleID, url: url) {
+        } else if isFocusContext(bundleID: bundleID, url: url, title: title) {
             // Whitelisted focus app/URL detected
             lastWorkAppBundleID = bundleID
             
@@ -259,7 +299,9 @@ final class FocusEngine {
             } else {
                 if workSessionStart == nil {
                     workSessionStart = now
+                    hasPromptedForCurrentFocusRun = false
                 }
+                scheduleFocusPromptTimer()
             }
         } else {
             // Neutral app/URL detected
@@ -272,14 +314,8 @@ final class FocusEngine {
                 distractionStartDate = nil
             } else {
                 // Check if the user accumulated enough focus time on the previous focus app before switching away
-                if let start = workSessionStart {
-                    let elapsed = now.timeIntervalSince(start)
-                    if elapsed >= focusThreshold {
-                        let focusedAppName = getAppName(for: lastWorkAppBundleID ?? bundleID)
-                        delegate?.didRequestExitTrigger(duration: elapsed, appName: focusedAppName)
-                    }
-                }
-                workSessionStart = nil
+                requestFocusPromptIfEligible(now: now)
+                resetFocusTracking()
             }
         }
     }
@@ -298,6 +334,7 @@ final class FocusEngine {
             goal: goal
         )
         self.activeSession = session
+        cancelFocusPromptTimer()
         
         // Reset idle tracking
         self.totalIdleTime = 0.0
@@ -329,7 +366,7 @@ final class FocusEngine {
     
     /// Resets the work session start time, e.g. when taking a break.
     func dismissTrigger() {
-        workSessionStart = nil
+        resetFocusTracking()
     }
     
     /// Terminates the active session and logs a sessionEnd event.
@@ -358,7 +395,7 @@ final class FocusEngine {
         
         // Clean up state
         activeSession = nil
-        workSessionStart = nil
+        resetFocusTracking()
         isDimming = false
         distractionStartDate = nil
         
@@ -415,6 +452,62 @@ final class FocusEngine {
     }
     
     // MARK: - Timer Helpers
+
+    private func scheduleFocusPromptTimer() {
+        cancelFocusPromptTimer()
+        guard focusPromptsEnabled,
+              activeSession == nil,
+              !hasPromptedForCurrentFocusRun,
+              let start = workSessionStart else {
+            return
+        }
+
+        let remaining = max(0, focusThreshold - Date().timeIntervalSince(start))
+        focusPromptTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
+            self?.focusPromptTimerExpired()
+        }
+    }
+
+    private func cancelFocusPromptTimer() {
+        focusPromptTimer?.invalidate()
+        focusPromptTimer = nil
+    }
+
+    private func resetFocusTracking() {
+        cancelFocusPromptTimer()
+        workSessionStart = nil
+        hasPromptedForCurrentFocusRun = false
+    }
+
+    private func requestFocusPromptIfEligible(now: Date) {
+        guard focusPromptsEnabled,
+              activeSession == nil,
+              !hasPromptedForCurrentFocusRun,
+              let start = workSessionStart else {
+            return
+        }
+
+        let elapsed = now.timeIntervalSince(start)
+        guard elapsed >= focusThreshold else { return }
+
+        hasPromptedForCurrentFocusRun = true
+        cancelFocusPromptTimer()
+        let focusedAppName = getAppName(for: lastWorkAppBundleID ?? currentApp ?? "")
+        delegate?.didRequestExitTrigger(duration: elapsed, appName: focusedAppName)
+    }
+
+    internal func focusPromptTimerExpired() {
+        cancelFocusPromptTimer()
+        guard let bundleID = currentApp,
+              isFocusContext(bundleID: bundleID, url: currentURL, title: currentTitle) else {
+            return
+        }
+
+        requestFocusPromptIfEligible(now: Date())
+        if !hasPromptedForCurrentFocusRun {
+            scheduleFocusPromptTimer()
+        }
+    }
     
     private func scheduleSessionTimer(duration: TimeInterval) {
         cancelSessionTimer()
@@ -473,10 +566,45 @@ final class FocusEngine {
         if let lastComponent = bundleID.split(separator: ".").last {
             let cleaned = String(lastComponent)
             if !cleaned.isEmpty {
-                return cleaned.capitalized
+                return cleaned.prefix(1).uppercased() + cleaned.dropFirst()
             }
         }
         return bundleID
+    }
+}
+
+private enum BrowserContextClassifier {
+    private static let entertainmentHosts = [
+        "youtube.com",
+        "netflix.com",
+        "twitch.tv",
+        "hulu.com",
+        "disneyplus.com",
+        "steampowered.com",
+        "store.steampowered.com",
+        "epicgames.com"
+    ]
+
+    private static let entertainmentTerms = [
+        "gaming",
+        "gameplay",
+        "livestream",
+        "live stream",
+        "watch movie",
+        "watch tv",
+        "entertainment",
+        "netflix",
+        "twitch"
+    ]
+
+    static func isEntertainment(url: URL?, title: String) -> Bool {
+        let host = url?.host?.lowercased() ?? ""
+        if entertainmentHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) {
+            return true
+        }
+
+        let searchableText = "\(title) \(url?.path ?? "")".lowercased()
+        return entertainmentTerms.contains(where: searchableText.contains)
     }
 }
 

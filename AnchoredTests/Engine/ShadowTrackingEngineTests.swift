@@ -7,6 +7,7 @@ class ShadowTrackingEngineTests: XCTestCase {
     var mockMonitor: MockActivityMonitor!
     var distractionListManager: DistractionListManager!
     var preferencesManager: PreferencesManager!
+    var profileManager: ProfileManager!
     var shadowEngine: ShadowTrackingEngine!
     private var originalDistractions: [String] = []
     
@@ -18,6 +19,10 @@ class ShadowTrackingEngineTests: XCTestCase {
         mockMonitor = MockActivityMonitor()
         distractionListManager = DistractionListManager(defaults: testDefaults!)
         preferencesManager = PreferencesManager(defaults: testDefaults!)
+        profileManager = ProfileManager(defaults: testDefaults!)
+        let profile = WorkProfile(name: "Test Focus", allowedApps: ["com.apple.dt.Xcode"])
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
         
         originalDistractions = DistractionListManager.shared.allDistractions
         DistractionListManager.shared.add("com.spotify.client")
@@ -28,6 +33,7 @@ class ShadowTrackingEngineTests: XCTestCase {
             activityMonitor: mockMonitor,
             distractionListManager: distractionListManager,
             sessionStore: SessionStore(fileURL: testDBURL),
+            profileManager: profileManager,
             focusThreshold: 600.0
         )
         
@@ -43,6 +49,7 @@ class ShadowTrackingEngineTests: XCTestCase {
         mockMonitor = nil
         distractionListManager = nil
         preferencesManager = nil
+        profileManager = nil
         
         // Restore DistractionListManager.shared
         let currentDistractions = DistractionListManager.shared.allDistractions
@@ -71,8 +78,8 @@ class ShadowTrackingEngineTests: XCTestCase {
     }
     
     func testShadowTrackingAccumulatesTimeWithTitleContext() {
-        // Given we are in focus context with a title and url
-        mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", url: URL(string: "https://apple.com"), title: "Xcode Project Window")
+        // Given we are in focus context with a title
+        mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", title: "Xcode Project Window")
         shadowEngine.forceUpdateTrackingState()
         
         // Wait a bit
@@ -119,6 +126,8 @@ class ShadowTrackingEngineTests: XCTestCase {
         
         // Wake up
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        shadowEngine.forceUpdateTrackingState()
         
         // Wait and verify it resumes
         let resumeExpectation = XCTestExpectation(description: "resumes after wake")
@@ -130,6 +139,7 @@ class ShadowTrackingEngineTests: XCTestCase {
     }
     
     func testSmartNudgeFiresOnThreshold() {
+        preferencesManager.enableSmartNudges = false
         mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         shadowEngine.forceUpdateTrackingState()
         
@@ -145,6 +155,7 @@ class ShadowTrackingEngineTests: XCTestCase {
         
         wait(for: [expectation], timeout: 3.5)
         XCTAssertTrue(callbackFired)
+        XCTAssertGreaterThanOrEqual(shadowEngine.getContinuousWorkTime(), 0.0)
         // Verify it reset after nudge
         XCTAssertEqual(shadowEngine.getContinuousWorkTime(), 0.0)
     }

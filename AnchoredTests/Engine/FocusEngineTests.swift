@@ -28,7 +28,6 @@ final class FocusEngineTests: XCTestCase {
         // Setup mock ActivityMonitor and Delegate
         mockActivityMonitor = MockActivityMonitor()
         mockDelegate = MockFocusEngineDelegate()
-        
         // Initialize FocusEngine (default threshold = 10 minutes)
         engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
@@ -120,6 +119,58 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.exitTriggers.count, 1)
         XCTAssertEqual(mockDelegate.exitTriggers.first?.appName, "Xcode")
         XCTAssertGreaterThan(mockDelegate.exitTriggers.first?.duration ?? 0, 0.1)
+    }
+
+    func testFocusPromptUsesConfiguredThreshold() {
+        engine.focusThreshold = 120
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.workSessionStart = Date().addingTimeInterval(-119)
+
+        engine.focusPromptTimerExpired()
+
+        XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
+
+        engine.workSessionStart = Date().addingTimeInterval(-121)
+        engine.focusPromptTimerExpired()
+
+        XCTAssertEqual(mockDelegate.exitTriggers.count, 1)
+        XCTAssertEqual(mockDelegate.exitTriggers.first?.appName, "Xcode")
+    }
+
+    func testBrowserEntertainmentDoesNotStartFocusTracking() {
+        let profile = WorkProfile(
+            name: "Browser",
+            allowedApps: ["com.google.Chrome"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://www.youtube.com/watch?v=123"),
+            title: "Gaming highlights - YouTube"
+        )
+
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertNil(engine.workSessionStart)
+    }
+
+    func testBrowserWorkContextStartsFocusTracking() {
+        let profile = WorkProfile(
+            name: "Browser",
+            allowedApps: ["com.google.Chrome"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://developer.apple.com/documentation/swift"),
+            title: "Swift documentation"
+        )
+
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertNotNil(engine.workSessionStart)
     }
     
     // MARK: - Capsule Actions
@@ -353,6 +404,75 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertFalse(engine.isDimming)
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
     }
+
+    func testAllowedAppsOverrideDistractionAppsForAppLevelClassification() {
+        let profile = WorkProfile(
+            name: "AllowedAppProfile",
+            distractionApps: ["com.spotify.client"],
+            allowedApps: ["com.spotify.client"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertNotNil(engine.workSessionStart)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.spotify.client")
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+    }
+
+    func testAllowedAppsRestrictFocusToSelectedAppsWhenPresent() {
+        let profile = WorkProfile(
+            name: "AllowlistProfile",
+            allowedApps: ["com.apple.dt.Xcode"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let localEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0
+        )
+        localEngine.delegate = mockDelegate
+        localEngine.distractionCountdownThreshold = 0.05
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Terminal")
+
+        XCTAssertEqual(localEngine.state, .idle)
+        XCTAssertNil(localEngine.workSessionStart)
+        XCTAssertNil(localEngine.lastWorkAppBundleID)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+    }
+
+    func testProfileAllowedAppsCanMarkAdditionalAppsAsFocus() {
+        let profile = WorkProfile(
+            name: "MixedProfile",
+            allowedApps: ["com.apple.dt.Xcode", "com.apple.Terminal"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0
+        )
+        engine.delegate = mockDelegate
+        engine.distractionCountdownThreshold = 0.05
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Terminal")
+
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertNotNil(engine.workSessionStart)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.Terminal")
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+    }
     
     func testIdleTimeDeductionFromSession() {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
@@ -412,7 +532,7 @@ final class FocusEngineTests: XCTestCase {
         let events = loadEventsFromDisk()
         let distractionEvent = events.first(where: { $0.type == .distractionDetected })
         XCTAssertNotNil(distractionEvent)
-        XCTAssertEqual(distractionEvent?.url, distractionURL?.absoluteString)
+        XCTAssertEqual(distractionEvent?.url, "https://m.youtube.com/watch")
         XCTAssertEqual(distractionEvent?.distraction_domain, "m.youtube.com")
     }
     
@@ -443,6 +563,32 @@ final class FocusEngineTests: XCTestCase {
         
         XCTAssertFalse(engine.isDimming)
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+
+    func testDistractionDomainStillWinsInsideAllowedApp() {
+        let profile = WorkProfile(
+            name: "BrowserProfile",
+            distractionApps: [],
+            distractionDomains: ["youtube.com"],
+            allowedApps: ["com.google.Chrome"],
+            allowedDomains: ["github.com"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+
+        let distractionURL = URL(string: "https://m.youtube.com/watch?v=hello")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: distractionURL)
+
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.google.Chrome"])
+
+        let events = loadEventsFromDisk()
+        let distractionEvent = events.first(where: { $0.type == .distractionDetected })
+        XCTAssertNotNil(distractionEvent)
+        XCTAssertEqual(distractionEvent?.url, "https://m.youtube.com/watch")
+        XCTAssertEqual(distractionEvent?.distraction_domain, "m.youtube.com")
     }
     
     func testPermissionGateTriggered() {
@@ -550,6 +696,46 @@ final class FocusEngineTests: XCTestCase {
             XCTAssertEqual(engine.currentTitle, testCase.title)
             XCTAssertEqual(engine.currentApp, testCase.bundleID)
         }
+    }
+    
+    func testContextPropagationAndMapping() {
+        let expectation = self.expectation(description: "FocusEngineContextDidChange notification fired with AppContext")
+        
+        var receivedContext: AppContext?
+        var receivedBundleID: String?
+        var receivedTitle: String?
+        var receivedIsFocus: Bool?
+        
+        let token = NotificationCenter.default.addObserver(
+            forName: .focusEngineContextDidChange,
+            object: engine,
+            queue: .main
+        ) { notification in
+            if let userInfo = notification.userInfo {
+                receivedContext = userInfo["context"] as? AppContext
+                receivedBundleID = userInfo["bundleID"] as? String
+                receivedTitle = userInfo["title"] as? String
+                receivedIsFocus = userInfo["isFocus"] as? Bool
+                expectation.fulfill()
+            }
+        }
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.TestApp", url: URL(string: "https://example.com/page"), title: "Test Page")
+        
+        waitForExpectations(timeout: 1.0)
+        NotificationCenter.default.removeObserver(token)
+        
+        XCTAssertNotNil(receivedContext)
+        XCTAssertEqual(receivedContext?.bundleIdentifier, "com.example.TestApp")
+        XCTAssertEqual(receivedContext?.localizedName, "TestApp")
+        XCTAssertEqual(receivedContext?.title, "Test Page")
+        
+        XCTAssertEqual(engine.currentContext, receivedContext)
+        
+        // Assert backward compatibility
+        XCTAssertEqual(receivedBundleID, "com.example.TestApp")
+        XCTAssertEqual(receivedTitle, "Test Page")
+        XCTAssertNotNil(receivedIsFocus)
     }
     
     // MARK: - Helper Methods
