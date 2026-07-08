@@ -31,12 +31,30 @@ final class DashboardQueriesTests: XCTestCase {
     }
     
     private func logSync(_ event: SessionEvent) {
-        store.log(event)
-        let expectation = XCTestExpectation(description: "Wait for SQLite write")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        let expectation = expectation(description: "Wait for SQLite write")
+        var result: Result<Void, Error>?
+        store.log(event) {
+            result = $0
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 1.0)
+
+        switch result {
+        case .success:
+            break
+        case .failure(let error):
+            XCTFail("SQLite write failed: \(error)")
+        case nil:
+            XCTFail("Missing SQLite write result")
+        }
+    }
+
+    private func insertEvents(_ events: [SessionEvent]) throws {
+        try store.dbQueue.write { db in
+            for event in events {
+                try event.insert(db)
+            }
+        }
     }
     
     func testTodayTotalFocusTime() {
@@ -273,5 +291,203 @@ final class DashboardQueriesTests: XCTestCase {
         
         let streak = store.weeklyStreak(for: referenceDate, calendar: calendar)
         XCTAssertEqual(streak, 2)
+    }
+
+    func testFetchFocusTimePerHourReturnsOnMainQueue() {
+        let referenceDate = Date()
+        let todayStart = calendar.startOfDay(for: referenceDate)
+
+        let session1 = SessionEvent(
+            timestamp: todayStart.addingTimeInterval(3600),
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            sessionDurationSeconds: 1800
+        )
+        let session2 = SessionEvent(
+            timestamp: todayStart.addingTimeInterval(7200),
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            sessionDurationSeconds: 900
+        )
+
+        logSync(session1)
+        logSync(session2)
+
+        let expected = store.focusTimePerHourForLast24Hours(relativeTo: referenceDate, calendar: calendar)
+
+        let expectation = expectation(description: "Async hourly query")
+        var completedSynchronously = true
+
+        store.fetchFocusTimePerHourForLast24Hours(relativeTo: referenceDate, calendar: calendar) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            switch result {
+            case .success(let buckets):
+                XCTAssertEqual(buckets.count, expected.count)
+                for (bucket, pair) in zip(buckets, expected) {
+                    XCTAssertEqual(bucket.date, pair.0)
+                    XCTAssertEqual(bucket.duration, pair.1)
+                }
+            case .failure(let error):
+                XCTFail("Unexpected dashboard query failure: \(error.localizedDescription)")
+            }
+            completedSynchronously = false
+            expectation.fulfill()
+        }
+
+        XCTAssertTrue(completedSynchronously)
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testFetchFocusTimePerDayPreservesDaylightSavingBoundaries() {
+        var dstCalendar = Calendar(identifier: .gregorian)
+        dstCalendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+
+        let march7 = dstCalendar.date(from: DateComponents(year: 2026, month: 3, day: 7, hour: 12))!
+        let march8Morning = dstCalendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 1, minute: 30))!
+        let march8AfterJump = dstCalendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 3, minute: 30))!
+        let march9Morning = dstCalendar.date(from: DateComponents(year: 2026, month: 3, day: 9, hour: 1, minute: 30))!
+
+        let march8Start = dstCalendar.startOfDay(for: march8Morning)
+        let march9End = dstCalendar.date(bySettingHour: 23, minute: 59, second: 59, of: dstCalendar.startOfDay(for: march9Morning))!
+
+        let sessions = [
+            SessionEvent(
+                timestamp: march8Morning,
+                type: .sessionEnd,
+                appBundleID: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                sessionDurationSeconds: 1800
+            ),
+            SessionEvent(
+                timestamp: march8AfterJump,
+                type: .sessionEnd,
+                appBundleID: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                sessionDurationSeconds: 1800
+            ),
+            SessionEvent(
+                timestamp: march9Morning,
+                type: .sessionEnd,
+                appBundleID: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                sessionDurationSeconds: 900
+            )
+        ]
+
+        do {
+            try insertEvents(sessions)
+        } catch {
+            XCTFail("Failed to seed DST fixture: \(error)")
+            return
+        }
+
+        let expectation = expectation(description: "Async daily query")
+        store.fetchFocusTimePerDay(since: march7, to: march9End, calendar: dstCalendar) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            switch result {
+            case .success(let buckets):
+                XCTAssertEqual(buckets.count, 3)
+                XCTAssertEqual(buckets[1].date, march8Start)
+                XCTAssertEqual(buckets[1].duration, 3600)
+                XCTAssertEqual(buckets[2].duration, 900)
+            case .failure(let error):
+                XCTFail("Unexpected dashboard query failure: \(error.localizedDescription)")
+            }
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testFetchAppDomainDistributionHandlesLargeFixtureAsynchronously() {
+        let referenceDate = Date()
+        let dayStart = calendar.startOfDay(for: referenceDate)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!.addingTimeInterval(-1)
+
+        let expectation = expectation(description: "Async large fixture query")
+        var completedSynchronously = true
+
+        do {
+            try store.dbQueue.write { db in
+                for index in 0..<100_000 {
+                    let session = SessionEvent(
+                        timestamp: dayStart.addingTimeInterval(TimeInterval(index % 3600)),
+                        type: .sessionEnd,
+                        appBundleID: "com.apple.dt.Xcode",
+                        appName: "Xcode",
+                        url: index.isMultiple(of: 2) ? "https://example.com/path" : nil,
+                        sessionDurationSeconds: 60
+                    )
+                    try session.insert(db)
+                }
+            }
+        } catch {
+            XCTFail("Failed to seed large fixture: \(error)")
+            return
+        }
+
+        store.fetchAppDomainFocusDistribution(since: dayStart, to: dayEnd) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            switch result {
+            case .success(let distributions):
+                XCTAssertEqual(distributions.count, 1)
+                XCTAssertEqual(distributions[0].bundleID, "com.apple.dt.Xcode")
+                XCTAssertEqual(distributions[0].duration, 6_000_000)
+                XCTAssertEqual(distributions[0].domains.first?.domain, "example.com")
+            case .failure(let error):
+                XCTFail("Unexpected dashboard query failure: \(error.localizedDescription)")
+            }
+            completedSynchronously = false
+            expectation.fulfill()
+        }
+
+        XCTAssertTrue(completedSynchronously)
+        wait(for: [expectation], timeout: 5.0)
+    }
+
+    func testFetchRangeSummaryReturnsStoredSessionTotals() throws {
+        let referenceDate = Date()
+        let startDate = referenceDate.addingTimeInterval(-3600)
+        let sessions = [
+            SessionEvent(
+                timestamp: referenceDate.addingTimeInterval(-1800),
+                type: .sessionEnd,
+                appBundleID: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                sessionDurationSeconds: 900
+            ),
+            SessionEvent(
+                timestamp: referenceDate.addingTimeInterval(-900),
+                type: .sessionEnd,
+                appBundleID: "com.apple.Safari",
+                appName: "Safari",
+                sessionDurationSeconds: 1800
+            ),
+            SessionEvent(
+                timestamp: referenceDate.addingTimeInterval(-300),
+                type: .distractionDetected,
+                appBundleID: "com.apple.Safari",
+                appName: "Safari"
+            )
+        ]
+        try insertEvents(sessions)
+
+        let expectation = expectation(description: "Async range summary")
+        store.fetchRangeSummary(since: startDate, to: referenceDate) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            switch result {
+            case .success(let summary):
+                XCTAssertEqual(summary.sessionCount, 2)
+                XCTAssertEqual(summary.totalFocusDuration, 2700)
+                XCTAssertEqual(summary.longestSessionDuration, 1800)
+            case .failure(let error):
+                XCTFail("Unexpected dashboard query failure: \(error.localizedDescription)")
+            }
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 1.0)
     }
 }

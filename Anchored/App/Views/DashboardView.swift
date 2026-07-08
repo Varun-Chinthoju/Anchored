@@ -1,0 +1,1113 @@
+import SwiftUI
+import AppKit
+
+enum DashboardChrome {
+    static let main = Color(hex: 0x2A2522)
+    static let tile = Color(hex: 0x403A35)
+    static let sidebarTop = main
+    static let sidebarBottom = Color(hex: 0x211E1C)
+    static let cardTop = tile
+    static let cardBottom = Color(hex: 0x34302C)
+    static let control = main
+    static let chartTop = tile
+    static let chartBottom = Color(hex: 0x302C29)
+}
+
+enum DashboardRange: String, CaseIterable, Identifiable {
+    case day = "1D"
+    case week = "1W"
+    case month = "1M"
+    case quarter = "3M"
+
+    var id: String { rawValue }
+
+    var days: Int {
+        switch self {
+        case .day:
+            return 1
+        case .week:
+            return 7
+        case .month:
+            return 30
+        case .quarter:
+            return 90
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .day:
+            return "Past 24 hours"
+        case .week:
+            return "Past 7 days"
+        case .month:
+            return "This month"
+        case .quarter:
+            return "Past 90 days"
+        }
+    }
+
+    var trendAxisCaption: String {
+        switch self {
+        case .day:
+            return "Last 24 hours"
+        case .week:
+            return "Mon  ·  Tue  ·  Wed  ·  Thu  ·  Fri  ·  Sat  ·  Sun"
+        case .month:
+            return "Month start  ·  Mid  ·  End"
+        case .quarter:
+            return "Q1  ·  Q2  ·  Q3  ·  Q4"
+        }
+    }
+
+    var trendAxisLabels: [String] {
+        switch self {
+        case .day:
+            return ["0", "6", "12", "18", "24"]
+        case .week:
+            return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        case .month:
+            return ["Week 1", "Week 2", "Week 3", "Week 4"]
+        case .quarter:
+            return ["Month 1", "Month 2", "Month 3"]
+        }
+    }
+}
+
+enum DashboardNavItem: String, CaseIterable, Identifiable {
+    case dashboard = "Dashboard"
+    case logs = "Captain's Log"
+    case charts = "Focus Charts"
+    case crew = "Crew & Goals"
+    case routes = "Routes"
+    case settings = "Tide Settings"
+
+    var id: String { rawValue }
+
+    var iconName: String {
+        switch self {
+        case .dashboard:
+            return "square.grid.2x2.fill"
+        case .logs:
+            return "book.closed.fill"
+        case .charts:
+            return "chart.xyaxis.line"
+        case .crew:
+            return "flag.checkered"
+        case .routes:
+            return "map.fill"
+        case .settings:
+            return "gearshape.fill"
+        }
+    }
+}
+
+final class DashboardDataModel: ObservableObject {
+    @Published var trendBuckets: [DashboardTimeBucket] = []
+    @Published var topDistractions: [DistractionRank] = []
+    @Published var trendState: Loadable<[DashboardTimeBucket]> = .idle
+    @Published var rangeSummary: DashboardRangeSummary = DashboardRangeSummary(
+        sessionCount: 0,
+        totalFocusDuration: 0,
+        longestSessionDuration: 0
+    )
+    @Published var allTimeSummary: DashboardRangeSummary = DashboardRangeSummary(
+        sessionCount: 0,
+        totalFocusDuration: 0,
+        longestSessionDuration: 0
+    )
+
+    private let querying: DashboardQuerying
+    private let store: SQLiteSessionStore
+    private var generation: Int = 0
+
+    init(querying: DashboardQuerying = SQLiteSessionStore.shared, store: SQLiteSessionStore = .shared) {
+        self.querying = querying
+        self.store = store
+    }
+
+    func refresh(range: DashboardRange) {
+        generation = generation &+ 1
+        let currentGeneration = generation
+        let calendar = Calendar.current
+        let now = Date()
+        DispatchQueue.global(qos: .userInitiated).async { [store] in
+            let events = store.allEvents()
+            let sessionEndEvents = events.filter { $0.type == .sessionEnd }
+            let startDate = Self.startDate(
+                for: range,
+                referenceDate: now,
+                calendar: calendar,
+                earliestSessionDate: sessionEndEvents.map(\.timestamp).min()
+            )
+
+            let rangeSessionEvents = sessionEndEvents.filter {
+                $0.timestamp >= startDate && $0.timestamp <= now
+            }
+
+            let selectedRangeSummary = Self.summary(from: rangeSessionEvents)
+            let allTimeSummary = Self.summary(from: sessionEndEvents)
+            let distractions = store.topDistractions(since: startDate, to: now)
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, currentGeneration == self.generation else { return }
+                self.rangeSummary = selectedRangeSummary
+                self.allTimeSummary = allTimeSummary
+                self.topDistractions = Array(distractions.prefix(5))
+                self.trendState = .loading
+
+                if range == .day {
+                    self.querying.fetchFocusTimePerHourForLast24Hours(relativeTo: now, calendar: calendar) { [weak self] result in
+                        self?.apply(result: result, generation: currentGeneration)
+                    }
+                } else {
+                    self.querying.fetchFocusTimePerDay(since: startDate, to: now, calendar: calendar) { [weak self] result in
+                        self?.apply(result: result, generation: currentGeneration)
+                    }
+                }
+            }
+        }
+    }
+
+    private func apply(result: Result<[DashboardTimeBucket], DashboardQueryError>, generation: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, generation == self.generation else { return }
+            switch result {
+            case .success(let buckets):
+                self.trendBuckets = buckets
+                self.trendState = buckets.isEmpty ? .empty : .loaded(buckets)
+            case .failure(let error):
+                self.trendBuckets = []
+                self.trendState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private static func summary(from events: [SessionEvent]) -> DashboardRangeSummary {
+        let totalDuration = events.reduce(0.0) { total, event in
+            total + TimeInterval(event.sessionDurationSeconds ?? 0)
+        }
+        let longest = events.compactMap { $0.sessionDurationSeconds }.max() ?? 0
+        return DashboardRangeSummary(
+            sessionCount: events.count,
+            totalFocusDuration: totalDuration,
+            longestSessionDuration: TimeInterval(longest)
+        )
+    }
+
+    private static func startDate(
+        for range: DashboardRange,
+        referenceDate: Date,
+        calendar: Calendar,
+        earliestSessionDate: Date?
+    ) -> Date {
+        switch range {
+        case .day:
+            return calendar.date(byAdding: .hour, value: -24, to: referenceDate) ?? referenceDate
+        case .week:
+            return calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: referenceDate)) ?? referenceDate
+        case .month:
+            let monthStart = calendar.dateInterval(of: .month, for: referenceDate)?.start ?? calendar.startOfDay(for: referenceDate)
+            guard let earliestSessionDate else {
+                return monthStart
+            }
+            return max(monthStart, earliestSessionDate)
+        case .quarter:
+            return calendar.date(byAdding: .day, value: -89, to: calendar.startOfDay(for: referenceDate)) ?? referenceDate
+        }
+    }
+}
+
+struct DashboardView: View {
+    @StateObject private var menuBarViewModel: MenuBarViewModel
+    @StateObject private var dataModel = DashboardDataModel()
+    @ObservedObject private var prefs = PreferencesManager.shared
+    @State private var selectedRange: DashboardRange = .week
+    @State private var selectedSidebarItem: DashboardNavItem = .dashboard
+
+    private let showsSidebar: Bool
+    private let onOpenSettings: (() -> Void)?
+
+    init(
+        focusEngine: FocusEngine,
+        showsSidebar: Bool = true,
+        onOpenSettings: (() -> Void)? = nil
+    ) {
+        _menuBarViewModel = StateObject(wrappedValue: MenuBarViewModel(focusEngine: focusEngine))
+        self.showsSidebar = showsSidebar
+        self.onOpenSettings = onOpenSettings
+    }
+
+    private var palette: ThemePalette {
+        prefs.selectedThemePalette
+    }
+
+    private var focusScore: Int {
+        menuBarViewModel.stats.sessionCountToday
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if showsSidebar {
+                sidebar
+                Divider()
+                    .overlay(palette.separatorColor.opacity(0.8))
+            }
+            mainContent
+        }
+        .padding(showsSidebar ? 12 : 16)
+        .background(dashboardBackground)
+        .onAppear {
+            menuBarViewModel.refresh()
+            dataModel.refresh(range: selectedRange)
+        }
+        .onChange(of: selectedRange) { newValue in
+            dataModel.refresh(range: newValue)
+        }
+        .accentColor(palette.accentColor)
+        .tint(palette.accentColor)
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("FOCUS")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundColor(palette.textSecondaryColor)
+                    .tracking(1.6)
+                Text("Anchored")
+                    .font(.system(size: 24, weight: .semibold, design: .serif))
+                    .foregroundColor(palette.textPrimaryColor)
+                Text("Review your momentum and correct course.")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundColor(palette.textSecondaryColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(spacing: 8) {
+                ForEach(DashboardNavItem.allCases) { item in
+                    DashboardSidebarRow(
+                        item: item,
+                        isSelected: item == selectedSidebarItem,
+                        palette: palette
+                    )
+                    .onTapGesture {
+                        selectedSidebarItem = item
+                    }
+                }
+            }
+
+            Spacer(minLength: 16)
+
+            TodayActivityCard(
+                sessionCount: focusScore,
+                focusDuration: menuBarViewModel.stats.focusedTimeToday,
+                streakDays: menuBarViewModel.stats.streakDays,
+                palette: palette
+            )
+
+            if let onOpenSettings {
+                Button(action: onOpenSettings) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Open Settings")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        Spacer()
+                    }
+                    .foregroundColor(palette.textPrimaryColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(DashboardChrome.control.opacity(0.92))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(palette.borderColor.opacity(0.9), lineWidth: 1)
+                    )
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .frame(width: 252)
+        .background(
+            LinearGradient(
+                colors: [
+                    DashboardChrome.sidebarTop,
+                    DashboardChrome.sidebarBottom
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(palette.borderColor.opacity(0.8), lineWidth: 1)
+        )
+        .cornerRadius(18)
+    }
+
+    private var mainContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                headerRow
+
+                HStack(alignment: .top, spacing: 14) {
+                    TrendPanel(
+                        range: selectedRange,
+                        buckets: dataModel.trendBuckets,
+                        trendState: dataModel.trendState,
+                        palette: palette
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    TopDistractionsPanel(
+                        distractions: dataModel.topDistractions,
+                        rangeTitle: selectedRange.title,
+                        palette: palette
+                    )
+                    .frame(width: 290)
+                }
+
+                HStack(alignment: .top, spacing: 14) {
+                    SummaryMetricCard(
+                        title: "Focus Sessions",
+                        value: "\(dataModel.rangeSummary.sessionCount)",
+                        subtitle: selectedRange.title,
+                        icon: "checkmark.circle.fill",
+                        chartValues: dataModel.trendBuckets.map(\.duration),
+                        palette: palette
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    SummaryMetricCard(
+                        title: "Deep Work",
+                        value: formattedDuration(dataModel.rangeSummary.totalFocusDuration),
+                        subtitle: "Average \(formattedDuration(dataModel.rangeSummary.averageSessionDuration))",
+                        icon: "timer",
+                        chartValues: dataModel.trendBuckets.map(\.duration),
+                        palette: palette
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    LatestSessionCard(
+                        session: menuBarViewModel.recentSessions.first,
+                        palette: palette
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+
+                AllTimeSummaryCard(
+                    summary: dataModel.allTimeSummary,
+                    palette: palette
+                )
+
+                ControlRoomFooterStrip(palette: palette, activeSession: menuBarViewModel.activeSession)
+            }
+            .padding(.vertical, 2)
+            .padding(.trailing, 2)
+        }
+        .scrollIndicators(.hidden)
+        .padding(.leading, 16)
+        .padding(.trailing, 4)
+    }
+
+    private var headerRow: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Captain's Log")
+                    .font(.system(size: 28, weight: .semibold, design: .serif))
+                    .foregroundColor(palette.textPrimaryColor)
+                Text("Focus history, trends, and distractions in one place")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(palette.textSecondaryColor)
+            }
+
+            Spacer()
+
+            DashboardRangePicker(selection: $selectedRange, palette: palette)
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
+    }
+
+    private var dashboardBackground: some View {
+        ControlRoomShellBackground(palette: palette)
+    }
+
+    private func formattedDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int(seconds / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(max(minutes, 1))m"
+    }
+}
+
+private struct DashboardSidebarRow: View {
+    let item: DashboardNavItem
+    let isSelected: Bool
+    let palette: ThemePalette
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: item.iconName)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 18)
+            Text(item.rawValue)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+            Spacer()
+        }
+        .foregroundColor(isSelected ? Color.black.opacity(0.82) : palette.textSecondaryColor)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(backgroundFill)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected ? palette.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
+        .cornerRadius(12)
+    }
+
+    private var backgroundFill: some View {
+        Group {
+            if isSelected {
+                LinearGradient(
+                    colors: [palette.accentColor, palette.accentShadowColor],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            } else {
+                palette.surfaceSubtleColor.opacity(0.35)
+            }
+        }
+    }
+}
+
+private struct TodayActivityCard: View {
+    let sessionCount: Int
+    let focusDuration: TimeInterval
+    let streakDays: Int
+    let palette: ThemePalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Today")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+            Text(formatDuration(focusDuration))
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundColor(palette.textPrimaryColor)
+            Text("\(sessionCount) completed session\(sessionCount == 1 ? "" : "s")")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+            Label("\(streakDays) day streak", systemImage: "flame.fill")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.accentColor)
+        }
+        .padding(14)
+        .background(
+            LinearGradient(
+                colors: [DashboardChrome.cardTop, DashboardChrome.cardBottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(palette.borderColor.opacity(0.95), lineWidth: 1)
+        )
+        .cornerRadius(16)
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds / 60)
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return hours > 0 ? "\(hours)h \(remainder)m" : "\(minutes)m"
+    }
+}
+
+private struct DashboardRangePicker: View {
+    @Binding var selection: DashboardRange
+    let palette: ThemePalette
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(DashboardRange.allCases) { range in
+                Button(action: {
+                    selection = range
+                }) {
+                    Text(range.rawValue)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(selection == range ? Color.black.opacity(0.82) : palette.textSecondaryColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(buttonBackground(for: range))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(selection == range ? palette.accentShadowColor.opacity(0.35) : palette.borderColor.opacity(0.45), lineWidth: 1)
+                        )
+                        .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(DashboardChrome.control.opacity(0.92))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(palette.borderColor.opacity(0.55), lineWidth: 1)
+        )
+        .cornerRadius(14)
+    }
+
+    private func buttonBackground(for range: DashboardRange) -> some View {
+        Group {
+            if selection == range {
+                LinearGradient(
+                    colors: [palette.accentColor, palette.accentShadowColor],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            } else {
+                Color.clear
+            }
+        }
+    }
+}
+
+private struct TrendPanel: View {
+    let range: DashboardRange
+    let buckets: [DashboardTimeBucket]
+    let trendState: Loadable<[DashboardTimeBucket]>
+    let palette: ThemePalette
+
+    var body: some View {
+        ControlRoomCard(title: "Tide Over Time", subtitle: range.title, palette: palette) {
+            VStack(alignment: .leading, spacing: 12) {
+                chartArea
+                    .frame(height: 180)
+
+                HStack {
+                    Text(axisCaption)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(palette.textSecondaryColor)
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(range == .day ? "High" : "High tide")
+                        Text(range == .day ? "Mid" : "Mid tide")
+                        Text(range == .day ? "Low" : "Low tide")
+                    }
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.textSecondaryColor)
+                }
+            }
+        }
+    }
+
+    private var axisCaption: String {
+        range.trendAxisCaption
+    }
+
+    private var chartArea: some View {
+        Group {
+            switch trendState {
+            case .idle, .loading:
+                loadingState
+            case .empty:
+                emptyState
+            case .failed(let message):
+                failureState(message)
+            case .loaded:
+                TrendSparkline(
+                    buckets: buckets,
+                    palette: palette,
+                    axisLabels: axisLabels
+                )
+            }
+        }
+    }
+
+    private var axisLabels: [String] {
+        range.trendAxisLabels
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .tint(palette.accentColor)
+            Text("Charting the tide...")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "wave.3.forward")
+                .font(.system(size: 24))
+                .foregroundColor(palette.accentColor.opacity(0.85))
+            Text("No focus history yet.")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textPrimaryColor)
+            Text("Complete a focus session to populate this chart.")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func failureState(_ message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 24))
+                .foregroundColor(palette.bronzeColor)
+            Text("The tide is rough.")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textPrimaryColor)
+            Text(message)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct TrendSparkline: View {
+    let buckets: [DashboardTimeBucket]
+    let palette: ThemePalette
+    let axisLabels: [String]
+
+    private var values: [Double] {
+        buckets.map(\.duration)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let height = geo.size.height
+            let maxValue = max(1.0, values.max() ?? 1.0)
+            let points = normalizedPoints(in: CGSize(width: width, height: height), maxValue: maxValue)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(
+                        LinearGradient(
+                            colors: [DashboardChrome.chartTop, DashboardChrome.chartBottom],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                GridLines(palette: palette)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 4)
+
+                if !points.isEmpty {
+                    TrendAreaShape(points: points)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    palette.accentColor.opacity(0.28),
+                                    palette.accentColor.opacity(0.05)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .padding(.vertical, 22)
+
+                    TrendLineShape(points: points)
+                        .stroke(
+                            LinearGradient(
+                                colors: [palette.accentColor, palette.accentShadowColor],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                        )
+                        .shadow(color: palette.accentColor.opacity(0.25), radius: 6, x: 0, y: 2)
+                        .padding(.vertical, 22)
+                }
+
+                VStack {
+                    HStack {
+                        Text(axisLabels.first ?? "")
+                        Spacer()
+                        Text(axisLabels.last ?? "")
+                    }
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.textSecondaryColor)
+                    Spacer()
+                    HStack {
+                        Text(axisLabels.count > 2 ? axisLabels[axisLabels.count / 2] : "")
+                        Spacer()
+                        Text(axisLabels.count > 3 ? axisLabels[min(axisLabels.count - 2, axisLabels.count / 2 + 1)] : "")
+                    }
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.textSecondaryColor)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private func normalizedPoints(in size: CGSize, maxValue: Double) -> [CGPoint] {
+        guard values.count > 1 else {
+            guard let value = values.first else { return [] }
+            let y = size.height - (CGFloat(value / maxValue) * size.height)
+            return [CGPoint(x: 0, y: y), CGPoint(x: size.width, y: y)]
+        }
+
+        let step = size.width / CGFloat(values.count - 1)
+        return values.enumerated().map { index, value in
+            let x = CGFloat(index) * step
+            let y = size.height - (CGFloat(value / maxValue) * size.height)
+            return CGPoint(x: x, y: y)
+        }
+    }
+}
+
+private struct GridLines: View {
+    let palette: ThemePalette
+
+    var body: some View {
+        GeometryReader { geo in
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: geo.size.height * 0.25))
+                path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height * 0.25))
+
+                path.move(to: CGPoint(x: 0, y: geo.size.height * 0.5))
+                path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height * 0.5))
+
+                path.move(to: CGPoint(x: 0, y: geo.size.height * 0.75))
+                path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height * 0.75))
+            }
+            .stroke(
+                palette.borderColor.opacity(0.35),
+                style: StrokeStyle(lineWidth: 1, dash: [4, 6])
+            )
+        }
+    }
+}
+
+private struct TrendLineShape: Shape {
+    let points: [CGPoint]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+
+        guard points.count > 1 else {
+            return path
+        }
+
+        for index in 0..<(points.count - 1) {
+            let current = points[index]
+            let next = points[index + 1]
+            let midX = (current.x + next.x) / 2
+            path.addCurve(
+                to: next,
+                control1: CGPoint(x: midX, y: current.y),
+                control2: CGPoint(x: midX, y: next.y)
+            )
+        }
+
+        return path
+    }
+}
+
+private struct TrendAreaShape: Shape {
+    let points: [CGPoint]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard let first = points.first, let last = points.last else { return path }
+        path.move(to: CGPoint(x: first.x, y: rect.maxY))
+        path.addLine(to: first)
+
+        guard points.count > 1 else {
+            path.addLine(to: CGPoint(x: last.x, y: rect.maxY))
+            path.closeSubpath()
+            return path
+        }
+
+        for index in 0..<(points.count - 1) {
+            let current = points[index]
+            let next = points[index + 1]
+            let midX = (current.x + next.x) / 2
+            path.addCurve(
+                to: next,
+                control1: CGPoint(x: midX, y: current.y),
+                control2: CGPoint(x: midX, y: next.y)
+            )
+        }
+
+        path.addLine(to: CGPoint(x: last.x, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct TopDistractionsPanel: View {
+    let distractions: [DistractionRank]
+    let rangeTitle: String
+    let palette: ThemePalette
+
+    var body: some View {
+        ControlRoomCard(title: "Top Distractions", subtitle: rangeTitle, palette: palette) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(distractions.indices, id: \.self) { index in
+                    let distraction = distractions[index]
+                    VStack(spacing: 0) {
+                        HStack(spacing: 10) {
+                            DistractionBadge(rank: index + 1, palette: palette)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(distraction.name)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundColor(palette.textPrimaryColor)
+                                    .lineLimit(1)
+                                Text(distraction.domain ?? distraction.bundleID ?? "Unknown source")
+                                    .font(.system(size: 10, design: .rounded))
+                                    .foregroundColor(palette.textSecondaryColor)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Text(formatDuration(TimeInterval(distraction.totalDurationSeconds)))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundColor(palette.textPrimaryColor)
+                        }
+
+                        if index < distractions.count - 1 {
+                            Divider()
+                                .overlay(palette.separatorColor.opacity(0.85))
+                                .padding(.leading, 38)
+                                .padding(.top, 10)
+                        }
+                    }
+                }
+
+                if distractions.isEmpty {
+                    emptyState
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Nothing noisy yet.")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textPrimaryColor)
+            Text("When distraction blocks appear, they will show up here.")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds / 60)
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        if hours > 0 {
+            return "\(hours)h \(remainingMinutes)m"
+        }
+        return "\(max(minutes, 1))m"
+    }
+}
+
+private struct DistractionBadge: View {
+    let rank: Int
+    let palette: ThemePalette
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [palette.accentColor.opacity(0.95), palette.accentShadowColor.opacity(0.88)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 24, height: 24)
+            Text("\(rank)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundColor(Color.black.opacity(0.82))
+        }
+    }
+}
+
+private struct SummaryMetricCard: View {
+    let title: String
+    let value: String
+    let subtitle: String
+    let icon: String
+    let chartValues: [Double]
+    let palette: ThemePalette
+
+    var body: some View {
+        ControlRoomCard(title: title, subtitle: subtitle, palette: palette) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(value)
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundColor(palette.textPrimaryColor)
+                    MiniBarChart(values: chartValues, palette: palette)
+                        .frame(height: 42)
+                }
+                Spacer(minLength: 10)
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(palette.accentColor)
+                    .frame(width: 36, height: 36)
+                    .background(palette.surfaceSubtleColor.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+}
+
+private struct MiniBarChart: View {
+    let values: [Double]
+    let palette: ThemePalette
+
+    var body: some View {
+        GeometryReader { geo in
+            let maxValue = max(1.0, values.max() ?? 1.0)
+            HStack(alignment: .bottom, spacing: 6) {
+                ForEach(values.indices, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(
+                            LinearGradient(
+                                colors: [palette.accentColor.opacity(0.95), palette.accentShadowColor.opacity(0.92)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: barWidth(in: geo.size.width), height: max(6, geo.size.height * CGFloat(values[index] / maxValue)))
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .bottomLeading)
+        }
+    }
+
+    private func barWidth(in width: CGFloat) -> CGFloat {
+        guard !values.isEmpty else { return 8 }
+        let totalSpacing = CGFloat(max(values.count - 1, 0)) * 6
+        return max(6, (width - totalSpacing) / CGFloat(values.count))
+    }
+}
+
+private struct LatestSessionCard: View {
+    let session: SessionEvent?
+    let palette: ThemePalette
+
+    var body: some View {
+        ControlRoomCard(title: "Latest Session", subtitle: session.map { formatDate($0.timestamp) } ?? "No completed sessions", palette: palette) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(session?.appName ?? "No data yet")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(palette.textPrimaryColor)
+                        .lineLimit(1)
+                    Text(session.map { formatDuration(TimeInterval($0.sessionDurationSeconds ?? 0)) } ?? "Complete a focus session to populate this card.")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(palette.textSecondaryColor)
+                }
+                Spacer()
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(palette.accentColor)
+                    .frame(width: 36, height: 36)
+                    .background(palette.surfaceSubtleColor.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds / 60)
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return hours > 0 ? "\(hours)h \(remainder)m" : "\(minutes)m"
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+private struct AllTimeSummaryCard: View {
+    let summary: DashboardRangeSummary
+    let palette: ThemePalette
+
+    var body: some View {
+        ControlRoomCard(title: "All Time", subtitle: "Since your first session", palette: palette) {
+            HStack(alignment: .top, spacing: 12) {
+                statBlock(
+                    label: "Sessions",
+                    value: "\(summary.sessionCount)"
+                )
+
+                statBlock(
+                    label: "Total Focus",
+                    value: formatDuration(summary.totalFocusDuration)
+                )
+
+                statBlock(
+                    label: "Longest Run",
+                    value: formatDuration(summary.longestSessionDuration)
+                )
+
+                statBlock(
+                    label: "Average",
+                    value: formatDuration(summary.averageSessionDuration)
+                )
+            }
+        }
+    }
+
+    private func statBlock(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+            Text(value)
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textPrimaryColor)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(DashboardChrome.cardBottom.opacity(0.72))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(palette.borderColor.opacity(0.6), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int(seconds / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(max(minutes, 1))m"
+    }
+}

@@ -1,7 +1,35 @@
 import SwiftUI
+import AppKit
 
 struct TopDistractionsView: View {
     let distractions: [DistractionRank]
+    @ObservedObject private var prefs = PreferencesManager.shared
+
+    private var themeAccent: Color {
+        prefs.selectedThemePalette.accentColor
+    }
+
+    private var themeAccentSecondary: Color {
+        prefs.selectedThemePalette.surfaceRaisedColor
+    }
+
+    private var themeSurface: Color {
+        prefs.selectedThemePalette.surfaceColor
+    }
+
+    private var themeBorder: Color {
+        prefs.selectedThemePalette.borderColor
+    }
+
+    private var themeTextSecondary: Color {
+        prefs.selectedThemePalette.textSecondaryColor
+    }
+
+    private func readableForeground(for color: Color) -> Color {
+        let resolved = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.white
+        let luminance = 0.2126 * resolved.redComponent + 0.7152 * resolved.greenComponent + 0.0722 * resolved.blueComponent
+        return luminance > 0.66 ? .black : .white
+    }
     
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -10,7 +38,7 @@ struct TopDistractionsView: View {
                     Spacer()
                     Text("No distractions recorded")
                         .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(themeTextSecondary)
                         .padding(.vertical, 40)
                     Spacer()
                 } else {
@@ -23,11 +51,11 @@ struct TopDistractionsView: View {
                             
                             Text(initial)
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(readableForeground(for: isDomain ? themeAccent : themeAccentSecondary))
                                 .frame(width: 28, height: 28)
                                 .background(
                                     Circle()
-                                        .fill(isDomain ? Color.blue.opacity(0.6) : Color.red.opacity(0.6))
+                                        .fill(isDomain ? themeAccent.opacity(0.55) : themeAccentSecondary.opacity(0.65))
                                 )
                             
                             VStack(alignment: .leading, spacing: 2) {
@@ -38,7 +66,7 @@ struct TopDistractionsView: View {
                                 
                                 Text(isDomain ? "Website" : "Application")
                                     .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(themeTextSecondary)
                             }
                             
                             Spacer()
@@ -50,18 +78,24 @@ struct TopDistractionsView: View {
                                 
                                 Text("\(rank.count) interrupt\(rank.count == 1 ? "" : "s")")
                                     .font(.system(size: 9))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(themeTextSecondary)
                             }
                         }
                         .padding(.vertical, 6)
                         .padding(.horizontal, 8)
-                        .background(Color.white.opacity(0.02))
+                        .background(themeSurface.opacity(0.65))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(themeBorder, lineWidth: 1)
+                        )
                         .cornerRadius(8)
                     }
                 }
             }
         }
         .frame(height: 160)
+        .accentColor(themeAccent)
+        .tint(themeAccent)
     }
     
     private func formatDuration(_ interval: TimeInterval) -> String {
