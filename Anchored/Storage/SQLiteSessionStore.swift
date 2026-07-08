@@ -1,12 +1,15 @@
 import Foundation
 import GRDB
 
+typealias StorageWriteCompletion = (Result<Void, Error>) -> Void
+
 class SQLiteSessionStore {
     static let shared = SQLiteSessionStore()
     
     let dbQueue: DatabaseQueue
     let queue = DispatchQueue(label: "com.varun.Anchored.SQLiteSessionStore", qos: .utility)
     private let databaseURL: URL
+    private(set) var migrationError: Error?
     
     init(databaseURL: URL? = nil) {
         let fileManager = FileManager.default
@@ -33,53 +36,32 @@ class SQLiteSessionStore {
             } else {
                 self.dbQueue = try DatabaseQueue(path: url.path)
             }
-            try setupDatabase()
+            migrateDatabase()
         } catch {
             fatalError("Failed to initialize SQLite database: \(error)")
         }
     }
     
-    private func setupDatabase() throws {
-        try dbQueue.write { db in
-            try db.execute(sql: """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                timestamp DATETIME NOT NULL,
-                type TEXT NOT NULL,
-                appBundleID TEXT NOT NULL,
-                appName TEXT NOT NULL,
-                url TEXT,
-                focusDurationSeconds INTEGER,
-                sessionDurationSeconds INTEGER,
-                distractionAppBundleID TEXT,
-                distraction_domain TEXT,
-                action TEXT,
-                category TEXT,
-                sessionGoal TEXT
-            );
-            """)
-            
-            // Perform schema migration if columns are missing
-            let columns = try db.columns(in: "sessions")
-            let hasCategory = columns.contains { $0.name == "category" }
-            if !hasCategory {
-                try db.execute(sql: "ALTER TABLE sessions ADD COLUMN category TEXT;")
-                try db.execute(sql: "ALTER TABLE sessions ADD COLUMN sessionGoal TEXT;")
-            }
-            
-            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_sessions_timestamp ON sessions(timestamp);")
-            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_sessions_type ON sessions(type);")
+    private func migrateDatabase() {
+        do {
+            try SQLiteDatabaseMigrations.makeMigrator().migrate(dbQueue)
+        } catch {
+            migrationError = error
+            print("SQLiteSessionStore Error: Database migration failed. \(error.localizedDescription)")
         }
     }
     
-    func log(_ event: SessionEvent) {
+    func log(_ event: SessionEvent, completion: StorageWriteCompletion? = nil) {
+        let persistedEvent = event.persistedCopy()
         queue.async {
             do {
                 try self.dbQueue.write { db in
-                    try event.insert(db)
+                    try persistedEvent.insert(db)
                 }
+                self.finishWrite(completion, with: .success(()))
             } catch {
                 print("SQLiteSessionStore Error: Failed to log event. \(error.localizedDescription)")
+                self.finishWrite(completion, with: .failure(error))
             }
         }
     }
@@ -113,6 +95,65 @@ class SQLiteSessionStore {
             }
         }
     }
+
+    func insertContextObservation(_ observation: PersistedContextObservation) throws {
+        let sanitizedObservation = observation.sanitizedForPersistence()
+        try dbQueue.write { db in
+            try sanitizedObservation.insert(db)
+        }
+    }
+
+    func deleteAllContextObservations() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM context_observations;")
+        }
+    }
+
+    func deleteContextObservations(olderThan cutoffDate: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM context_observations WHERE timestamp < ?;",
+                arguments: [cutoffDate]
+            )
+        }
+    }
+
+    func contextObservationCount() throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM context_observations;") ?? 0
+        }
+    }
+
+    func oldestContextObservationDate() throws -> Date? {
+        try dbQueue.read { db in
+            try Date.fetchOne(
+                db,
+                sql: "SELECT timestamp FROM context_observations ORDER BY timestamp ASC, rowid ASC LIMIT 1;"
+            )
+        }
+    }
+
+    func latestContextObservationIdentity() throws -> PersistedContextObservation.Identity? {
+        try dbQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT bundleID, url AS sanitizedURL, title
+                FROM context_observations
+                ORDER BY timestamp DESC, rowid DESC
+                LIMIT 1
+                """
+            ) else {
+                return nil
+            }
+
+            return PersistedContextObservation.Identity(
+                bundleID: row["bundleID"],
+                sanitizedURL: row["sanitizedURL"],
+                title: row["title"]
+            )
+        }
+    }
     
     func migrateFromJSONIfNeeded(jsonURL: URL) {
         queue.sync {
@@ -129,9 +170,10 @@ class SQLiteSessionStore {
                 
                 try dbQueue.write { db in
                     for event in events {
-                        let exists = try SessionEvent.fetchOne(db, key: event.id) != nil
+                        let persistedEvent = event.persistedCopy()
+                        let exists = try SessionEvent.fetchOne(db, key: persistedEvent.id) != nil
                         if !exists {
-                            try event.insert(db)
+                            try persistedEvent.insert(db)
                         }
                     }
                 }
@@ -145,6 +187,15 @@ class SQLiteSessionStore {
             } catch {
                 print("SQLiteSessionStore Error: Failed to migrate legacy JSON data. \(error.localizedDescription)")
             }
+        }
+    }
+}
+
+private extension SQLiteSessionStore {
+    func finishWrite(_ completion: StorageWriteCompletion?, with result: Result<Void, Error>) {
+        guard let completion else { return }
+        DispatchQueue.main.async {
+            completion(result)
         }
     }
 }

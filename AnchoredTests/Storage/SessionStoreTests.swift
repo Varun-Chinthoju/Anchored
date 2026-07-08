@@ -22,62 +22,64 @@ final class SessionStoreTests: XCTestCase {
         }
         super.tearDown()
     }
-    
-    func testLogAppendsEventsAndCreatesDirectory() {
-        let expectation = XCTestExpectation(description: "Logging events writes to disk")
-        
-        let event1 = SessionEvent(type: .sessionStart, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
-        let event2 = SessionEvent(type: .sessionEnd, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
-        
-        store.log(event1)
-        store.log(event2)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let dbURL = self.testFileURL.deletingPathExtension().appendingPathExtension("db")
-            XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
-            
-            let events = self.store.allEvents()
-            XCTAssertEqual(events.count, 2)
-            XCTAssertEqual(events[0].id, event1.id)
-            XCTAssertEqual(events[1].id, event2.id)
+
+    private func logAndWait(_ event: SessionEvent, file: StaticString = #filePath, line: UInt = #line) {
+        let expectation = expectation(description: "SessionStore write completed")
+        var result: Result<Void, Error>?
+        store.log(event) {
+            result = $0
             expectation.fulfill()
         }
-        
         wait(for: [expectation], timeout: 1.0)
+
+        guard let result else {
+            XCTFail("Missing SessionStore write result", file: file, line: line)
+            return
+        }
+
+        if case .failure(let error) = result {
+            XCTFail("SessionStore write failed: \(error)", file: file, line: line)
+        }
+    }
+    
+    func testLogAppendsEventsAndCreatesDirectory() {
+        let event1 = SessionEvent(type: .sessionStart, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
+        let event2 = SessionEvent(type: .sessionEnd, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
+
+        logAndWait(event1)
+        logAndWait(event2)
+
+        let dbURL = testFileURL.deletingPathExtension().appendingPathExtension("db")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
+
+        let events = store.allEvents()
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0].id, event1.id)
+        XCTAssertEqual(events[1].id, event2.id)
     }
     
     func testRecentSessionsReturnsCorrectFilteredEvents() {
-        let expectation = XCTestExpectation(description: "Logged sessionEnd events are filtered and sorted")
-        
         let eventStart = SessionEvent(type: .sessionStart, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
         let eventEnd1 = SessionEvent(type: .sessionEnd, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
         let eventDistraction = SessionEvent(type: .distractionDetected, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
         let eventEnd2 = SessionEvent(type: .sessionEnd, appBundleID: "com.apple.dt.Xcode", appName: "Xcode")
-        
-        store.log(eventStart)
-        store.log(eventEnd1)
-        store.log(eventDistraction)
-        store.log(eventEnd2)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let recent = self.store.recentSessions(limit: 5)
-            XCTAssertEqual(recent.count, 2)
-            XCTAssertEqual(recent[0].id, eventEnd2.id)
-            XCTAssertEqual(recent[1].id, eventEnd1.id)
-            
-            let limitOne = self.store.recentSessions(limit: 1)
-            XCTAssertEqual(limitOne.count, 1)
-            XCTAssertEqual(limitOne[0].id, eventEnd2.id)
-            
-            expectation.fulfill()
-        }
-        
-        wait(for: [expectation], timeout: 1.0)
+
+        logAndWait(eventStart)
+        logAndWait(eventEnd1)
+        logAndWait(eventDistraction)
+        logAndWait(eventEnd2)
+
+        let recent = store.recentSessions(limit: 5)
+        XCTAssertEqual(recent.count, 2)
+        XCTAssertEqual(recent[0].id, eventEnd2.id)
+        XCTAssertEqual(recent[1].id, eventEnd1.id)
+
+        let limitOne = store.recentSessions(limit: 1)
+        XCTAssertEqual(limitOne.count, 1)
+        XCTAssertEqual(limitOne[0].id, eventEnd2.id)
     }
     
     func testGetStats() {
-        let expectation = XCTestExpectation(description: "Stats calculation works correctly")
-        
         let calendar = Calendar.current
         let now = Date()
         let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
@@ -113,22 +115,16 @@ final class SessionStoreTests: XCTestCase {
             appName: "Xcode",
             sessionDurationSeconds: 900
         )
-        
-        store.log(event2DaysAgo)
-        store.log(eventYesterday1)
-        store.log(eventYesterday2)
-        store.log(eventToday)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let stats = self.store.getStats()
-            
-            XCTAssertEqual(stats.sessionCountToday, 1)
-            XCTAssertEqual(stats.focusedTimeToday, 900)
-            XCTAssertEqual(stats.streakDays, 3)
-            
-            expectation.fulfill()
-        }
-        
-        wait(for: [expectation], timeout: 1.0)
+
+        logAndWait(event2DaysAgo)
+        logAndWait(eventYesterday1)
+        logAndWait(eventYesterday2)
+        logAndWait(eventToday)
+
+        let stats = store.getStats()
+
+        XCTAssertEqual(stats.sessionCountToday, 1)
+        XCTAssertEqual(stats.focusedTimeToday, 900)
+        XCTAssertEqual(stats.streakDays, 3)
     }
 }

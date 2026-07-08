@@ -25,8 +25,8 @@ class SessionStore {
         self.sqliteStore.migrateFromJSONIfNeeded(jsonURL: self.fileURL)
     }
     
-    func log(_ event: SessionEvent) {
-        sqliteStore.log(event)
+    func log(_ event: SessionEvent, completion: StorageWriteCompletion? = nil) {
+        sqliteStore.log(event, completion: completion)
     }
     
     func recentSessions(limit: Int) -> [SessionEvent] {

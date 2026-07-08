@@ -35,7 +35,7 @@ struct SessionEvent: Codable, Equatable {
         self.type = type
         self.appBundleID = appBundleID
         self.appName = appName
-        self.url = url
+        self.url = url.flatMap { ContextSanitizer.sanitizePersistedURL(URL(string: $0)) }
         self.focusDurationSeconds = focusDurationSeconds
         self.sessionDurationSeconds = sessionDurationSeconds
         self.distractionAppBundleID = distractionAppBundleID
@@ -43,6 +43,27 @@ struct SessionEvent: Codable, Equatable {
         self.action = action
         self.category = category
         self.sessionGoal = sessionGoal
+    }
+}
+
+extension SessionEvent {
+    func persistedCopy() -> SessionEvent {
+        let sanitizedURL = url.flatMap { ContextSanitizer.sanitizePersistedURL(URL(string: $0)) }
+        return SessionEvent(
+            id: id,
+            timestamp: timestamp,
+            type: type,
+            appBundleID: appBundleID,
+            appName: appName,
+            url: sanitizedURL,
+            focusDurationSeconds: focusDurationSeconds,
+            sessionDurationSeconds: sessionDurationSeconds,
+            distractionAppBundleID: distractionAppBundleID,
+            distraction_domain: distraction_domain,
+            action: action,
+            category: category,
+            sessionGoal: sessionGoal
+        )
     }
 }
 

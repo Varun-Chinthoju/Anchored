@@ -39,4 +39,15 @@ final class SessionEventTests: XCTestCase {
         XCTAssertEqual(event.distraction_domain, decodedEvent.distraction_domain)
         XCTAssertEqual(event.action, decodedEvent.action)
     }
+
+    func testSessionEventSanitizesPersistedURLOnInitialization() {
+        let event = SessionEvent(
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            url: "https://user:pass@example.com/path?query=1#fragment"
+        )
+
+        XCTAssertEqual(event.url, "https://example.com/path")
+    }
 }
