@@ -139,7 +139,7 @@ final class FocusEngine {
             }
             
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
-                if SmartImageClassifier.isProductiveVisual() {
+                if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
                     return false
                 }
                 return true
@@ -155,7 +155,7 @@ final class FocusEngine {
                 if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                     return false
                 }
-                if SmartImageClassifier.isProductiveVisual() {
+                if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
                     return false
                 }
                 return true
@@ -169,7 +169,7 @@ final class FocusEngine {
         }
         
         // Image Model: check if the app looks visually productive (coding, terminal, workspace, etc.)
-        if SmartImageClassifier.isProductiveVisual() {
+        if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
             return false
         }
         
@@ -200,7 +200,7 @@ final class FocusEngine {
                 if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                     return true
                 }
-                return SmartImageClassifier.isProductiveVisual()
+                return SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name)
             }
             return true
         }
@@ -797,7 +797,7 @@ enum SmartWebClassifier {
 }
 
 enum SmartImageClassifier {
-    static func isProductiveVisual() -> Bool {
+    static func isProductiveVisual(profileName: String) -> Bool {
         if NSClassFromString("XCTestCase") != nil {
             return false
         }
@@ -829,6 +829,24 @@ enum SmartImageClassifier {
             return false
         }
         
+        var extractedScreenText = ""
+        let textRequest = VNRecognizeTextRequest { request, error in
+            guard error == nil, let observations = request.results as? [VNRecognizedTextObservation] else {
+                return
+            }
+            for observation in observations.prefix(20) {
+                if let candidate = observation.topCandidates(1).first {
+                    extractedScreenText += candidate.string + " "
+                }
+            }
+        }
+        textRequest.recognitionLevel = .fast
+        
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try requestHandler.perform([textRequest])
+        } catch {}
+        
         if prefs.useLocalGemma {
             var gemmaResult: Bool?
             let semaphore = DispatchSemaphore(value: 0)
@@ -836,12 +854,12 @@ enum SmartImageClassifier {
             let appName = frontmostApp.localizedName ?? ""
             let windowTitle = windowListInfo.first(where: { ($0[kCGWindowNumber as String] as? CGWindowID) == windowID })?[kCGWindowName as String] as? String ?? ""
             
-            let escapedAppName = appName.replacingOccurrences(of: "\"", with: "\\\"")
-                                        .replacingOccurrences(of: "'", with: "\\'")
-            let escapedWindowTitle = windowTitle.replacingOccurrences(of: "\"", with: "\\\"")
-                                                .replacingOccurrences(of: "'", with: "\\'")
+            let escapedAppName = appName.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "'", with: "\\'")
+            let escapedWindowTitle = windowTitle.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "'", with: "\\'")
+            let truncatedText = String(extractedScreenText.prefix(250))
+            let escapedText = truncatedText.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "'", with: "\\'").replacingOccurrences(of: "\n", with: " ")
             
-            let prompt = "<|im_start|>user\\nIs the application '\(escapedAppName)' with window title '\(escapedWindowTitle)' productive for coding/software engineering? Answer only 'yes' or 'no'.<|im_end|>\\n<|im_start|>assistant\\n"
+            let prompt = "<|im_start|>user\\nIs the application '\(escapedAppName)' with window title '\(escapedWindowTitle)' and screen text '\(escapedText)' productive for \(profileName)? Answer only 'yes' or 'no'.<|im_end|>\\n<|im_start|>assistant\\n"
             
             let pythonCode = """
 import sys
@@ -850,7 +868,10 @@ try:
     try:
         model, tokenizer = load('mlx-community/Qwen2.5-0.5B-Instruct-4bit')
     except Exception:
-        model, tokenizer = load('mlx-community/gemma-3-270m-8bit')
+        try:
+            model, tokenizer = load('mlx-community/gemma-3-270m-8bit')
+        except Exception:
+            model, tokenizer = load('mlx-community/SmolVLM-256M-Instruct-4bit')
         
     response = generate(
         model,
@@ -864,6 +885,7 @@ except Exception as e:
     print('error', file=sys.stderr)
 """
             let process = Process()
+            process.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (ProcessInfo.processInfo.environment["PATH"] ?? "")]
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             process.arguments = ["python3", "-c", pythonCode]
             
@@ -874,8 +896,8 @@ except Exception as e:
             do {
                 try process.run()
                 
-                // Allow up to 1.2 seconds for local model execution
-                DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 1.2) {
+                // Allow up to 1.5 seconds for local model execution since OCR took a bit
+                DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 1.5) {
                     if process.isRunning {
                         process.terminate()
                     }
@@ -899,13 +921,25 @@ except Exception as e:
                 semaphore.signal()
             }
             
-            _ = semaphore.wait(timeout: .now() + 1.4)
+            _ = semaphore.wait(timeout: .now() + 1.7)
             if let result = gemmaResult {
                 return result
             }
         }
         
-        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        let lowerText = extractedScreenText.lowercased()
+        let codeKeywords = ["func ", "struct ", "class ", "import ", "var ", "let ", "public ", "private ", "return ", "if ", "else ", "switch ", "case ", "<html>", "<div>", "function(", "const ", "console.log", "def ", "print("]
+        
+        var codeHits = 0
+        for keyword in codeKeywords {
+            if lowerText.contains(keyword) {
+                codeHits += 1
+            }
+        }
+        
+        if codeHits >= 2 {
+            return true
+        }
         
         var isProductive = false
         let request = VNClassifyImageRequest { request, error in
@@ -923,17 +957,20 @@ except Exception as e:
                 let label = observation.identifier.lowercased()
                 let confidence = observation.confidence
                 
-                if productiveLabels.contains(where: { label.contains($0) }) {
+                let isDistraction = distractionLabels.contains(where: { label.contains($0) })
+                let isProd = productiveLabels.contains(where: { label.contains($0) })
+                
+                if isDistraction {
+                    // Distraction matches override productive matches
+                    // We use >= to ensure distraction wins if confidence is tied
+                    if confidence >= highestConfidence {
+                        highestConfidence = confidence
+                        isProductive = false
+                    }
+                } else if isProd {
                     if confidence > highestConfidence {
                         highestConfidence = confidence
                         isProductive = true
-                    }
-                }
-                
-                if distractionLabels.contains(where: { label.contains($0) }) {
-                    if confidence > highestConfidence {
-                        highestConfidence = confidence
-                        isProductive = false
                     }
                 }
             }

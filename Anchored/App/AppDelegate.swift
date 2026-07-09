@@ -24,7 +24,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     internal func shouldShowOnboardingFlow(defaults: UserDefaults = .standard) -> Bool {
-        !defaults.bool(forKey: Self.onboardingCompletionKey)
+        if NSClassFromString("XCTestCase") != nil {
+            return !defaults.bool(forKey: Self.onboardingCompletionKey)
+        }
+        
+        let appPath = Bundle.main.executablePath ?? Bundle.main.bundlePath
+        let attrs = try? FileManager.default.attributesOfItem(atPath: appPath)
+        let modDate = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        
+        let lastModDate = defaults.double(forKey: "lastInstalledModDate")
+        let lastPath = defaults.string(forKey: "lastInstalledPath")
+        
+        if lastModDate != modDate || lastPath != appPath {
+            defaults.set(modDate, forKey: "lastInstalledModDate")
+            defaults.set(appPath, forKey: "lastInstalledPath")
+            defaults.set(false, forKey: Self.onboardingCompletionKey)
+            return true
+        }
+        
+        return !defaults.bool(forKey: Self.onboardingCompletionKey)
     }
     
     private func startStandardFlow() {

@@ -30,7 +30,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Context history now persists sanitized observations into a dedicated `context_observations` table through `ContextHistoryPipeline` and `ContextHistoryStore`
 - `PreferencesManager.selectedThemeID` drives the active palette, with the default `baldr` theme now presented as the warm walnut, brass, and parchment `Heritage` palette
 - `ThemePalette` is the shared chrome layer for appearance, with semantic canvas/surface/border/text roles now derived from each theme's own colors and contrast-aware text colors, and `PirateTheme` resolves dynamically from the selected palette so accents, backgrounds, layout surfaces, onboarding, overlays, custom windows, popovers, and dashboard chrome inherit the active theme
-- The Appearance chooser previews each theme with its own palette instead of borrowing the current selection, so theme cards stay coherent while the live app updates
+- The entire user-facing app is now unified under the dark warm control-room aesthetic with glowing background overlays, matching the dashboard, and the user-facing Appearance chooser has been removed from Settings
 - Major architectural pressure in V2.6: make context collection reliable, async-safe, privacy-aware, and easier to test
 - Storage now has a versioned GRDB migration path, URL/title sanitization, and opt-in history retention helpers in support of V2.6
 - Dashboard analytics exposes typed async query contracts and generation-checked chart load states for Captain's Log, with month-to-date ranges anchored to the first session in the month and an all-time summary card below the scroll fold
@@ -619,7 +619,7 @@ These are the places future agents are most likely to touch when implementing V2
 - `AppDelegate` is the de facto dependency injection container.
 - Current context identity is ad hoc: `currentApp`, `currentURL`, and `currentTitle` are tracked separately.
 - History consent is present as a store gate but still needs a visible privacy/settings control wired to user preference state.
-- A few older surfaces still mix system-secondary or Baldr-parchment text with the new theme-owned surface roles, and only the dashboard has moved onto the new shared control-room primitives so far.
+- The settings, popover, overlays, and session prompt views have all been successfully migrated to the shared control-room primitives, eliminating visual style drift.
 - The standalone `DashboardWindow.swift` still compiles for compatibility but is no longer opened by `MenuBarController`.
 - `PreferencesManager.focusPromptExperimentEnabled` is now a legacy rollout preference rather than a live runtime branch.
 

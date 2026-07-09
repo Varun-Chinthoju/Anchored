@@ -170,11 +170,17 @@ struct MenuBarPopoverView: View {
                     }
                     .padding(.vertical, 16)
                     .padding(.horizontal, 12)
-                    .background(themeSurface.opacity(0.78))
+                    .background(
+                        LinearGradient(
+                            colors: [ControlRoomTheme.cardTop.opacity(0.9), ControlRoomTheme.cardBottom.opacity(0.9)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .cornerRadius(12)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(themeBorder, lineWidth: 1)
+                            .stroke(themeBorder.opacity(0.9), lineWidth: 1)
                     )
                 } else {
                     if showStartForm {
@@ -211,11 +217,17 @@ struct MenuBarPopoverView: View {
                         .padding(.vertical, 20)
                         .padding(.horizontal, 16)
                         .frame(maxWidth: .infinity)
-                        .background(themeSurface.opacity(0.65))
+                        .background(
+                            LinearGradient(
+                                colors: [ControlRoomTheme.cardTop.opacity(0.85), ControlRoomTheme.cardBottom.opacity(0.85)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(themeBorder, lineWidth: 1)
+                                .stroke(themeBorder.opacity(0.9), lineWidth: 1)
                         )
                     }
                 }
@@ -279,8 +291,12 @@ struct MenuBarPopoverView: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
-                            .background(themeSurface.opacity(0.65))
+                            .background(ControlRoomTheme.footer.opacity(0.75))
                             .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(themeBorder.opacity(0.55), lineWidth: 1)
+                            )
                         }
                     }
                 }
@@ -288,13 +304,7 @@ struct MenuBarPopoverView: View {
         }
         .padding(16)
         .frame(width: 320)
-        .background(
-            LinearGradient(
-                colors: [PirateTheme.canvas, themeSurface.opacity(0.88)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .background(ControlRoomShellBackground(palette: prefs.selectedThemePalette))
         .onAppear {
             viewModel.refresh()
         }
@@ -335,11 +345,17 @@ struct StatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .background(PirateTheme.surface.opacity(0.68))
+        .background(
+            LinearGradient(
+                colors: [ControlRoomTheme.cardTop.opacity(0.85), ControlRoomTheme.cardBottom.opacity(0.85)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
         .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(PirateTheme.border, lineWidth: 1)
+                .stroke(PirateTheme.border.opacity(0.9), lineWidth: 1)
         )
     }
 }
@@ -372,6 +388,10 @@ struct StartSessionFormView: View {
 
     private var themeTextSecondary: Color {
         prefs.selectedThemePalette.textSecondaryColor
+    }
+
+    private var themeBorder: Color {
+        prefs.selectedThemePalette.borderColor
     }
     
     init(viewModel: MenuBarViewModel, isPresented: Binding<Bool>) {
@@ -450,8 +470,12 @@ struct StartSessionFormView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .padding(6)
-                    .background(themeSurfaceRaised.opacity(0.45))
+                    .background(ControlRoomTheme.footer.opacity(0.5))
                     .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(themeBorder.opacity(0.7), lineWidth: 1)
+                    )
             }
             
             // Buttons
@@ -499,7 +523,7 @@ struct StartSessionFormView: View {
         .padding(12)
         .background(
             LinearGradient(
-                colors: [themeSurface.opacity(0.92), themeSurfaceRaised.opacity(0.78)],
+                colors: [ControlRoomTheme.cardTop.opacity(0.95), ControlRoomTheme.cardBottom.opacity(0.95)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -507,7 +531,7 @@ struct StartSessionFormView: View {
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(PirateTheme.border, lineWidth: 1)
+                .stroke(themeBorder.opacity(0.9), lineWidth: 1)
         )
         .accentColor(themeAccent)
         .tint(themeAccent)

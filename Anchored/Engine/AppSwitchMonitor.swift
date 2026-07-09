@@ -10,15 +10,15 @@ final class AppSwitchMonitor: ActivityMonitor {
     private var observer: NSObjectProtocol?
     private var isMonitoring = false
     
-    // URL Polling properties
+    // URL and Window Polling properties
     private var pollingTimer: Timer?
-    private var activeBrowserBundleID: String?
+    private var activeBundleID: String?
     private var lastPolledURL: URL?
     private var lastPolledTitle = ""
     
     init() {}
     
-    /// Starts monitoring application switch notifications and initializes browser URL polling.
+    /// Starts monitoring application switch notifications and initializes browser URL and window polling.
     func start() {
         guard !isMonitoring else { return }
         isMonitoring = true
@@ -43,6 +43,8 @@ final class AppSwitchMonitor: ActivityMonitor {
            let bundleID = frontApp.bundleIdentifier {
             handleApplicationActivation(bundleID: bundleID)
         }
+        
+        startPollingTimer()
     }
     
     /// Stops monitoring and removes notification observers.
@@ -85,11 +87,9 @@ final class AppSwitchMonitor: ActivityMonitor {
     }
 
     private func handleApplicationActivation(bundleID: String) {
-        cancelPollingTimer()
+        activeBundleID = bundleID
         
         if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
-            activeBrowserBundleID = bundleID
-            
             if AXIsProcessTrusted() {
                 // Fetch current URL immediately
                 let strategy = BrowserStrategyFactory.strategy(for: bundleID)
@@ -99,25 +99,23 @@ final class AppSwitchMonitor: ActivityMonitor {
                 lastPolledURL = currentURL
                 lastPolledTitle = title
                 onContextChange?(bundleID, currentURL, title)
-                
-                // Start background 2.5-second polling timer
-                startPollingTimer()
             } else {
-                // Treat browser as neutral since accessibility isn't granted
+                lastPolledURL = nil
+                lastPolledTitle = ""
                 onContextChange?(bundleID, nil, "")
             }
         } else {
-            activeBrowserBundleID = nil
             lastPolledURL = nil
-            lastPolledTitle = ""
             let title = getNativeWindowTitle(for: bundleID)
+            lastPolledTitle = title
             onContextChange?(bundleID, nil, title)
         }
     }
     
     private func startPollingTimer() {
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-            self?.pollActiveBrowser()
+        cancelPollingTimer()
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.pollActiveContext()
         }
     }
     
@@ -126,22 +124,28 @@ final class AppSwitchMonitor: ActivityMonitor {
         pollingTimer = nil
     }
     
-    private func pollActiveBrowser() {
-        guard let bundleID = activeBrowserBundleID,
-              AXIsProcessTrusted() else {
-            cancelPollingTimer()
-            return
-        }
+    private func pollActiveContext() {
+        guard let bundleID = activeBundleID else { return }
         
-        let strategy = BrowserStrategyFactory.strategy(for: bundleID)
-        let context = strategy?.getActiveContext()
-        let currentURL = context?.url
-        let title = (context?.title.isEmpty == false) ? context!.title : getNativeWindowTitle(for: bundleID)
-        
-        if currentURL != lastPolledURL || title != lastPolledTitle {
-            lastPolledURL = currentURL
-            lastPolledTitle = title
-            onContextChange?(bundleID, currentURL, title)
+        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
+            guard AXIsProcessTrusted() else { return }
+            let strategy = BrowserStrategyFactory.strategy(for: bundleID)
+            let context = strategy?.getActiveContext()
+            let currentURL = context?.url
+            let title = (context?.title.isEmpty == false) ? context!.title : getNativeWindowTitle(for: bundleID)
+            
+            if currentURL != lastPolledURL || title != lastPolledTitle {
+                lastPolledURL = currentURL
+                lastPolledTitle = title
+                onContextChange?(bundleID, currentURL, title)
+            }
+        } else {
+            let title = getNativeWindowTitle(for: bundleID)
+            if title != lastPolledTitle {
+                lastPolledURL = nil
+                lastPolledTitle = title
+                onContextChange?(bundleID, nil, title)
+            }
         }
     }
     

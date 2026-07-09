@@ -19,7 +19,7 @@ class SettingsWindow: NSWindow {
         self.appearance = NSAppearance(named: .vibrantDark)
         self.titlebarAppearsTransparent = true
         
-        let themeAccent = ThemePalette.baldr.accentColor
+        let themeAccent = PreferencesManager.shared.selectedThemePalette.accentColor
         let view = SettingsView(focusEngine: focusEngine, initialSection: initialSection)
             .preferredColorScheme(.dark)
             .accentColor(themeAccent)

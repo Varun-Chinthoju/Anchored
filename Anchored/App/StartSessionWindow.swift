@@ -53,6 +53,10 @@ struct StartSessionWindowFormView: View {
         prefs.selectedThemePalette.surfaceRaisedColor
     }
 
+    private var themeBorder: Color {
+        prefs.selectedThemePalette.borderColor
+    }
+
     private var themeTextPrimary: Color {
         prefs.selectedThemePalette.textPrimaryColor
     }
@@ -99,11 +103,17 @@ struct StartSessionWindowFormView: View {
                 }
                 .padding(.vertical, 14)
                 .padding(.horizontal, 16)
-                .background(themeSurfaceElevated)
+                .background(
+                    LinearGradient(
+                        colors: [ControlRoomTheme.cardTop.opacity(0.9), ControlRoomTheme.cardBottom.opacity(0.9)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
                 .cornerRadius(10)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(themeSurface.opacity(0.9), lineWidth: 1)
+                        .stroke(themeBorder.opacity(0.9), lineWidth: 1)
                 )
             }
             .padding(.horizontal, 24)
@@ -111,7 +121,7 @@ struct StartSessionWindowFormView: View {
             .padding(.bottom, 20)
             
             Divider()
-                .background(themeSurface.opacity(0.9))
+                .background(themeBorder.opacity(0.6))
             
             // Configuration List Rows
             ScrollView {
@@ -139,11 +149,11 @@ struct StartSessionWindowFormView: View {
                                         .foregroundColor(minutes == min ? readableForeground(for: themeAccent) : themeTextPrimary)
                                         .padding(.vertical, 8)
                                         .padding(.horizontal, 12)
-                                        .background(minutes == min ? themeAccent : themeSurface.opacity(0.4))
+                                        .background(minutes == min ? themeAccent : ControlRoomTheme.footer.opacity(0.4))
                                         .cornerRadius(6)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 6)
-                                                .stroke(minutes == min ? Color.clear : themeSurface.opacity(0.9), lineWidth: 1)
+                                                .stroke(minutes == min ? Color.clear : themeBorder.opacity(0.7), lineWidth: 1)
                                         )
                                 }
                                 .buttonStyle(.plain)
@@ -157,11 +167,17 @@ struct StartSessionWindowFormView: View {
                         .accentColor(themeAccent)
                     }
                     .padding(16)
-                    .background(themeSurfaceElevated)
+                    .background(
+                        LinearGradient(
+                            colors: [ControlRoomTheme.cardTop.opacity(0.9), ControlRoomTheme.cardBottom.opacity(0.9)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .cornerRadius(10)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(themeSurface.opacity(0.9), lineWidth: 1)
+                            .stroke(themeBorder.opacity(0.9), lineWidth: 1)
                     )
                     
                     // Profile Row
@@ -180,11 +196,17 @@ struct StartSessionWindowFormView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .padding(16)
-                    .background(themeSurfaceElevated)
+                    .background(
+                        LinearGradient(
+                            colors: [ControlRoomTheme.cardTop.opacity(0.9), ControlRoomTheme.cardBottom.opacity(0.9)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .cornerRadius(10)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(themeSurface.opacity(0.9), lineWidth: 1)
+                            .stroke(themeBorder.opacity(0.9), lineWidth: 1)
                     )
                 }
                 .padding(.horizontal, 24)
@@ -192,7 +214,7 @@ struct StartSessionWindowFormView: View {
             }
             
             Divider()
-                .background(themeSurface.opacity(0.9))
+                .background(themeBorder.opacity(0.6))
             
             // Raycast-style Action Bar at the bottom
             HStack {
@@ -201,9 +223,9 @@ struct StartSessionWindowFormView: View {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
-                        .background(themeSurfaceElevated)
+                        .background(ControlRoomTheme.footer.opacity(0.5))
                         .cornerRadius(3)
-                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(themeSurface.opacity(0.9), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(themeBorder.opacity(0.7), lineWidth: 1))
                     Text("to navigate")
                         .font(.system(size: 11))
                         .foregroundColor(themeTextSecondary)
@@ -221,9 +243,9 @@ struct StartSessionWindowFormView: View {
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 2)
-                                .background(themeSurfaceElevated)
+                                .background(ControlRoomTheme.footer.opacity(0.5))
                                 .cornerRadius(3)
-                                .overlay(RoundedRectangle(cornerRadius: 3).stroke(themeSurface.opacity(0.9), lineWidth: 1))
+                                .overlay(RoundedRectangle(cornerRadius: 3).stroke(themeBorder.opacity(0.7), lineWidth: 1))
                             Text("Abandon")
                                 .font(.system(size: 12, weight: .medium))
                         }
@@ -252,7 +274,7 @@ struct StartSessionWindowFormView: View {
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 2)
-                                .background(themeSurface.opacity(0.3))
+                                .background(ControlRoomTheme.footer.opacity(0.3))
                                 .cornerRadius(3)
                             Text("Set Sail")
                                 .font(.system(size: 12, weight: .bold))
@@ -268,17 +290,17 @@ struct StartSessionWindowFormView: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
-            .background(themeSurface.opacity(0.5))
+            .background(ControlRoomTheme.footer.opacity(0.85))
+            .overlay(
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(themeBorder.opacity(0.5)),
+                alignment: .top
+            )
         }
         .accentColor(themeAccent)
         .tint(themeAccent)
         .frame(width: 544, height: 544)
-        .background(
-            LinearGradient(
-                colors: [PirateTheme.canvas, themeSurface.opacity(0.92), themeSurfaceElevated.opacity(0.88)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .background(ControlRoomShellBackground(palette: prefs.selectedThemePalette))
     }
 }

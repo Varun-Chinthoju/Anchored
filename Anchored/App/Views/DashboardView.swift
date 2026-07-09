@@ -737,23 +737,19 @@ private struct TrendSparkline: View {
                 }
 
                 VStack {
-                    HStack {
-                        Text(axisLabels.first ?? "")
-                        Spacer()
-                        Text(axisLabels.last ?? "")
-                    }
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundColor(palette.textSecondaryColor)
                     Spacer()
                     HStack {
-                        Text(axisLabels.count > 2 ? axisLabels[axisLabels.count / 2] : "")
-                        Spacer()
-                        Text(axisLabels.count > 3 ? axisLabels[min(axisLabels.count - 2, axisLabels.count / 2 + 1)] : "")
+                        ForEach(axisLabels, id: \.self) { label in
+                            Text(label)
+                            if label != axisLabels.last {
+                                Spacer()
+                            }
+                        }
                     }
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundColor(palette.textSecondaryColor)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             }
         }

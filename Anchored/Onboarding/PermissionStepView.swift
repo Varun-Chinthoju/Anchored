@@ -4,7 +4,8 @@ struct PermissionStepView: View {
     let windowHeight: CGFloat
     let onNext: () -> Void
     
-    @State private var isGranted = AXIsProcessTrusted()
+    @State private var isAXGranted = AXIsProcessTrusted()
+    @State private var isScreenGranted = CGPreflightScreenCaptureAccess()
     @ObservedObject private var langManager = LanguageManager.shared
     
     private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
@@ -28,7 +29,7 @@ struct PermissionStepView: View {
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text(t("perm_desc"))
+                    Text("Enable permissions to unlock URL-level awareness and local visual AI check capabilities. All data stays 100% private on your device.")
                         .font(.system(size: 14, design: .serif))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
@@ -42,54 +43,109 @@ struct PermissionStepView: View {
             VStack(spacing: 24) {
                 Spacer()
                 
-                VStack(spacing: 20) {
-                    // Status Badge Icon
-                    ZStack {
-                        Circle()
-                            .fill(isGranted ? PirateTheme.gold.opacity(0.12) : PirateTheme.bronze.opacity(0.10))
-                            .frame(width: 90, height: 90)
+                VStack(spacing: 16) {
+                    // Accessibility Row
+                    HStack(spacing: 16) {
+                        Image(systemName: isAXGranted ? "checkmark.circle.fill" : "lock.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(isAXGranted ? PirateTheme.gold : PirateTheme.bronze)
                         
-                        SafeSystemImage(systemName: isGranted ? "checkmark.seal.fill" : "lock.fill", size: 40, color: isGranted ? PirateTheme.gold : PirateTheme.bronze)
-                            .shadow(color: (isGranted ? PirateTheme.gold : PirateTheme.bronze).opacity(0.3), radius: 8)
-                    }
-                    
-                    VStack(spacing: 8) {
-                        Text(isGranted ? t("perm_status_unlocked") : t("perm_status_locked"))
-                            .font(.system(size: 18, weight: .bold, design: .serif))
-                            .foregroundColor(isGranted ? PirateTheme.gold : PirateTheme.bronze)
-                        
-                        Text(isGranted ? 
-                             "Ye've unlocked full browser domain and window title monitoring!" :
-                             "Enable Accessibility in macOS System Settings so we can monitor browser domains.")
-                            .font(.system(size: 13, design: .serif))
-                            .foregroundColor(PirateTheme.parchment.opacity(0.7))
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(3)
-                            .padding(.horizontal, 24)
-                        
-                        if !isGranted {
-                            Text(t("perm_warning"))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Accessibility Permission")
+                                .font(.system(size: 14, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.parchment)
+                            Text("Detects browser tabs and distraction URLs.")
                                 .font(.system(size: 11, design: .serif))
-                                .foregroundColor(PirateTheme.bronze.opacity(0.9))
-                                .multilineTextAlignment(.center)
-                                .lineSpacing(3)
-                                .padding(.horizontal, 24)
-                                .padding(.top, 4)
+                                .foregroundColor(PirateTheme.parchment.opacity(0.6))
+                        }
+                        
+                        Spacer()
+                        
+                        if !isAXGranted {
+                            Button(action: {
+                                AudioEngine.shared.play(.tick)
+                                triggerAXRequest()
+                            }) {
+                                Text("Enable")
+                                    .font(.system(size: 11, weight: .bold, design: .serif))
+                                    .foregroundColor(PirateTheme.darkWood)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .background(PirateTheme.gold)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Text("Enabled")
+                                .font(.system(size: 11, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.gold)
                         }
                     }
+                    .padding(16)
+                    .background(PirateTheme.darkWood.opacity(0.3))
+                    .cornerRadius(10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(isAXGranted ? PirateTheme.gold.opacity(0.2) : PirateTheme.gold.opacity(0.08), lineWidth: 1)
+                    )
+                    
+                    // Screen Recording Row
+                    HStack(spacing: 16) {
+                        Image(systemName: isScreenGranted ? "checkmark.circle.fill" : "lock.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(isScreenGranted ? PirateTheme.gold : PirateTheme.bronze)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Screen Recording Permission")
+                                .font(.system(size: 14, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.parchment)
+                            Text("Enables local visual checks (AI and Vision fallbacks).")
+                                .font(.system(size: 11, design: .serif))
+                                .foregroundColor(PirateTheme.parchment.opacity(0.6))
+                        }
+                        
+                        Spacer()
+                        
+                        if !isScreenGranted {
+                            Button(action: {
+                                AudioEngine.shared.play(.tick)
+                                triggerScreenRequest()
+                            }) {
+                                Text("Enable")
+                                    .font(.system(size: 11, weight: .bold, design: .serif))
+                                    .foregroundColor(PirateTheme.darkWood)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .background(PirateTheme.gold)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Text("Enabled")
+                                .font(.system(size: 11, weight: .bold, design: .serif))
+                                .foregroundColor(PirateTheme.gold)
+                        }
+                    }
+                    .padding(16)
+                    .background(PirateTheme.darkWood.opacity(0.3))
+                    .cornerRadius(10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(isScreenGranted ? PirateTheme.gold.opacity(0.2) : PirateTheme.gold.opacity(0.08), lineWidth: 1)
+                    )
                 }
-                .padding(.vertical, 32)
+                .padding(20)
                 .frame(maxWidth: .infinity)
                 .background(PirateTheme.darkWood.opacity(0.45))
                 .cornerRadius(16)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(isGranted ? PirateTheme.gold.opacity(0.25) : PirateTheme.gold.opacity(0.12), lineWidth: 1.5)
+                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1.5)
                 )
                 
                 // Action Buttons
                 VStack(spacing: 12) {
-                    if isGranted {
+                    if isAXGranted && isScreenGranted {
                         // Continue Voyage
                         Button(action: {
                             AudioEngine.shared.play(.tick)
@@ -115,40 +171,15 @@ struct PermissionStepView: View {
                         }
                         .buttonStyle(.plain)
                     } else {
-                        // Grant Permission Button
-                        Button(action: {
-                            AudioEngine.shared.play(.tick)
-                            triggerPermissionRequest()
-                        }) {
-                            HStack {
-                                Image(systemName: "hand.raised.fill")
-                                Text(t("perm_btn_grant"))
-                            }
-                            .font(.system(size: 14, weight: .bold, design: .serif))
-                            .foregroundColor(PirateTheme.darkWood)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [PirateTheme.gold, PirateTheme.darkGold]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .cornerRadius(10)
-                            .shadow(color: PirateTheme.gold.opacity(0.3), radius: 10, x: 0, y: 5)
-                        }
-                        .buttonStyle(.plain)
-                        
                         // Skip Bypass Button
                         Button(action: {
                             AudioEngine.shared.play(.tick)
                             onNext()
                         }) {
-                        Text("Skip For Now (Distraction site detection will be disabled)")
-                            .font(.system(size: 11, weight: .medium, design: .serif))
-                            .foregroundColor(PirateTheme.parchment.opacity(0.5))
-                            .padding(.vertical, 6)
+                            Text("Skip For Now (AI and browser distraction checking will be limited)")
+                                .font(.system(size: 11, weight: .medium, design: .serif))
+                                .foregroundColor(PirateTheme.parchment.opacity(0.5))
+                                .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)
                     }
@@ -162,11 +193,12 @@ struct PermissionStepView: View {
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(timer) { _ in
-            isGranted = AXIsProcessTrusted()
+            isAXGranted = AXIsProcessTrusted()
+            isScreenGranted = CGPreflightScreenCaptureAccess()
         }
     }
     
-    private func triggerPermissionRequest() {
+    private func triggerAXRequest() {
         // Trigger Accessibility system option prompt
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
@@ -175,5 +207,9 @@ struct PermissionStepView: View {
         if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(settingsURL)
         }
+    }
+    
+    private func triggerScreenRequest() {
+        _ = CGRequestScreenCaptureAccess()
     }
 }

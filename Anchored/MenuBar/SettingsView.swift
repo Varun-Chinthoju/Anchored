@@ -2,7 +2,9 @@ import SwiftUI
 import AppKit
 
 private enum SettingsTheme {
-    static let palette = ThemePalette.baldr
+    static var palette: ThemePalette {
+        PreferencesManager.shared.selectedThemePalette
+    }
 
     static var accent: Color { palette.accentColor }
     static var accentShadow: Color { palette.accentShadowColor }
@@ -139,6 +141,7 @@ struct ProfileRowView: View {
 struct SettingsView: View {
     @StateObject private var profileManager = ProfileManager.shared
     @ObservedObject private var langManager = LanguageManager.shared
+    @ObservedObject private var prefs = PreferencesManager.shared
     @State private var selectedItem: SidebarItem
     @State private var searchQuery = ""
     @State private var showAddAlert = false
@@ -259,7 +262,16 @@ struct SettingsView: View {
                 .accentColor(themeAccent)
                 .tint(themeAccent)
                 .scrollContentBackground(.hidden)
-                .background(SettingsTheme.canvas)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            ControlRoomTheme.shellTop,
+                            ControlRoomTheme.shellBottom
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
             }
             .alert("New Profile", isPresented: $showAddAlert) {
                 TextField("Profile Name", text: $newProfileName)
@@ -298,13 +310,7 @@ struct SettingsView: View {
         .frame(width: 990, height: 630)
         .accentColor(themeAccent)
         .tint(themeAccent)
-        .background(
-            LinearGradient(
-                colors: [SettingsTheme.canvas, themeSurface.opacity(0.78)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .background(ControlRoomShellBackground(palette: SettingsTheme.palette))
         .onChange(of: selectedItem) { newItem in
             if case .profile(let id) = newItem,
                let profile = profileManager.profiles.first(where: { $0.id == id }) {
@@ -379,7 +385,7 @@ struct SettingsPane<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text(title)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold, design: .serif))
                     .foregroundColor(SettingsTheme.accent)
                     .padding(.bottom, 2)
                 content()
@@ -387,7 +393,7 @@ struct SettingsPane<Content: View>: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(SettingsTheme.canvas)
+        .background(ControlRoomShellBackground(palette: SettingsTheme.palette))
     }
 }
 
@@ -398,9 +404,18 @@ struct SettingsGroup<Content: View>: View {
         VStack(spacing: 0) {
             content()
         }
-        .background(SettingsTheme.surface.opacity(0.78))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(SettingsTheme.border, lineWidth: 1))
+        .background(
+            LinearGradient(
+                colors: [
+                    ControlRoomTheme.cardTop,
+                    ControlRoomTheme.cardBottom
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(12)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
     }
 }
 
@@ -455,6 +470,36 @@ struct GeneralSettingsPane: View {
     ]
     private let countdowns = [5, 10, 15, 20]
 
+    private func formatDuration(_ seconds: Double) -> String {
+        let totalSecs = Int(seconds)
+        if totalSecs < 60 {
+            return "\(totalSecs)s"
+        }
+        
+        let mins = totalSecs / 60
+        let secs = totalSecs % 60
+        
+        if mins >= 60 {
+            let hrs = mins / 60
+            let remMins = mins % 60
+            if remMins == 0 && secs == 0 {
+                return "\(hrs) hr"
+            } else if remMins == 0 {
+                return "\(hrs)h \(secs)s"
+            } else if secs == 0 {
+                return "\(hrs)h \(remMins)m"
+            } else {
+                return "\(hrs)h \(remMins)m \(secs)s"
+            }
+        }
+        
+        if secs == 0 {
+            return "\(mins) min"
+        } else {
+            return "\(mins)m \(secs)s"
+        }
+    }
+
     var body: some View {
         SettingsPane(title: settingsCopy("General", pirate: "Rigging", isPirateMode: isPirateMode)) {
             VStack(alignment: .leading, spacing: 6) {
@@ -469,13 +514,20 @@ struct GeneralSettingsPane: View {
                         description: settingsCopy("How long you must focus before the session starts.", pirate: "How long ye must sail before dropping anchor.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
-                        Picker("", selection: $prefs.focusThreshold) {
-                            ForEach(thresholds, id: \.0) { value, label in
-                                Text(label).tag(value)
-                            }
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(
+                                get: { prefs.focusThreshold },
+                                set: { newValue in
+                                    let rounded = (newValue / 5.0).rounded() * 5.0
+                                    prefs.focusThreshold = max(5, min(3600, rounded))
+                                }
+                            ), in: 5...3600)
+                                .frame(width: 250)
+                            Text(formatDuration(prefs.focusThreshold))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .frame(width: 100, alignment: .trailing)
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 100)
                     }
 
                     SettingsRow(
@@ -483,13 +535,20 @@ struct GeneralSettingsPane: View {
                         description: settingsCopy("Seconds allowed on a distraction app before the screen dims.", pirate: "Seconds on a distraction app before the fog dims yer screen.", isPirateMode: isPirateMode),
                         showDivider: false
                     ) {
-                        Picker("", selection: $prefs.countdownDuration) {
-                            ForEach(countdowns, id: \.self) { value in
-                                Text("\(value)s").tag(value)
-                            }
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(
+                                get: { Double(prefs.countdownDuration) },
+                                set: { newValue in
+                                    let rounded = Int((newValue / 5.0).rounded() * 5.0)
+                                    prefs.countdownDuration = max(5, min(3600, rounded))
+                                }
+                            ), in: 5...3600)
+                                .frame(width: 250)
+                            Text(formatDuration(Double(prefs.countdownDuration)))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .frame(width: 100, alignment: .trailing)
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 80)
                     }
                 }
             }

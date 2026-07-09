@@ -113,16 +113,12 @@ public struct ExitTriggerView: View {
         .padding(20)
         .frame(width: 440)
         .background(
-            LinearGradient(
-                colors: [themeSurface, themeSurfaceElevated],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .cornerRadius(12)
+            ControlRoomShellBackground(palette: PreferencesManager.shared.selectedThemePalette)
+                .cornerRadius(12)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(themeAccent.opacity(0.2), lineWidth: 1.5)
+                .stroke(themeAccent.opacity(0.3), lineWidth: 1.5)
         )
         .shadow(color: Color.black.opacity(0.4), radius: 16, x: 0, y: 8)
     }

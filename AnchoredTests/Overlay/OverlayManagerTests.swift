@@ -58,11 +58,11 @@ final class OverlayManagerTests: XCTestCase {
         overlayManager.countdownDuration = 10
         XCTAssertEqual(overlayManager.countdownDuration, 10)
         
-        overlayManager.countdownDuration = 2
-        XCTAssertEqual(overlayManager.countdownDuration, 5, "Should clamp to minimum of 5 seconds")
+        overlayManager.countdownDuration = 0
+        XCTAssertEqual(overlayManager.countdownDuration, 1, "Should clamp to minimum of 1 second")
         
-        overlayManager.countdownDuration = 25
-        XCTAssertEqual(overlayManager.countdownDuration, 20, "Should clamp to maximum of 20 seconds")
+        overlayManager.countdownDuration = 4000
+        XCTAssertEqual(overlayManager.countdownDuration, 3600, "Should clamp to maximum of 3600 seconds")
     }
     
     func testDidRequestExitTriggerShowsPanel() {

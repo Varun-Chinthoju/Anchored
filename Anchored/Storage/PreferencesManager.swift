@@ -38,7 +38,7 @@ public final class PreferencesManager: ObservableObject {
     /// The distraction countdown duration in seconds. Clamped to [5, 20].
     @Published public var countdownDuration: Int {
         didSet {
-            let clamped = max(5, min(20, countdownDuration))
+            let clamped = max(1, min(3600, countdownDuration))
             if clamped != countdownDuration {
                 self.countdownDuration = clamped
             } else {
@@ -110,7 +110,7 @@ public final class PreferencesManager: ObservableObject {
         
         // Load countdown duration
         let storedCountdown = defaults.object(forKey: Keys.countdownDuration) as? Int ?? Self.defaultCountdownDuration
-        self.countdownDuration = max(5, min(20, storedCountdown))
+        self.countdownDuration = max(1, min(3600, storedCountdown))
         
         // Load focus threshold
         self.focusThreshold = defaults.object(forKey: Keys.focusThreshold) as? TimeInterval ?? Self.defaultFocusThreshold
@@ -224,8 +224,9 @@ public final class PreferencesManager: ObservableObject {
         
         DispatchQueue.global(qos: .background).async {
             let installProcess = Process()
+            installProcess.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (ProcessInfo.processInfo.environment["PATH"] ?? "")]
             installProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            installProcess.arguments = ["python3", "-m", "pip", "install", "mlx-lm", "pillow"]
+            installProcess.arguments = ["python3", "-m", "pip", "install", "mlx-lm", "pillow", "--break-system-packages"]
             
             do {
                 try installProcess.run()
@@ -239,6 +240,7 @@ public final class PreferencesManager: ObservableObject {
             }
             
             let downloadProcess = Process()
+            downloadProcess.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (ProcessInfo.processInfo.environment["PATH"] ?? "")]
             downloadProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             downloadProcess.arguments = ["python3", "-c", "import mlx_lm; mlx_lm.load('mlx-community/SmolVLM-256M-Instruct-4bit')"]
             

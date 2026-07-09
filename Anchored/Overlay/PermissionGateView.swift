@@ -86,16 +86,12 @@ public struct PermissionGateView: View {
         .padding(24)
         .frame(width: 480)
         .background(
-            LinearGradient(
-                colors: [themeSurface, themeSurfaceElevated],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .cornerRadius(12)
+            ControlRoomShellBackground(palette: PreferencesManager.shared.selectedThemePalette)
+                .cornerRadius(12)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(themeAccent.opacity(0.2), lineWidth: 1.5)
+                .stroke(themeAccent.opacity(0.3), lineWidth: 1.5)
         )
         .scaleEffect(isPresented ? 1.0 : 0.8)
         .opacity(isPresented ? 1.0 : 0.0)

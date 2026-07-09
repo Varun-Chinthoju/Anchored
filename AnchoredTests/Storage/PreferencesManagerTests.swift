@@ -86,14 +86,14 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 12)
         
         // When setting a value below range
-        manager.countdownDuration = 2
-        XCTAssertEqual(manager.countdownDuration, 5) // clamped to 5
-        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 5)
+        manager.countdownDuration = 0
+        XCTAssertEqual(manager.countdownDuration, 1) // clamped to 1
+        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 1)
         
         // When setting a value above range
-        manager.countdownDuration = 25
-        XCTAssertEqual(manager.countdownDuration, 20) // clamped to 20
-        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 20)
+        manager.countdownDuration = 4000
+        XCTAssertEqual(manager.countdownDuration, 3600) // clamped to 3600
+        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 3600)
     }
     
     func testFocusThresholdPersistence() {
