@@ -67,7 +67,14 @@ class SQLiteSessionStore {
         }
     }
     
+    private func warnIfMainThreadIfNeeded(caller: String = #function) {
+        if Thread.isMainThread {
+            print("⚠️ [MainThreadSQLite] \(caller) called on main thread - consider async.")
+        }
+    }
+
     func recentSessions(limit: Int) -> [SessionEvent] {
+        warnIfMainThreadIfNeeded()
         return queue.sync {
             do {
                 return try dbQueue.read { db in
@@ -85,6 +92,7 @@ class SQLiteSessionStore {
     }
     
     func allEvents() -> [SessionEvent] {
+        warnIfMainThreadIfNeeded()
         return queue.sync {
             do {
                 return try dbQueue.read { db in
@@ -94,6 +102,25 @@ class SQLiteSessionStore {
                 print("SQLiteSessionStore Error: Failed to fetch all events. \(error.localizedDescription)")
                 return []
             }
+        }
+    }
+
+    func fetchRecentSessions(limit: Int, completion: @escaping ([SessionEvent]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let sessions = self.queue.sync {
+                (try? self.dbQueue.read { db in
+                    try SessionEvent
+                        .filter(Column("type") == SessionEventType.sessionEnd.rawValue)
+                        .order(Column("timestamp").desc, Column("rowid").desc)
+                        .limit(limit)
+                        .fetchAll(db)
+                }) ?? []
+            }
+            DispatchQueue.main.async { completion(sessions) }
         }
     }
 

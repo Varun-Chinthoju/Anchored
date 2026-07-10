@@ -31,14 +31,14 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - `PreferencesManager.selectedThemeID` drives the active palette, with the default `baldr` theme now presented as the warm walnut, brass, and parchment `Heritage` palette
 - `ThemePalette` is the shared chrome layer for appearance, with semantic canvas/surface/border/text roles now derived from each theme's own colors and contrast-aware text colors, and `PirateTheme` resolves dynamically from the selected palette so accents, backgrounds, layout surfaces, onboarding, overlays, custom windows, popovers, and dashboard chrome inherit the active theme
 - The entire user-facing app is now unified under the dark warm control-room aesthetic with glowing background overlays, matching the dashboard, and the user-facing Appearance chooser has been removed from Settings
-- Major architectural pressure in V2.6: make context collection reliable, async-safe, privacy-aware, easier to test — resolved: explicit `useMockOnly` flag replaces XCTest sniffing, KeychainHelper overlay mockKeys for tests
-- Storage now has a versioned GRDB migration path, URL/title sanitization, and opt-in history retention helpers in support of V2.6
-- Dashboard analytics exposes typed async query contracts and generation-checked chart load states for Captain's Log, with month-to-date ranges anchored to the first session in the month and an all-time summary card below the scroll fold
-- `MenuBarController` routes Captain's Log into `SettingsWindow`; `SettingsView.swift` embeds `DashboardView.swift` without its standalone sidebar so analytics, profiles, focus apps, and preferences share one window
-- The settings sidebar no longer exposes separate Stats/Hourglass or Analytics/Voyage Logs destinations; Captain's Log is the single analytics surface
-- `Anchored/App/Views/ControlRoomSurface.swift` now holds the reusable control-room shell/card/footer primitives, and `DashboardView.swift` is the first surface to consume them
-- The async context collection pipeline is fully implemented: `AppSwitchMonitor` queries the `ContextCollector` asynchronously off the main thread, executing AppleScript via `AppleEventExecutor` serial queue 750ms discard-late-result deadline. Deduplication uses `ContextIdentity` (bundleID + sanitizedURL + normalizedTitle) capturing SPA shifts and title-only changes. Polling cadence 2.5s per spec, suspends on screensDidSleep/sessionDidResignActive, resumes on screensDidWake/sessionDidBecomeActive, stops privileged polling on .permissionDenied. FocusEngine consumes one ContextSnapshot atomically, notification includes snapshot payload, never blocks main.
-- Focus classification supports optional cloud-based context verification with Bring Your Own Key (BYOK) for Google Gemini, OpenAI, and Anthropic. API keys are stored securely via KeychainHelper service com.varun.Anchored.cloud-ai, transported only in headers (x-goog-api-key, Bearer, x-api-key) never in URL query. Requests run fire-and-forget on utility queue with 2.0s URLSession deadline and fallback to local classifiers; FocusEngine never blocks main (no semaphore) — `triggerAsyncCloudClassification()` logs result only.
+- Major architectural pressure in V2.6 resolved: context collection reliable/async, privacy-aware, test seams injection-based — `NSClassFromString` removed from production, replaced by `WindowTextExtracting`/`VisualProductivityChecking` providers in FocusEngine, `FreshInstallChecking` in AppDelegate, `useMockOnly` flag in KeychainHelper, session injection in CloudClassifier.
+- Storage now has versioned GRDB migration path v1-v4, URL/title sanitization via `ContextSanitizer`, opt-in `context_observations` with retention/pruning/count/oldest in `ContextHistoryStore`, and explicit main-thread warnings + async wrappers in `SessionStore`/`SQLiteSessionStore`.
+- Dashboard analytics primary API is async `DashboardQuerying` (fetchRangeSummary/topDistractions/earliestDate/focusTimePerHour) off-main via `performDashboardQuery` with generation-checked load states; legacy sync tuple methods deprecated with main-thread warnings. Captain's Log month-to-date anchored to first session, all-time summary below fold.
+- `MenuBarController` routes Captain's Log into `SettingsWindow`; `SettingsView.swift` embeds `DashboardView.swift` without standalone sidebar; analytics, profiles, focus apps, preferences share one window.
+- Settings sidebar no longer exposes separate Stats/Hourglass or Analytics/Voyage Logs destinations; Captain's Log is single analytics surface; Privacy & Data pane now exists with toggle, retention picker 1/7/30/90/365, observation count/oldest async, clear-all, and Cloud AI toggle co-located.
+- `Anchored/App/Views/ControlRoomSurface.swift` holds reusable shell/card/footer primitives; dashboard uses `ControlRoomShellBackground` warm dark, no pitch-black fallback; Appearance chooser removed.
+- Async context pipeline fully implemented: `AppSwitchMonitor` queries `ContextCollector` off-main, AppleScript via `AppleEventExecutor` serial queue 750ms discard-late, dedup via `ContextIdentity` (bundleID+sanitizedURL+normalizedTitle), polling 2.5s, suspends on screensDidSleep/sessionDidResignActive, resumes on screensDidWake/sessionDidBecomeActive, stops privileged polling on .permissionDenied. FocusEngine consumes one `ContextSnapshot` atomically, notification includes snapshot, never blocks main.
+- Cloud BYOK: `KeychainHelper` service `com.varun.Anchored.cloud-ai`, `kSecClassGenericPassword`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, internal `mockKeys` only when `useMockOnly`, no UserDefaults leak. `CloudClassifier` header-only transport (x-goog-api-key/Bearer/x-api-key), 2s ephemeral session, fire-and-forget `triggerAsyncCloudClassification` on utility queue, OCR only off-main, fallback to local classifiers, no semaphore.
 
 ## Repo Map
 
@@ -81,22 +81,22 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 
 It currently:
 
-1. Checks `hasCompletedOnboarding` in `UserDefaults` and shows onboarding only on first launch or after a reset.
+1. Delegates fresh-install detection to `FreshInstallChecking` (`LiveFreshInstallChecker` with `FileManager` + `appPathProvider` closure), removing `NSClassFromString` sniffing. `shouldShowOnboardingFlow` delegates to checker; tests inject `FlagOnlyChecker`.
 2. On completion, instantiates:
-   - `AppSwitchMonitor`
-   - `FocusEngine`
+   - `AppSwitchMonitor` (2.5s poll, sleep/wake/lock suspend/resume, ContextIdentity dedup)
+   - `FocusEngine` with injected `LiveOCRProvider` (`WindowTextExtracting`) and `LiveVisualProductivityChecker` (`VisualProductivityChecking`)
    - `OverlayManager`
    - `MenuBarController`
    - `ShadowTrackingEngine`
    - `SmartNudgeManager`
-   - `ContextHistoryStore`
-   - `ContextHistoryPipeline`
-3. Wires `ShadowTrackingEngine` and `SmartNudgeManager` into the live focus runtime; auto-focus tracking is always active, while smart nudges only gate the optional notification.
-4. Subscribes to `PreferencesManager.shared` so focus and fog threshold changes mutate the live runtime.
-5. Starts the `FocusEngine`, which starts the activity monitor.
-6. Keeps the history store disabled until the privacy/settings flow enables collection.
+   - `ContextHistoryStore.shared` with `isEnabled = prefs.contextHistoryEnabled` and `performLaunchMaintenance(retentionDays:)` from prefs
+   - `ContextHistoryPipeline` listening `.focusEngineContextDidChange`
+3. Wires `ShadowTrackingEngine` and `SmartNudgeManager` into live focus runtime; auto-focus always active, nudges gate notification.
+4. Subscribes to `PreferencesManager.shared` publishers for `focusThreshold`, `countdownDuration`, `contextHistoryEnabled`, `contextHistoryRetentionDays` → mutates live engine + history store (prune on retention change).
+5. Starts `FocusEngine` which starts activity monitor.
+6. History store enforcement lives in storage boundary (`ContextHistoryStore.record` checks isEnabled), not just UI.
 
-This means runtime composition is still centralized, singleton-heavy, and AppDelegate-driven.
+Composition remains centralized but now has explicit test seams for onboarding, OCR, visual check, Keychain mock, and URLSession injection.
 
 ### Composition diagram
 
@@ -187,53 +187,56 @@ flowchart TD
 
 ### Focus tracking and enforcement
 
-#### `Anchored/Engine/FocusEngine.swift`
+#### `Anchored/Engine/FocusEngine.swift` + seams
 
-This is the central behavioral engine.
+This is the central behavioral engine, now with explicit test seams.
 
 Responsibilities:
 
-- stores current app, URL, title, and `AppContext`
-- tracks `idle`, `watching`, and `anchored` session states
-- decides whether a context is focus, distraction, or neutral
-- creates `sessionStart`, `distractionDetected`, `escalationTriggered`, and `sessionEnd` events
-- drives exit-trigger prompts, distraction countdowns, and dimming state
-- posts `focusEngineStateDidChange` and `focusEngineContextDidChange`
-- continues to publish legacy `bundleID`/URL/title context updates for downstream consumers during the V2.6 transition
+- stores current app, URL, title, and `AppContext` + latest `ContextSnapshot`
+- tracks `idle`, `watching`, `anchored` states
+- decides focus/distraction/neutral via `SmartAppClassifier`, `SmartWebClassifier`, `VisualProductivityChecking`, URLMatcher, profile allowed/distraction lists
+- triggers optional cloud classification fire-and-forget on utility queue (OCR only off-main) via `triggerAsyncCloudClassification`, never blocks main, no semaphore
+- creates `sessionStart`, `distractionDetected`, `escalationTriggered`, `sessionEnd`
+- drives exit-trigger, distraction countdown, dimming
+- posts `focusEngineStateDidChange` and `focusEngineContextDidChange` with snapshot
+
+Injection seams (Task 9):
+
+- `WindowTextExtracting` / `LiveOCRProvider`: Vision `CGWindowListCreateImage` + `VNRecognizeTextRequest` off-main, injected into FocusEngine. Tests inject `MockOCRProvider` returning "".
+- `VisualProductivityChecking` / `LiveVisualProductivityChecker` wrapping `SmartImageClassifier.isProductiveVisual` (now without XCTest sniffing). Tests inject `MockVisualChecker` returning false.
+- `activityMonitor: ActivityMonitor`, `distractionListManager`, `sessionStore`, `profileManager`, `preferencesManager` all injected
+- Cloud: `CloudClassifier(preferences:)` with optional `URLSession` injection, no `NSClassFromString` for MockURLProtocol
 
 Important inputs:
 
-- `ActivityMonitor` implementation, currently `AppSwitchMonitor`
-- `ProfileManager.activeProfile`
-- `ProfileManager.activeProfile.allowedApps` as the per-profile positive app set
-- `SessionStore`
-- `PreferencesManager` updates via `AppDelegate`
-- `ShadowTrackingEngine` as the always-on on-device auto-focus companion
+- `ActivityMonitor` (AppSwitchMonitor → ContextCollector → AppleEventExecutor)
+- `ProfileManager.activeProfile` (allowedApps/distractionApps/domains)
+- `SessionStore`, `PreferencesManager` (effective thresholds, cloud enable)
+- `ShadowTrackingEngine`
 
 Important outputs:
 
-- `FocusEngineDelegate` callbacks to `OverlayManager`
-- session events written to storage
-- notifications consumed by menu bar and smart nudge systems
-- legacy context-change notifications consumed by the history pipeline and existing observers
+- `FocusEngineDelegate` → `OverlayManager`
+- session events → storage
+- notifications → menu bar, nudge, history pipeline
+- `ContextSnapshot` in notification userInfo for history
 
 State invariants:
 
-- `activeSession != nil` implies `state == .anchored`
-- `workSessionStart != nil && activeSession == nil` implies `state == .watching`
-- distraction countdown and dimming only matter during anchored sessions
-- `lastWorkAppBundleID` is the last recognized focus context and is reused for later logging/UI
-- `currentContext` still represents the latest raw runtime tuple, while `PersistedContextObservation` stores the sanitized history copy
+- `activeSession != nil` => `.anchored`, `workSessionStart != nil && activeSession==nil` => `.watching`
+- distraction countdown/dimming only during anchored
+- `lastWorkAppBundleID` last focus context reused for logging
+- `currentContext` latest raw, `PersistedContextObservation` sanitized copy
+- No `NSClassFromString`, no semaphore blocking main, no SQLite on main via engine
 
-Files to read for engine changes:
+Files to read:
 
-- `Anchored/Engine/FocusEngine.swift`
+- `Anchored/Engine/FocusEngine.swift` (now 1100+ lines but includes provider protocols)
+- `Anchored/App/FreshInstallChecker.swift` (new)
 - `Anchored/Engine/ShadowTrackingEngine.swift`
 - `Anchored/Engine/SmartNudgeManager.swift`
-- `AnchoredTests/Engine/FocusEngineTests.swift`
-- `Anchored/Models/SessionState.swift`
-- `Anchored/Models/ActiveSession.swift`
-- `Anchored/Models/SessionEvent.swift`
+- `AnchoredTests/Engine/FocusEngineTests.swift` (mocks for OCR/visual)
 
 ### Context collection
 
@@ -307,72 +310,49 @@ Responsibilities:
 
 #### `Anchored/Storage/SessionStore.swift`
 
-This is a facade, not the real query layer.
+Facade, not real query layer, now with async wrappers + main-thread warnings.
 
 Responsibilities:
 
 - owns migration from legacy `sessions.json`
 - forwards writes/reads to `SQLiteSessionStore`
-- preserves the convenience `log` API while allowing callers and tests to observe write completion
-- computes basic stats via in-memory event reads
-- sanitizes persisted session URLs before they reach SQLite
+- preserves convenience `log` API with completion
+- computes stats via in-memory reads, but now via static `computeStats`/`computeBreakdown` off-main helpers
+- warns if `recentSessions`/`allEvents`/`getStats`/`getAppBreakdown` called on main, offers `fetchRecentSessions`/`fetchAllEvents`/`fetchStats`/`fetchAppBreakdown` async variants
 
-Architectural note:
-
-- the class name suggests the main store, but durable storage is really in `SQLiteSessionStore`
-- some analytics live here, some live in `DashboardQueries.swift`
+Architectural note: class name suggests main store, but durable storage is SQLiteSessionStore; analytics split between here and DashboardQueries.
 
 #### `Anchored/Storage/SQLiteSessionStore.swift`
 
-This is the real persistence boundary.
+Real persistence boundary, hardened for V2.6 + BYOK.
 
 Responsibilities:
 
-- owns the GRDB `DatabaseQueue`
-- applies the versioned migration plan from `DatabaseMigrations.swift`
-- creates/migrates the `sessions` table and `context_observations` table
-- writes session events on a utility queue
-- reports async write success or failure through an optional main-queue completion callback
-- preserves the original database file on migration failure and records the error in `migrationError`
-- exposes raw event reads and recent session reads
-- exposes direct helpers for `context_observations` count, oldest date, pruning, clearing, and latest identity lookup
+- owns GRDB `DatabaseQueue`, applies versioned migrations v1-v4 from `DatabaseMigrations.swift` (sessions idx, context_observations, metadata, sanitize legacy URLs transactionally idempotent)
+- creates/migrates `sessions` + `context_observations` tables
+- writes on utility queue, completion on main, preserves original DB on migration failure with `migrationError`
+- exposes count/oldest/prune/clear/latest identity for history store
+- now warns if `recentSessions`/`allEvents` called on main, provides async variants
+- `DatabaseMigrations` kept in `SQLiteSessionStore.swift` OR `DatabaseMigrations.swift` per repo invariant
 
-Current schema:
+Current schema `sessions`: id, timestamp, type, appBundleID, appName, url (sanitized), focusDurationSeconds, sessionDurationSeconds, distractionAppBundleID, distraction_domain, action, category, sessionGoal. `context_observations`: bundleID, appName, title, url, source, domain, sessionState, observedAt, etc., sanitized.
 
-- `sessions`
-  - `id`
-  - `timestamp`
-  - `type`
-  - `appBundleID`
-  - `appName`
-  - `url`
-  - `focusDurationSeconds`
-  - `sessionDurationSeconds`
-  - `distractionAppBundleID`
-  - `distraction_domain`
-  - `action`
-  - `category`
-  - `sessionGoal`
-
-SQL ownership invariant from repo guidance:
-
-- keep SQL in `SQLiteSessionStore.swift` or `DashboardQueries.swift`
+SQL ownership invariant: keep SQL in `SQLiteSessionStore.swift` or `DashboardQueries.swift` only.
+Sanitization invariant: `SessionEvent.persistedCopy()` + `ContextSanitizer` strip creds/queries/fragments, cap titles 512 graphemes.
 
 #### `Anchored/Storage/DashboardQueries.swift`
 
-Analytics/query extension layer on top of `SQLiteSessionStore`.
+Analytics/query extension layer on top of `SQLiteSessionStore`, now async-first.
 
 Responsibilities:
 
-- total focus time
-- daily timeline reconstruction
-- top distractions
-- streak computation
-- app name lookup and chart-friendly query helpers
-- `DashboardQuerying` async completion-based reads that return typed bucket and distribution models on the main queue
-- synchronous tuple/dictionary helpers that remain as wrappers for legacy callers and tests
+- total focus time, daily timeline, top distractions, streak, app name lookup, chart-friendly buckets
+- Primary API: async `fetchRangeSummary`, `fetchTopDistractions`, `fetchEarliestSessionDate`, `fetchFocusTimePerHourForLast24Hours`, `fetchFocusTimePerDay`, `fetchAppDomainFocusDistribution` via `performDashboardQuery` on `global(qos:.userInitiated)` → main completion, generation-checked per view
+- Legacy sync tuple methods deprecated with `warnIfMainThread` warnings, now private compute helpers (`computeTodayTotalFocusTime`, etc.) without nested queue.sync
+- `DashboardDataModel.refresh` generation-guarded, chains earliestDate → parallel range summaries + top distractions + hourly/daily, discarding stale generations
+- `TopDistractionsPanel` shows `Loadable` loading/error/empty states, `TidalWaveChartView` already had Loadable + requestGeneration
 
-This file reconstructs user-facing analytics from event streams rather than storing denormalized summaries.
+This file reconstructs analytics from event streams, never SQLite on main in new API.
 
 #### `Anchored/Storage/ContextHistoryStore.swift`
 
@@ -591,53 +571,54 @@ This is functional but makes deterministic testing and async context collection 
 
 These come from both the code and repo rules. Future changes should preserve them unless a plan explicitly replaces them.
 
-- `FocusEngine` state transitions are architectural invariants.
-- Auto-focus and shadow tracking should stay on device; `ShadowTrackingEngine` can notify, but it should not be the enforcement source of truth.
-- Browser support should be registered through `BrowserStrategyFactory`.
-- SQL belongs in `SQLiteSessionStore.swift` or `DashboardQueries.swift`.
-- `PersistedContextObservation` and `SessionEvent.persistedCopy()` sanitize URLs before persistence.
-- The history pipeline must remain opt-in and disabled until the privacy/settings flow enables it.
-- AppKit/UI mutations should stay on the main thread.
-- Persistence work should stay off the main thread.
-- Sensitive titles and URLs should stay local and should not be raw-logged casually.
-- Accessibility permission loss must degrade gracefully rather than crash or silently corrupt state.
-- Profile-level `allowedApps` and allowed domains are positive focus signals, while explicit distraction domains and entertainment browser contexts suppress focus tracking.
-- Fog/dimming uses `distractionCountdownThreshold`; focus prompting or Auto Voyage uses `focusThreshold`. These timings must not be conflated.
+- `FocusEngine` state transitions are architectural invariants; no `NSClassFromString` in production, no semaphore blocking main, no SQLite on main.
+- Auto-focus and shadow tracking stay on device; `ShadowTrackingEngine` can notify, not enforcement source.
+- Browser support registered through `BrowserStrategyFactory`; AppleEventExecutor serial queue 750ms discard-late.
+- SQL belongs in `SQLiteSessionStore.swift` or `DashboardQueries.swift` only.
+- `PersistedContextObservation` and `SessionEvent.persistedCopy()` sanitize URLs (creds/queries/fragments stripped, titles collapsed/capped) before persistence.
+- History pipeline opt-in, disabled until privacy/settings enables, enforced inside `ContextHistoryStore` boundary, not just UI.
+- AppKit/UI mutations on main, persistence off-main, dashboard queries async via `performDashboardQuery` + generation per view.
+- Sensitive titles/URLs local, no raw logging, cloud prompt text-only sanitized, keys header-only, never logged.
+- Accessibility permission loss degrades gracefully, stops privileged polling on `.permissionDenied`, suspend/resume on sleep/wake/lock/unlock, never crash.
+- Profile `allowedApps`/allowedDomains positive focus signals; distraction domains/entertainment suppress focus.
+- Fog/dimming uses `distractionCountdownThreshold`; focus prompting/Auto Voyage uses `focusThreshold`; not conflated.
+- Keychain service `com.varun.Anchored.cloud-ai`, `kSecClassGenericPassword`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, mockKeys only when `useMockOnly`, no UserDefaults leak.
+- No production code probes `XCTestCase` or `MockURLProtocol` via `NSClassFromString`; dependency injection via protocols/closures/URLSession param.
+- Polling cadence 2.5s, ContextIdentity dedup (bundleID+sanitizedURL+normalizedTitle), one collection at a time, stale generation rejection.
 
 ## Current Weak Spots
 
-These are the places future agents are most likely to touch when implementing V2.6 or debugging regressions.
-
-- `FocusEngine` owns significant timer/state logic and keeps the focus/distraction policy in-engine, but it now depends on a small injected focus-app provider seam.
-- `SessionStore` and `SQLiteSessionStore` split responsibilities in a way that is not obvious from the names.
-- `AppDelegate` is the de facto dependency injection container.
-- The standalone `DashboardWindow.swift` still compiles for compatibility but is no longer opened by `MenuBarController`.
-- `PreferencesManager.focusPromptExperimentEnabled` is now a legacy rollout preference rather than a live runtime branch.
+- `FocusEngine` owns significant timer/state logic; now has injected seams `WindowTextExtracting`/`VisualProductivityChecking` + `PreferencesManager`/`ProfileManager`, but still singleton-heavy via `ProfileManager.activeProfile` and `NSWorkspace.shared` direct calls in some classifiers.
+- `SessionStore` vs `SQLiteSessionStore` split not obvious from names; now both have async wrappers + main warnings, but legacy sync wrappers still exist for compatibility.
+- `AppDelegate` is composition root with many singletons; now wired with `FreshInstallChecking`, `ContextHistoryStore.shared`, prefs publishers for history enable/retention, but `DistractionListManager.shared` and `ProfileManager.shared` still global.
+- `DashboardWindow.swift` still compiles for compat but not opened by `MenuBarController`.
+- `PreferencesManager.focusPromptExperimentEnabled` legacy rollout pref.
+- `InstalledAppSuggestionProvider` still calls `NSWorkspace` + file scan synchronously.
+- Remaining singleton mutation in tests: `KeychainHelper.mockKeys` global, `UserDefaults` suite isolated but `NSWorkspace.shared` still real in visual checker unless mocked.
+- Dashboard `TopDistractionsView`/`WeeklyHistoryView` stateless; parent panels now handle Loadable but could still use direct `SessionStore.shared` in some previews.
 
 ## V2.6 Impact Surface
 
 Read this section before implementing anything from `docs/ideas/anchored-v2.6-plan.md`.
 
-### Planned architectural additions
+### Planned architectural additions — status 2026-07-09 (P0-P1 hardened, tests 166 green)
 
-The V2.6 core async context pipeline and local history have been fully implemented, including:
+V2.6 core pipeline + BYOK + privacy + dashboard async all landed and hardened:
 
-- `ContextSnapshot`
-- `ContextIdentity`
-- `ContextCollector`
-- async Apple Event execution (`AppleEventExecutor`)
-- safe Accessibility context providers
-- generation-based stale-result rejection
-- sanitized context persistence
-- retention/deletion controls
-- privacy settings UI
-- asynchronous analytics contracts
-- `ContextHistoryStore` and `ContextHistoryPipeline`
-- `PersistedContextObservation`
-- `DashboardModels`
-- async dashboard query completions and generation-checked chart views
-- a settings-contained Captain's Log that reuses the async dashboard surface
-- `CloudClassifier` and `KeychainHelper` for secure Bring Your Own Key (BYOK) cloud AI context classification
+- `ContextSnapshot` + `ContextIdentity` + `ContextCollector` + `AppleEventExecutor` (serial queue 750ms discard-late) + safe AX provider `AccessibilityContextProvider`/`AccessibilityValue` ✅
+- Generation stale-rejection in collector + AppSwitchMonitor dual-suspend flags (sleep/wake/lock/unlock) ✅, polling 2.5s, ContextIdentity dedup ✅
+- `ContextSanitizer` pure, `DatabaseMigrations` v1-v4 transactional idempotent ✅
+- `ContextHistoryStore`/`Pipeline`/`PersistedContextObservation` opt-in, count/oldest/prune/clear, retention 1/7/30/90/365, enforced in storage boundary ✅ wired to prefs in AppDelegate
+- Privacy & Data pane `PrivacySettingsPane` in Settings: history toggle, retention picker, async count/oldest display, clear-all, Cloud AI toggle co-located ✅
+- Dashboard async: `DashboardQueries` primary async `fetchRangeSummary`/`fetchTopDistractions`/`fetchEarliest...` via `performDashboardQuery` off-main, sync deprecated with main warnings, `DashboardDataModel` generation-guarded, `TopDistractionsPanel` + `TidalWaveChartView` Loadable states ✅
+- `ControlRoomSurface` shell/card/footer primitives, warm dark control-room unified, Appearance chooser removed ✅
+- FocusEngine: `WindowTextExtracting`/`LiveOCRProvider`, `VisualProductivityChecking`/`LiveVisualProductivityChecker`, no `NSClassFromString`, no semaphore, fire-and-forget cloud `triggerAsyncCloudClassification` utility queue, OCR only off-main fallback "" ✅
+- AppDelegate: `FreshInstallChecking`/`LiveFreshInstallChecker` with FileManager + appPathProvider injection, no XCTest sniffing ✅
+- Keychain: service `com.varun.Anchored.cloud-ai`, `kSecClassGenericPassword`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, internal mockKeys only when useMockOnly, no UserDefaults leak, no key logging ✅
+- CloudClassifier: header-only keys (x-goog-api-key/Bearer/x-api-key), 2s ephemeral timeout, session injection, no `NSClassFromString` for MockURLProtocol ✅
+- Settings: Cloud AI panel SecureField, Keychain persist, model/endpoint fields, provider picker 0 Gemini 1 OpenAI 2 Anthropic defaults gemini-2.5-flash/gpt-4o-mini/claude-3-5-haiku ✅
+
+Remaining V2.6 follow-ups: Task 10 full singleton-free test isolation (remove all Thread.sleep fixed waits), Task 23-27 overlay/onboarding final chrome alignment, Task 36 privacy-safe diagnostics + release matrix (p50/p95 instrumentation, soak test, no raw title/URL logs).
 
 ### ML readiness and rollout
 

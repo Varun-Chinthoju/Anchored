@@ -2,7 +2,8 @@ import AppKit
 import Combine
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let onboardingCompletionKey = "hasCompletedOnboarding"
+    fileprivate static let onboardingCompletionKey = "hasCompletedOnboarding"
+    var installChecker: FreshInstallChecking = LiveFreshInstallChecker()
     private var appSwitchMonitor: AppSwitchMonitor?
     private var focusEngine: FocusEngine?
     private var overlayManager: OverlayManager?
@@ -13,7 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var smartNudgeManager: SmartNudgeManager?
     private var contextHistoryStore: ContextHistoryStore?
     private var contextHistoryPipeline: ContextHistoryPipeline?
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
         if shouldShowOnboardingFlow() {
@@ -24,25 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     internal func shouldShowOnboardingFlow(defaults: UserDefaults = .standard) -> Bool {
-        if NSClassFromString("XCTestCase") != nil {
-            return !defaults.bool(forKey: Self.onboardingCompletionKey)
-        }
-        
-        let appPath = Bundle.main.executablePath ?? Bundle.main.bundlePath
-        let attrs = try? FileManager.default.attributesOfItem(atPath: appPath)
-        let modDate = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        
-        let lastModDate = defaults.double(forKey: "lastInstalledModDate")
-        let lastPath = defaults.string(forKey: "lastInstalledPath")
-        
-        if lastModDate != modDate || lastPath != appPath {
-            defaults.set(modDate, forKey: "lastInstalledModDate")
-            defaults.set(appPath, forKey: "lastInstalledPath")
-            defaults.set(false, forKey: Self.onboardingCompletionKey)
-            return true
-        }
-        
-        return !defaults.bool(forKey: Self.onboardingCompletionKey)
+        return installChecker.shouldShowOnboardingFlow(defaults: defaults)
     }
     
     private func startStandardFlow() {
@@ -92,9 +75,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlayManager = overlay
         engine.delegate = overlay
 
-        let historyStore = ContextHistoryStore(sqliteStore: SQLiteSessionStore.shared, isEnabled: false)
+        let historyStore = ContextHistoryStore.shared
+        historyStore.isEnabled = prefs.contextHistoryEnabled
+        historyStore.performLaunchMaintenance(retentionDays: prefs.contextHistoryRetentionDays)
         contextHistoryStore = historyStore
         contextHistoryPipeline = ContextHistoryPipeline(focusEngine: engine, historyStore: historyStore)
+
+        prefs.$contextHistoryEnabled
+            .dropFirst()
+            .sink { [weak historyStore] enabled in
+                historyStore?.isEnabled = enabled
+            }
+            .store(in: &preferencesCancellables)
+
+        prefs.$contextHistoryRetentionDays
+            .dropFirst()
+            .sink { [weak historyStore] days in
+                historyStore?.prune(retentionDays: days)
+            }
+            .store(in: &preferencesCancellables)
         
         menuBarController = MenuBarController(focusEngine: engine)
         

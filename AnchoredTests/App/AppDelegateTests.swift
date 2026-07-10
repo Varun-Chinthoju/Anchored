@@ -5,6 +5,12 @@ final class AppDelegateTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
 
+    private struct FlagOnlyChecker: FreshInstallChecking {
+        func shouldShowOnboardingFlow(defaults: UserDefaults) -> Bool {
+            return !defaults.bool(forKey: "hasCompletedOnboarding")
+        }
+    }
+
     override func setUp() {
         super.setUp()
         suiteName = "com.varun.Anchored.AppDelegateTests.\(UUID().uuidString)"
@@ -17,8 +23,14 @@ final class AppDelegateTests: XCTestCase {
         super.tearDown()
     }
 
-    func testShouldShowOnboardingWhenFlagIsMissingOrFalse() {
+    private func makeSUT() -> AppDelegate {
         let appDelegate = AppDelegate()
+        appDelegate.installChecker = FlagOnlyChecker()
+        return appDelegate
+    }
+
+    func testShouldShowOnboardingWhenFlagIsMissingOrFalse() {
+        let appDelegate = makeSUT()
 
         XCTAssertTrue(appDelegate.shouldShowOnboardingFlow(defaults: defaults))
 
@@ -27,9 +39,29 @@ final class AppDelegateTests: XCTestCase {
     }
 
     func testShouldSkipOnboardingWhenCompletionFlagIsTrue() {
-        let appDelegate = AppDelegate()
+        let appDelegate = makeSUT()
         defaults.set(true, forKey: "hasCompletedOnboarding")
 
         XCTAssertFalse(appDelegate.shouldShowOnboardingFlow(defaults: defaults))
+    }
+
+    func testLiveCheckerDetectsFreshInstall() {
+        var providedPath = "/Applications/Anchored.app"
+        let liveChecker = LiveFreshInstallChecker(
+            fileManager: .default,
+            appPathProvider: { providedPath }
+        )
+        let appDelegate = AppDelegate()
+        appDelegate.installChecker = liveChecker
+
+        XCTAssertTrue(appDelegate.shouldShowOnboardingFlow(defaults: defaults))
+        XCTAssertEqual(defaults.string(forKey: "lastInstalledPath"), providedPath)
+
+        defaults.set(true, forKey: "hasCompletedOnboarding")
+        XCTAssertFalse(appDelegate.shouldShowOnboardingFlow(defaults: defaults))
+
+        providedPath = "/Applications/Anchored-Updated.app"
+        XCTAssertTrue(appDelegate.shouldShowOnboardingFlow(defaults: defaults))
+        XCTAssertFalse(defaults.bool(forKey: "hasCompletedOnboarding"))
     }
 }

@@ -33,6 +33,8 @@ public final class PreferencesManager: ObservableObject {
         public static let cloudProvider = "com.varun.Anchored.cloudProvider"
         public static let cloudModel = "com.varun.Anchored.cloudModel"
         public static let cloudEndpoint = "com.varun.Anchored.cloudEndpoint"
+        public static let contextHistoryEnabled = "com.varun.Anchored.contextHistoryEnabled"
+        public static let contextHistoryRetentionDays = "com.varun.Anchored.contextHistoryRetentionDays"
     }
     
     // Default values
@@ -47,6 +49,9 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultCloudEndpointGemini = "https://generativelanguage.googleapis.com/v1beta/models/"
     public static let defaultCloudEndpointOpenAI = "https://api.openai.com/v1/chat/completions"
     public static let defaultCloudEndpointAnthropic = "https://api.anthropic.com/v1/messages"
+
+    public static let defaultContextHistoryEnabled = false
+    public static let defaultContextHistoryRetentionDays = 30
     
     /// The distraction countdown duration in seconds. Clamped to [5, 20].
     @Published public var countdownDuration: Int {
@@ -176,6 +181,25 @@ public final class PreferencesManager: ObservableObject {
             defaults.set(cloudEndpoint, forKey: Keys.cloudEndpoint)
         }
     }
+
+    /// Whether detailed context history recording is enabled.
+    @Published public var contextHistoryEnabled: Bool {
+        didSet {
+            defaults.set(contextHistoryEnabled, forKey: Keys.contextHistoryEnabled)
+        }
+    }
+
+    /// Retention in days for context observations.
+    @Published public var contextHistoryRetentionDays: Int {
+        didSet {
+            let clamped = max(1, min(365, contextHistoryRetentionDays))
+            if clamped != contextHistoryRetentionDays {
+                self.contextHistoryRetentionDays = clamped
+            } else {
+                defaults.set(clamped, forKey: Keys.contextHistoryRetentionDays)
+            }
+        }
+    }
     
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
@@ -229,6 +253,16 @@ public final class PreferencesManager: ObservableObject {
         self.cloudModel = defaults.string(forKey: Keys.cloudModel) ?? defaultModel
         self.cloudEndpoint = defaults.string(forKey: Keys.cloudEndpoint) ?? defaultEndpoint
         self.cloudProvider = storedCloudProvider
+
+        let storedHistoryEnabled = defaults.object(forKey: Keys.contextHistoryEnabled) as? Bool ?? Self.defaultContextHistoryEnabled
+        self.contextHistoryEnabled = storedHistoryEnabled
+
+        let storedRetention = defaults.object(forKey: Keys.contextHistoryRetentionDays) as? Int ?? Self.defaultContextHistoryRetentionDays
+        let clampedRetention = max(1, min(365, storedRetention))
+        self.contextHistoryRetentionDays = clampedRetention
+        if clampedRetention != storedRetention {
+            defaults.set(clampedRetention, forKey: Keys.contextHistoryRetentionDays)
+        }
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status

@@ -34,7 +34,9 @@ final class ContextHistoryPipelineTests: XCTestCase {
             sessionStore: SessionStore(fileURL: tempDirectory.appendingPathComponent("sessions.json")),
             profileManager: profileManager,
             focusThreshold: 600.0,
-            preferencesManager: PreferencesManager(defaults: testDefaults)
+            preferencesManager: PreferencesManager(defaults: testDefaults),
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker()
         )
         historyStore = ContextHistoryStore(sqliteStore: sqliteStore, defaults: testDefaults, isEnabled: true)
         pipeline = ContextHistoryPipeline(focusEngine: engine, historyStore: historyStore)

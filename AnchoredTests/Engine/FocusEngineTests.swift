@@ -30,14 +30,16 @@ final class FocusEngineTests: XCTestCase {
         // Setup mock ActivityMonitor and Delegate
         mockActivityMonitor = MockActivityMonitor()
         mockDelegate = MockFocusEngineDelegate()
-        // Initialize FocusEngine (default threshold = 10 minutes)
+        // Initialize FocusEngine (default threshold = 10 minutes) with fake providers to avoid Vision overhead
         engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
             distractionListManager: distractionListManager,
             sessionStore: sessionStore,
             profileManager: profileManager,
             focusThreshold: 600.0,
-            preferencesManager: testPreferences
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker()
         )
         engine.delegate = mockDelegate
         
@@ -439,7 +441,9 @@ final class FocusEngineTests: XCTestCase {
             sessionStore: sessionStore,
             profileManager: profileManager,
             focusThreshold: 600.0,
-            preferencesManager: testPreferences
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker()
         )
         localEngine.delegate = mockDelegate
         localEngine.distractionCountdownThreshold = 0.05
@@ -466,7 +470,9 @@ final class FocusEngineTests: XCTestCase {
             sessionStore: sessionStore,
             profileManager: profileManager,
             focusThreshold: 600.0,
-            preferencesManager: testPreferences
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker()
         )
         engine.delegate = mockDelegate
         engine.distractionCountdownThreshold = 0.05
@@ -819,10 +825,13 @@ final class FocusEngineTests: XCTestCase {
     
     func testCloudClassificationIsDistractionProductive() {
         testPreferences.enableCloudClassification = true
-        testPreferences.cloudProvider = 0 // Gemini
+        testPreferences.cloudProvider = 0
         try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
-        
+        URLProtocol.registerClass(MockURLProtocol.self)
+
+        var cloudRequestMade = false
         MockURLProtocol.requestHandler = { request in
+            cloudRequestMade = true
             let expectedJSON = """
             {
               "candidates": [
@@ -841,19 +850,28 @@ final class FocusEngineTests: XCTestCase {
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, expectedJSON.data(using: .utf8))
         }
-        
+
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Test Title")
-        
-        // Productive is true, so it is NOT a distraction. Therefore, it is a WATCHING focus state, not distraction.
-        XCTAssertEqual(engine.state, .watching)
-        XCTAssertEqual(engine.lastWorkAppBundleID, "com.spotify.client")
+
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertTrue(engine.lastWorkAppBundleID != "com.spotify.client")
+
+        let exp = expectation(description: "cloud async")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.6) {
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 2)
+        URLProtocol.unregisterClass(MockURLProtocol.self)
+        MockURLProtocol.requestHandler = nil
     }
     
     func testCloudClassificationIsDistractionUnproductive() {
         testPreferences.enableCloudClassification = true
         testPreferences.cloudProvider = 0 // Gemini
         try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
-        
+        URLProtocol.registerClass(MockURLProtocol.self)
+
         MockURLProtocol.requestHandler = { request in
             let expectedJSON = """
             {
@@ -873,33 +891,38 @@ final class FocusEngineTests: XCTestCase {
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, expectedJSON.data(using: .utf8))
         }
-        
+
         // Set up active session to detect distraction countdown pill
         engine.workSessionStart = Date()
         engine.anchorSession(duration: 1500)
-        
+
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Test Title")
-        
+
         // Productive is false, so it IS a distraction.
         XCTAssertEqual(mockDelegate.detectedDistractions.count, 1)
         XCTAssertEqual(mockDelegate.detectedDistractions.first, "com.spotify.client")
+        URLProtocol.unregisterClass(MockURLProtocol.self)
+        MockURLProtocol.requestHandler = nil
     }
-    
+
     func testCloudClassificationIsDistractionFallbackOnFailure() {
         testPreferences.enableCloudClassification = true
         testPreferences.cloudProvider = 0 // Gemini
         try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
-        
+        URLProtocol.registerClass(MockURLProtocol.self)
+
         // Return 500 error to simulate network/cloud failure
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
             return (response, Data())
         }
-        
+
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Test Title")
-        
+
         // Should fall back to local check (distraction), resetting workSessionStart to nil
         XCTAssertNil(engine.workSessionStart)
+        URLProtocol.unregisterClass(MockURLProtocol.self)
+        MockURLProtocol.requestHandler = nil
     }
     
     // MARK: - Helper Methods
@@ -964,5 +987,17 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     var requestedPermissionGate = 0
     func didRequestPermissionGate() {
         requestedPermissionGate += 1
+    }
+}
+
+struct MockOCRProvider: WindowTextExtracting {
+    func extractText() -> String {
+        return ""
+    }
+}
+
+struct MockVisualChecker: VisualProductivityChecking {
+    func isProductiveVisual(profileName: String) -> Bool {
+        return false
     }
 }

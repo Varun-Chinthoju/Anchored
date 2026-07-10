@@ -44,38 +44,79 @@ class MenuBarViewModel: ObservableObject {
         }
     }
     
+    private var statsGeneration: Int = 0
+
     func refresh() {
         self.activeSession = focusEngine.activeSession
-        self.recentSessions = sessionStore.recentSessions(limit: 5)
+        let currentGen = statsGeneration &+ 1
+        statsGeneration = currentGen
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let sessions = self.sessionStore.recentSessions(limit: 5)
+            let rawStats = self.sessionStore.getStats()
+            DispatchQueue.main.async {
+                guard currentGen == self.statsGeneration else { return }
+                self.recentSessions = sessions
+                self.applyStats(rawStats)
+            }
+        }
         self.updateTime()
     }
     
     func updateTime() {
-        // In case the session state changed externally in the engine, keep in sync
         if focusEngine.activeSession != self.activeSession {
             self.activeSession = focusEngine.activeSession
-            self.recentSessions = sessionStore.recentSessions(limit: 5)
+            let currentGen = statsGeneration &+ 1
+            statsGeneration = currentGen
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                let sessions = self.sessionStore.recentSessions(limit: 5)
+                let rawStats = self.sessionStore.getStats()
+                DispatchQueue.main.async {
+                    guard currentGen == self.statsGeneration else { return }
+                    self.recentSessions = sessions
+                    self.applyStatsWithActiveSession(rawStats)
+                }
+            }
+            return
         }
-        
-        let rawStats = sessionStore.getStats()
-        
+
+        let currentGen = statsGeneration &+ 1
+        statsGeneration = currentGen
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let rawStats = self.sessionStore.getStats()
+            DispatchQueue.main.async {
+                guard currentGen == self.statsGeneration else { return }
+                self.applyStatsWithActiveSession(rawStats)
+            }
+        }
+    }
+
+    private func applyStats(_ rawStats: SessionStats) {
+        guard activeSession == nil else {
+            applyStatsWithActiveSession(rawStats)
+            return
+        }
+        self.stats = rawStats
+        remainingTimeFormatted = "00:00"
+        progress = 0.0
+    }
+
+    private func applyStatsWithActiveSession(_ rawStats: SessionStats) {
         guard let session = activeSession else {
             self.stats = rawStats
             remainingTimeFormatted = "00:00"
             progress = 0.0
             return
         }
-        
         let elapsed = focusEngine.currentSessionFocusedTime()
         let total = session.anchoredDuration
         let remaining = max(0, total - elapsed)
-        
         let minutes = Int(remaining) / 60
         let seconds = Int(remaining) % 60
         remainingTimeFormatted = String(format: "%02d:%02d", minutes, seconds)
-        
         progress = total > 0 ? Double(elapsed) / Double(total) : 1.0
-        
         self.stats = SessionStats(
             focusedTimeToday: rawStats.focusedTimeToday + elapsed,
             sessionCountToday: rawStats.sessionCountToday + 1,

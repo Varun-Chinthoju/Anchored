@@ -106,6 +106,7 @@ final class DashboardDataModel: ObservableObject {
     @Published var trendBuckets: [DashboardTimeBucket] = []
     @Published var topDistractions: [DistractionRank] = []
     @Published var trendState: Loadable<[DashboardTimeBucket]> = .idle
+    @Published var distractionsState: Loadable<[DistractionRank]> = .idle
     @Published var rangeSummary: DashboardRangeSummary = DashboardRangeSummary(
         sessionCount: 0,
         totalFocusDuration: 0,
@@ -118,12 +119,11 @@ final class DashboardDataModel: ObservableObject {
     )
 
     private let querying: DashboardQuerying
-    private let store: SQLiteSessionStore
     private var generation: Int = 0
 
     init(querying: DashboardQuerying = SQLiteSessionStore.shared, store: SQLiteSessionStore = .shared) {
         self.querying = querying
-        self.store = store
+        _ = store
     }
 
     func refresh(range: DashboardRange) {
@@ -131,39 +131,66 @@ final class DashboardDataModel: ObservableObject {
         let currentGeneration = generation
         let calendar = Calendar.current
         let now = Date()
-        DispatchQueue.global(qos: .userInitiated).async { [store] in
-            let events = store.allEvents()
-            let sessionEndEvents = events.filter { $0.type == .sessionEnd }
+        trendState = .loading
+        distractionsState = .loading
+
+        querying.fetchEarliestSessionDate { [weak self] result in
+            guard let self = self, currentGeneration == self.generation else { return }
+            let earliest: Date?
+            switch result {
+            case .success(let date):
+                earliest = date
+            case .failure:
+                earliest = nil
+            }
+
             let startDate = Self.startDate(
                 for: range,
                 referenceDate: now,
                 calendar: calendar,
-                earliestSessionDate: sessionEndEvents.map(\.timestamp).min()
+                earliestSessionDate: earliest
             )
 
-            let rangeSessionEvents = sessionEndEvents.filter {
-                $0.timestamp >= startDate && $0.timestamp <= now
+            self.querying.fetchRangeSummary(since: startDate, to: now) { [weak self] res in
+                guard let self = self, currentGeneration == self.generation else { return }
+                switch res {
+                case .success(let summary):
+                    self.rangeSummary = summary
+                case .failure:
+                    self.rangeSummary = DashboardRangeSummary(sessionCount: 0, totalFocusDuration: 0, longestSessionDuration: 0)
+                }
             }
 
-            let selectedRangeSummary = Self.summary(from: rangeSessionEvents)
-            let allTimeSummary = Self.summary(from: sessionEndEvents)
-            let distractions = store.topDistractions(since: startDate, to: now)
-
-            DispatchQueue.main.async { [weak self] in
+            self.querying.fetchRangeSummary(since: Date.distantPast, to: now) { [weak self] res in
                 guard let self = self, currentGeneration == self.generation else { return }
-                self.rangeSummary = selectedRangeSummary
-                self.allTimeSummary = allTimeSummary
-                self.topDistractions = Array(distractions.prefix(5))
-                self.trendState = .loading
+                switch res {
+                case .success(let summary):
+                    self.allTimeSummary = summary
+                case .failure:
+                    break
+                }
+            }
 
-                if range == .day {
-                    self.querying.fetchFocusTimePerHourForLast24Hours(relativeTo: now, calendar: calendar) { [weak self] result in
-                        self?.apply(result: result, generation: currentGeneration)
-                    }
-                } else {
-                    self.querying.fetchFocusTimePerDay(since: startDate, to: now, calendar: calendar) { [weak self] result in
-                        self?.apply(result: result, generation: currentGeneration)
-                    }
+            self.querying.fetchTopDistractions(since: startDate, to: now) { [weak self] res in
+                guard let self = self, currentGeneration == self.generation else { return }
+                switch res {
+                case .success(let ranks):
+                    let top = Array(ranks.prefix(5))
+                    self.topDistractions = top
+                    self.distractionsState = top.isEmpty ? .empty : .loaded(top)
+                case .failure(let error):
+                    self.topDistractions = []
+                    self.distractionsState = .failed(error.localizedDescription)
+                }
+            }
+
+            if range == .day {
+                self.querying.fetchFocusTimePerHourForLast24Hours(relativeTo: now, calendar: calendar) { [weak self] result in
+                    self?.apply(result: result, generation: currentGeneration)
+                }
+            } else {
+                self.querying.fetchFocusTimePerDay(since: startDate, to: now, calendar: calendar) { [weak self] result in
+                    self?.apply(result: result, generation: currentGeneration)
                 }
             }
         }
@@ -181,18 +208,6 @@ final class DashboardDataModel: ObservableObject {
                 self.trendState = .failed(error.localizedDescription)
             }
         }
-    }
-
-    private static func summary(from events: [SessionEvent]) -> DashboardRangeSummary {
-        let totalDuration = events.reduce(0.0) { total, event in
-            total + TimeInterval(event.sessionDurationSeconds ?? 0)
-        }
-        let longest = events.compactMap { $0.sessionDurationSeconds }.max() ?? 0
-        return DashboardRangeSummary(
-            sessionCount: events.count,
-            totalFocusDuration: totalDuration,
-            longestSessionDuration: TimeInterval(longest)
-        )
     }
 
     private static func startDate(
@@ -363,6 +378,7 @@ struct DashboardView: View {
 
                     TopDistractionsPanel(
                         distractions: dataModel.topDistractions,
+                        distractionsState: dataModel.distractionsState,
                         rangeTitle: selectedRange.title,
                         palette: palette
                     )
@@ -899,47 +915,88 @@ private struct TrendAreaShape: Shape {
 
 private struct TopDistractionsPanel: View {
     let distractions: [DistractionRank]
+    let distractionsState: Loadable<[DistractionRank]>
     let rangeTitle: String
     let palette: ThemePalette
 
     var body: some View {
         ControlRoomCard(title: "Top Distractions", subtitle: rangeTitle, palette: palette) {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(distractions.indices, id: \.self) { index in
-                    let distraction = distractions[index]
-                    VStack(spacing: 0) {
-                        HStack(spacing: 10) {
-                            DistractionBadge(rank: index + 1, palette: palette)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(distraction.name)
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                    .foregroundColor(palette.textPrimaryColor)
-                                    .lineLimit(1)
-                                Text(distraction.domain ?? distraction.bundleID ?? "Unknown source")
-                                    .font(.system(size: 10, design: .rounded))
-                                    .foregroundColor(palette.textSecondaryColor)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Text(formatDuration(TimeInterval(distraction.totalDurationSeconds)))
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                .foregroundColor(palette.textPrimaryColor)
-                        }
-
-                        if index < distractions.count - 1 {
-                            Divider()
-                                .overlay(palette.separatorColor.opacity(0.85))
-                                .padding(.leading, 38)
-                                .padding(.top, 10)
-                        }
-                    }
-                }
-
-                if distractions.isEmpty {
+            Group {
+                switch distractionsState {
+                case .idle, .loading:
+                    loadingState
+                case .empty:
                     emptyState
+                case .failed(let message):
+                    failureState(message)
+                case .loaded:
+                    loadedState
                 }
             }
         }
+    }
+
+    private var loadedState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(distractions.indices, id: \.self) { index in
+                let distraction = distractions[index]
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        DistractionBadge(rank: index + 1, palette: palette)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(distraction.name)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(palette.textPrimaryColor)
+                                .lineLimit(1)
+                            Text(distraction.domain ?? distraction.bundleID ?? "Unknown source")
+                                .font(.system(size: 10, design: .rounded))
+                                .foregroundColor(palette.textSecondaryColor)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Text(formatDuration(TimeInterval(distraction.totalDurationSeconds)))
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(palette.textPrimaryColor)
+                    }
+
+                    if index < distractions.count - 1 {
+                        Divider()
+                            .overlay(palette.separatorColor.opacity(0.85))
+                            .padding(.leading, 38)
+                            .padding(.top, 10)
+                    }
+                }
+            }
+
+            if distractions.isEmpty {
+                emptyState
+            }
+        }
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .tint(palette.accentColor)
+            Text("Scanning distractions...")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+    }
+
+    private func failureState(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Unable to load distractions.")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textPrimaryColor)
+            Text(message)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(palette.textSecondaryColor)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
     }
 
     private var emptyState: some View {

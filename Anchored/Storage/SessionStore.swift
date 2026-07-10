@@ -29,74 +29,116 @@ class SessionStore {
         sqliteStore.log(event, completion: completion)
     }
     
+    private func warnIfMainThread(caller: String = #function) {
+        if Thread.isMainThread {
+            print("⚠️ [MainThreadSQLite] SessionStore.\(caller) called on main thread - use async variant")
+        }
+    }
+
     func recentSessions(limit: Int) -> [SessionEvent] {
+        warnIfMainThread()
         return sqliteStore.recentSessions(limit: limit)
+    }
+
+    func fetchRecentSessions(limit: Int, completion: @escaping ([SessionEvent]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [sqliteStore] in
+            let sessions = sqliteStore.recentSessions(limit: limit)
+            DispatchQueue.main.async { completion(sessions) }
+        }
     }
     
     func getStats() -> SessionStats {
+        warnIfMainThread()
         return queue.sync {
             let events = loadEventsSync()
-            let sessionEndEvents = events.filter { $0.type == .sessionEnd }
-            
-            let calendar = Calendar.current
-            let now = Date()
-            
-            let todayEvents = sessionEndEvents.filter { calendar.isDate($0.timestamp, inSameDayAs: now) }
-            let focusedTimeToday = todayEvents.reduce(0.0) { $0 + TimeInterval($1.sessionDurationSeconds ?? 0) }
-            let sessionCountToday = todayEvents.count
-            
-            let startOfDays = sessionEndEvents.map { calendar.startOfDay(for: $0.timestamp) }
-            let sortedDates = Array(Set(startOfDays)).sorted(by: >)
-            
-            var streak = 0
-            if let mostRecent = sortedDates.first {
-                let todayStart = calendar.startOfDay(for: now)
-                let daysDifference = calendar.dateComponents([.day], from: mostRecent, to: todayStart).day ?? 0
-                
-                if daysDifference <= 1 {
-                    streak = 1
-                    var previousDate = mostRecent
-                    for date in sortedDates.dropFirst() {
-                        let diff = calendar.dateComponents([.day], from: date, to: previousDate).day ?? 0
-                        if diff == 1 {
-                            streak += 1
-                            previousDate = date
-                        } else if diff > 1 {
-                            break
-                        }
-                    }
-                }
-            }
-            
-            return SessionStats(
-                focusedTimeToday: focusedTimeToday,
-                sessionCountToday: sessionCountToday,
-                streakDays: streak
-            )
+            return Self.computeStats(from: events)
+        }
+    }
+
+    func fetchStats(completion: @escaping (SessionStats) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [sqliteStore] in
+            let events = sqliteStore.allEvents()
+            let stats = Self.computeStats(from: events)
+            DispatchQueue.main.async { completion(stats) }
         }
     }
     
     func getAppBreakdown() -> [String: TimeInterval] {
+        warnIfMainThread()
         return queue.sync {
             let events = self.loadEventsSync()
-            let sessionEndEvents = events.filter { $0.type == .sessionEnd }
-            var breakdown: [String: TimeInterval] = [:]
-            for event in sessionEndEvents {
-                let app = event.appName.isEmpty ? "Unknown" : event.appName
-                let duration = TimeInterval(event.sessionDurationSeconds ?? 0)
-                breakdown[app, default: 0.0] += duration
-            }
-            return breakdown
+            return Self.computeBreakdown(from: events)
+        }
+    }
+
+    func fetchAppBreakdown(completion: @escaping ([String: TimeInterval]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [sqliteStore] in
+            let events = sqliteStore.allEvents()
+            let breakdown = Self.computeBreakdown(from: events)
+            DispatchQueue.main.async { completion(breakdown) }
         }
     }
     
     func allEvents() -> [SessionEvent] {
+        warnIfMainThread()
         return sqliteStore.allEvents()
+    }
+
+    func fetchAllEvents(completion: @escaping ([SessionEvent]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [sqliteStore] in
+            let events = sqliteStore.allEvents()
+            DispatchQueue.main.async { completion(events) }
+        }
     }
     
     // Helper to load events synchronously on the current queue
     private func loadEventsSync() -> [SessionEvent] {
         return sqliteStore.allEvents()
+    }
+
+    private static func computeStats(from events: [SessionEvent]) -> SessionStats {
+        let sessionEndEvents = events.filter { $0.type == .sessionEnd }
+        let calendar = Calendar.current
+        let now = Date()
+        let todayEvents = sessionEndEvents.filter { calendar.isDate($0.timestamp, inSameDayAs: now) }
+        let focusedTimeToday = todayEvents.reduce(0.0) { $0 + TimeInterval($1.sessionDurationSeconds ?? 0) }
+        let sessionCountToday = todayEvents.count
+        let startOfDays = sessionEndEvents.map { calendar.startOfDay(for: $0.timestamp) }
+        let sortedDates = Array(Set(startOfDays)).sorted(by: >)
+        var streak = 0
+        if let mostRecent = sortedDates.first {
+            let todayStart = calendar.startOfDay(for: now)
+            let daysDifference = calendar.dateComponents([.day], from: mostRecent, to: todayStart).day ?? 0
+            if daysDifference <= 1 {
+                streak = 1
+                var previousDate = mostRecent
+                for date in sortedDates.dropFirst() {
+                    let diff = calendar.dateComponents([.day], from: date, to: previousDate).day ?? 0
+                    if diff == 1 {
+                        streak += 1
+                        previousDate = date
+                    } else if diff > 1 {
+                        break
+                    }
+                }
+            }
+        }
+        return SessionStats(
+            focusedTimeToday: focusedTimeToday,
+            sessionCountToday: sessionCountToday,
+            streakDays: streak
+        )
+    }
+
+    private static func computeBreakdown(from events: [SessionEvent]) -> [String: TimeInterval] {
+        let sessionEndEvents = events.filter { $0.type == .sessionEnd }
+        var breakdown: [String: TimeInterval] = [:]
+        for event in sessionEndEvents {
+            let app = event.appName.isEmpty ? "Unknown" : event.appName
+            let duration = TimeInterval(event.sessionDurationSeconds ?? 0)
+            breakdown[app, default: 0.0] += duration
+        }
+        return breakdown
     }
 }
 

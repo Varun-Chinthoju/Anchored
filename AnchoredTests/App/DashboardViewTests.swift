@@ -88,6 +88,11 @@ final class DashboardViewTests: XCTestCase {
             store: store
         )
 
+        querying.earliestDate = firstUse
+        let summary = DashboardRangeSummary(sessionCount: 2, totalFocusDuration: 2700, longestSessionDuration: 1800)
+        querying.rangeSummaryToReturn = summary
+        querying.allTimeSummaryToReturn = summary
+
         model.refresh(range: .month)
 
         let load = expectation(description: "month load")
@@ -185,6 +190,10 @@ private final class DashboardQueryingSpy: DashboardQuerying {
     var dailyCalls = 0
     var lastDailyStartDate: Date?
     var lastDailyEndDate: Date?
+    var earliestDate: Date?
+    var rangeSummaryToReturn: DashboardRangeSummary?
+    var allTimeSummaryToReturn: DashboardRangeSummary?
+    var topDistractionsToReturn: [DistractionRank] = []
 
     func fetchFocusTimePerHourForLast24Hours(
         relativeTo referenceDate: Date,
@@ -213,5 +222,35 @@ private final class DashboardQueryingSpy: DashboardQuerying {
         completion: @escaping (Result<[DashboardAppDistribution], DashboardQueryError>) -> Void
     ) {
         completion(.success([]))
+    }
+
+    func fetchRangeSummary(
+        since startDate: Date,
+        to endDate: Date,
+        completion: @escaping (Result<DashboardRangeSummary, DashboardQueryError>) -> Void
+    ) {
+        if let summary = rangeSummaryToReturn {
+            if startDate == Date.distantPast || startDate.timeIntervalSince1970 < 0 {
+                completion(.success(allTimeSummaryToReturn ?? summary))
+            } else {
+                completion(.success(summary))
+            }
+        } else {
+            completion(.success(DashboardRangeSummary(sessionCount: 0, totalFocusDuration: 0, longestSessionDuration: 0)))
+        }
+    }
+
+    func fetchTopDistractions(
+        since startDate: Date,
+        to endDate: Date,
+        completion: @escaping (Result<[DistractionRank], DashboardQueryError>) -> Void
+    ) {
+        completion(.success(topDistractionsToReturn))
+    }
+
+    func fetchEarliestSessionDate(
+        completion: @escaping (Result<Date?, DashboardQueryError>) -> Void
+    ) {
+        completion(.success(earliestDate))
     }
 }

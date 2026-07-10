@@ -41,11 +41,6 @@ public final class CloudClassifier {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = 2.0
             configuration.timeoutIntervalForResource = 2.0
-            if let mockProtocolClass = NSClassFromString("AnchoredTests.MockURLProtocol") as? URLProtocol.Type {
-                configuration.protocolClasses = [mockProtocolClass]
-            } else if let mockProtocolClass = NSClassFromString("MockURLProtocol") as? URLProtocol.Type {
-                configuration.protocolClasses = [mockProtocolClass]
-            }
             self.session = URLSession(configuration: configuration)
         }
     }

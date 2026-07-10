@@ -50,13 +50,20 @@ struct DistractionRank: Codable, Equatable {
 
 extension SQLiteSessionStore {
     
+    private func warnIfMainThread(caller: String = #function) {
+        if Thread.isMainThread {
+            print("⚠️ [MainThreadSQLite] \(caller) called on main thread - this blocks UI and is deprecated. Use async fetch* variant.")
+        }
+    }
+
+    @available(*, deprecated, message: "Use fetchTodayTotalFocusTime(relativeTo:calendar:completion:) to avoid blocking main thread")
     func todayTotalFocusTime(for referenceDate: Date = Date(), calendar: Calendar = .current) -> TimeInterval {
+        warnIfMainThread()
         return queue.sync {
             do {
                 return try dbQueue.read { db in
                     let startOfToday = calendar.startOfDay(for: referenceDate)
                     let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
-                    
                     let val = try Int.fetchOne(db, sql: """
                         SELECT SUM(sessionDurationSeconds) FROM sessions
                         WHERE type = ? AND timestamp >= ? AND timestamp < ?
@@ -70,6 +77,16 @@ extension SQLiteSessionStore {
         }
     }
 
+    func fetchTodayTotalFocusTime(
+        relativeTo referenceDate: Date = Date(),
+        calendar: Calendar = .current,
+        completion: @escaping (Result<TimeInterval, DashboardQueryError>) -> Void
+    ) {
+        performDashboardQuery(completion: completion) {
+            try self.computeTodayTotalFocusTime(for: referenceDate, calendar: calendar)
+        }
+    }
+
     func fetchFocusTimePerHourForLast24Hours(
         relativeTo referenceDate: Date = Date(),
         calendar: Calendar = .current,
@@ -80,26 +97,35 @@ extension SQLiteSessionStore {
         }
     }
     
+    @available(*, deprecated, message: "Use fetchTimelineBlocks(for:calendar:completion:) to avoid blocking main thread")
     func timelineBlocks(for date: Date = Date(), calendar: Calendar = .current) -> [TimelineBlock] {
+        warnIfMainThread()
         return queue.sync {
             do {
                 return try dbQueue.read { db in
                     let startOfToday = calendar.startOfDay(for: date)
                     let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
-                    
-                    // Fetch all events for today
                     let allEvents = try SessionEvent
                         .filter(Column("timestamp") >= startOfToday)
                         .filter(Column("timestamp") < endOfToday)
                         .order(Column("timestamp").asc, Column("rowid").asc)
                         .fetchAll(db)
-                    
                     return reconstructTimeline(from: allEvents)
                 }
             } catch {
                 print("SQLiteSessionStore Error: Failed to reconstruct timeline: \(error.localizedDescription)")
                 return []
             }
+        }
+    }
+
+    func fetchTimelineBlocks(
+        for date: Date = Date(),
+        calendar: Calendar = .current,
+        completion: @escaping (Result<[TimelineBlock], DashboardQueryError>) -> Void
+    ) {
+        performDashboardQuery(completion: completion) {
+            try self.computeTimelineBlocks(for: date, calendar: calendar)
         }
     }
 
@@ -123,96 +149,46 @@ extension SQLiteSessionStore {
             guard startDate <= endDate else {
                 throw DashboardQueryError.invalidDateRange
             }
+            return try self.computeRangeSummary(since: startDate, to: endDate)
+        }
+    }
 
-            return try self.dbQueue.read { db in
-                let row = try Row.fetchOne(db, sql: """
-                    SELECT
-                        COUNT(*) AS sessionCount,
-                        COALESCE(SUM(sessionDurationSeconds), 0) AS totalDuration,
-                        COALESCE(MAX(sessionDurationSeconds), 0) AS longestDuration
-                    FROM sessions
-                    WHERE type = ? AND timestamp >= ? AND timestamp <= ?
-                    """, arguments: [SessionEventType.sessionEnd.rawValue, startDate, endDate])
-
-                return DashboardRangeSummary(
-                    sessionCount: row?["sessionCount"] ?? 0,
-                    totalFocusDuration: TimeInterval(row?["totalDuration"] ?? 0),
-                    longestSessionDuration: TimeInterval(row?["longestDuration"] ?? 0)
-                )
-            }
+    func fetchEarliestSessionDate(
+        completion: @escaping (Result<Date?, DashboardQueryError>) -> Void
+    ) {
+        performDashboardQuery(completion: completion) {
+            try self.computeEarliestSessionDate()
         }
     }
     
+    @available(*, deprecated, message: "Use fetchTopDistractions(since:to:completion:) to avoid blocking main thread")
     func topDistractions(since startDate: Date, to endDate: Date = Date()) -> [DistractionRank] {
+        warnIfMainThread()
         return queue.sync {
             do {
                 return try dbQueue.read { db in
-                    // Fetch all events between startDate and endDate
                     let allEvents = try SessionEvent
                         .filter(Column("timestamp") >= startDate)
                         .filter(Column("timestamp") <= endDate)
                         .order(Column("timestamp").asc, Column("rowid").asc)
                         .fetchAll(db)
-                    
                     let blocks = reconstructTimeline(from: allEvents)
-                    let distractionBlocks = blocks.filter { $0.type == .distraction }
-                    
-                    var groupings: [String: (bundleID: String?, domain: String?, name: String, count: Int, totalDuration: TimeInterval)] = [:]
-                    
-                    for block in distractionBlocks {
-                        let key: String
-                        let name: String
-                        let bundleID: String?
-                        let domain: String?
-                        
-                        if let dom = block.distractionDomain, !dom.isEmpty {
-                            key = "domain:\(dom)"
-                            name = dom
-                            bundleID = block.distractionAppBundleID
-                            domain = dom
-                        } else if let bID = block.distractionAppBundleID, !bID.isEmpty {
-                            key = "app:\(bID)"
-                            name = self.appName(for: bID)
-                            bundleID = bID
-                            domain = nil
-                        } else {
-                            continue
-                        }
-                        
-                        let duration = block.endDate.timeIntervalSince(block.startDate)
-                        if let existing = groupings[key] {
-                            groupings[key] = (
-                                bundleID: bundleID,
-                                domain: domain,
-                                name: name,
-                                count: existing.count + 1,
-                                totalDuration: existing.totalDuration + duration
-                            )
-                        } else {
-                            groupings[key] = (
-                                bundleID: bundleID,
-                                domain: domain,
-                                name: name,
-                                count: 1,
-                                totalDuration: duration
-                            )
-                        }
-                    }
-                    
-                    return groupings.values.map { item in
-                        DistractionRank(
-                            name: item.name,
-                            bundleID: item.bundleID,
-                            domain: item.domain,
-                            count: item.count,
-                            totalDurationSeconds: Int(item.totalDuration)
-                        )
-                    }.sorted { $0.totalDurationSeconds > $1.totalDurationSeconds }
+                    return self.groupDistractionBlocks(blocks)
                 }
             } catch {
                 print("SQLiteSessionStore Error: Failed to compute top distractions: \(error.localizedDescription)")
                 return []
             }
+        }
+    }
+
+    func fetchTopDistractions(
+        since startDate: Date,
+        to endDate: Date = Date(),
+        completion: @escaping (Result<[DistractionRank], DashboardQueryError>) -> Void
+    ) {
+        performDashboardQuery(completion: completion) {
+            try self.computeTopDistractions(since: startDate, to: endDate)
         }
     }
 
@@ -226,44 +202,19 @@ extension SQLiteSessionStore {
         }
     }
     
+    @available(*, deprecated, message: "Use fetchWeeklyStreak(for:calendar:completion:) to avoid blocking main thread")
     func weeklyStreak(for referenceDate: Date = Date(), calendar: Calendar = .current) -> Int {
+        warnIfMainThread()
         return queue.sync {
             do {
                 return try dbQueue.read { db in
-                    // Fetch all sessionEnd timestamps
                     let rows = try Row.fetchAll(db, sql: """
                         SELECT timestamp FROM sessions
                         WHERE type = ?
                         ORDER BY timestamp DESC
                         """, arguments: [SessionEventType.sessionEnd.rawValue])
-                    
-                    let timestamps: [Date] = rows.compactMap { row in
-                        row["timestamp"]
-                    }
-                    
-                    let startOfDays = timestamps.map { calendar.startOfDay(for: $0) }
-                    let sortedDates = Array(Set(startOfDays)).sorted(by: >)
-                    
-                    var streak = 0
-                    if let mostRecent = sortedDates.first {
-                        let todayStart = calendar.startOfDay(for: referenceDate)
-                        let daysDifference = calendar.dateComponents([.day], from: mostRecent, to: todayStart).day ?? 0
-                        
-                        if daysDifference <= 1 {
-                            streak = 1
-                            var previousDate = mostRecent
-                            for date in sortedDates.dropFirst() {
-                                let diff = calendar.dateComponents([.day], from: date, to: previousDate).day ?? 0
-                                if diff == 1 {
-                                    streak += 1
-                                    previousDate = date
-                                } else if diff > 1 {
-                                    break
-                                }
-                            }
-                        }
-                    }
-                    return streak
+                    let timestamps: [Date] = rows.compactMap { row in row["timestamp"] }
+                    return self.calculateStreak(from: timestamps, referenceDate: referenceDate, calendar: calendar)
                 }
             } catch {
                 print("SQLiteSessionStore Error: Failed to calculate streak: \(error.localizedDescription)")
@@ -272,7 +223,19 @@ extension SQLiteSessionStore {
         }
     }
 
+    func fetchWeeklyStreak(
+        for referenceDate: Date = Date(),
+        calendar: Calendar = .current,
+        completion: @escaping (Result<Int, DashboardQueryError>) -> Void
+    ) {
+        performDashboardQuery(completion: completion) {
+            try self.computeWeeklyStreak(for: referenceDate, calendar: calendar)
+        }
+    }
+
+    @available(*, deprecated, message: "Use fetchFocusTimePerHourForLast24Hours(relativeTo:calendar:completion:) to avoid blocking main thread")
     func focusTimePerHourForLast24Hours(relativeTo referenceDate: Date = Date(), calendar: Calendar = .current) -> [(Date, TimeInterval)] {
+        warnIfMainThread()
         return queue.sync {
             do {
                 let buckets = try computeFocusTimePerHourForLast24Hours(relativeTo: referenceDate, calendar: calendar)
@@ -284,7 +247,9 @@ extension SQLiteSessionStore {
         }
     }
     
+    @available(*, deprecated, message: "Use fetchFocusTimePerDay(since:to:calendar:completion:) to avoid blocking main thread")
     func focusTimePerDay(since startDate: Date, to endDate: Date = Date(), calendar: Calendar = .current) -> [(Date, TimeInterval)] {
+        warnIfMainThread()
         return queue.sync {
             do {
                 let buckets = try computeFocusTimePerDay(since: startDate, to: endDate, calendar: calendar)
@@ -296,7 +261,9 @@ extension SQLiteSessionStore {
         }
     }
     
+    @available(*, deprecated, message: "Use fetchAppDomainFocusDistribution(since:to:completion:) to avoid blocking main thread")
     func appDomainFocusDistribution(since startDate: Date, to endDate: Date = Date()) -> [String: (appName: String, duration: TimeInterval, domains: [String: TimeInterval])] {
+        warnIfMainThread()
         return queue.sync {
             do {
                 let distributions = try computeAppDomainFocusDistribution(since: startDate, to: endDate)
@@ -317,13 +284,13 @@ extension SQLiteSessionStore {
         }
     }
     
-    // MARK: - Private Helpers
+    // MARK: - Core Async Infrastructure
 
     private func performDashboardQuery<Value>(
         completion: @escaping (Result<Value, DashboardQueryError>) -> Void,
         work: @escaping () throws -> Value
     ) {
-        queue.async {
+        DispatchQueue.global(qos: .userInitiated).async {
             let result: Result<Value, DashboardQueryError>
             do {
                 result = .success(try work())
@@ -332,11 +299,162 @@ extension SQLiteSessionStore {
             } catch {
                 result = .failure(.storage(error))
             }
-            
             DispatchQueue.main.async {
                 completion(result)
             }
         }
+    }
+
+    // MARK: - Compute Helpers (dbQueue.read only, no outer queue.sync)
+
+    private func computeTodayTotalFocusTime(for referenceDate: Date, calendar: Calendar) throws -> TimeInterval {
+        try dbQueue.read { db in
+            let startOfToday = calendar.startOfDay(for: referenceDate)
+            let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
+            let val = try Int.fetchOne(db, sql: """
+                SELECT SUM(sessionDurationSeconds) FROM sessions
+                WHERE type = ? AND timestamp >= ? AND timestamp < ?
+                """, arguments: [SessionEventType.sessionEnd.rawValue, startOfToday, endOfToday])
+            return TimeInterval(val ?? 0)
+        }
+    }
+
+    private func computeTimelineBlocks(for date: Date, calendar: Calendar) throws -> [TimelineBlock] {
+        try dbQueue.read { db in
+            let startOfToday = calendar.startOfDay(for: date)
+            let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
+            let allEvents = try SessionEvent
+                .filter(Column("timestamp") >= startOfToday)
+                .filter(Column("timestamp") < endOfToday)
+                .order(Column("timestamp").asc, Column("rowid").asc)
+                .fetchAll(db)
+            return reconstructTimeline(from: allEvents)
+        }
+    }
+
+    private func computeTopDistractions(since startDate: Date, to endDate: Date) throws -> [DistractionRank] {
+        try dbQueue.read { db in
+            let allEvents = try SessionEvent
+                .filter(Column("timestamp") >= startDate)
+                .filter(Column("timestamp") <= endDate)
+                .order(Column("timestamp").asc, Column("rowid").asc)
+                .fetchAll(db)
+            let blocks = reconstructTimeline(from: allEvents)
+            return self.groupDistractionBlocks(blocks)
+        }
+    }
+
+    private func computeRangeSummary(since startDate: Date, to endDate: Date) throws -> DashboardRangeSummary {
+        try dbQueue.read { db in
+            let row = try Row.fetchOne(db, sql: """
+                SELECT
+                    COUNT(*) AS sessionCount,
+                    COALESCE(SUM(sessionDurationSeconds), 0) AS totalDuration,
+                    COALESCE(MAX(sessionDurationSeconds), 0) AS longestDuration
+                FROM sessions
+                WHERE type = ? AND timestamp >= ? AND timestamp <= ?
+                """, arguments: [SessionEventType.sessionEnd.rawValue, startDate, endDate])
+            return DashboardRangeSummary(
+                sessionCount: row?["sessionCount"] ?? 0,
+                totalFocusDuration: TimeInterval(row?["totalDuration"] ?? 0),
+                longestSessionDuration: TimeInterval(row?["longestDuration"] ?? 0)
+            )
+        }
+    }
+
+    private func computeEarliestSessionDate() throws -> Date? {
+        try dbQueue.read { db in
+            try Date.fetchOne(db, sql: """
+                SELECT MIN(timestamp) FROM sessions WHERE type = ?
+                """, arguments: [SessionEventType.sessionEnd.rawValue])
+        }
+    }
+
+    private func computeWeeklyStreak(for referenceDate: Date, calendar: Calendar) throws -> Int {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT timestamp FROM sessions
+                WHERE type = ?
+                ORDER BY timestamp DESC
+                """, arguments: [SessionEventType.sessionEnd.rawValue])
+            let timestamps: [Date] = rows.compactMap { row in row["timestamp"] }
+            return self.calculateStreak(from: timestamps, referenceDate: referenceDate, calendar: calendar)
+        }
+    }
+
+    private func calculateStreak(from timestamps: [Date], referenceDate: Date, calendar: Calendar) -> Int {
+        let startOfDays = timestamps.map { calendar.startOfDay(for: $0) }
+        let sortedDates = Array(Set(startOfDays)).sorted(by: >)
+        var streak = 0
+        if let mostRecent = sortedDates.first {
+            let todayStart = calendar.startOfDay(for: referenceDate)
+            let daysDifference = calendar.dateComponents([.day], from: mostRecent, to: todayStart).day ?? 0
+            if daysDifference <= 1 {
+                streak = 1
+                var previousDate = mostRecent
+                for date in sortedDates.dropFirst() {
+                    let diff = calendar.dateComponents([.day], from: date, to: previousDate).day ?? 0
+                    if diff == 1 {
+                        streak += 1
+                        previousDate = date
+                    } else if diff > 1 {
+                        break
+                    }
+                }
+            }
+        }
+        return streak
+    }
+
+    private func groupDistractionBlocks(_ blocks: [TimelineBlock]) -> [DistractionRank] {
+        let distractionBlocks = blocks.filter { $0.type == .distraction }
+        var groupings: [String: (bundleID: String?, domain: String?, name: String, count: Int, totalDuration: TimeInterval)] = [:]
+        for block in distractionBlocks {
+            let key: String
+            let name: String
+            let bundleID: String?
+            let domain: String?
+            if let dom = block.distractionDomain, !dom.isEmpty {
+                key = "domain:\(dom)"
+                name = dom
+                bundleID = block.distractionAppBundleID
+                domain = dom
+            } else if let bID = block.distractionAppBundleID, !bID.isEmpty {
+                key = "app:\(bID)"
+                name = self.appName(for: bID)
+                bundleID = bID
+                domain = nil
+            } else {
+                continue
+            }
+            let duration = block.endDate.timeIntervalSince(block.startDate)
+            if let existing = groupings[key] {
+                groupings[key] = (
+                    bundleID: bundleID,
+                    domain: domain,
+                    name: name,
+                    count: existing.count + 1,
+                    totalDuration: existing.totalDuration + duration
+                )
+            } else {
+                groupings[key] = (
+                    bundleID: bundleID,
+                    domain: domain,
+                    name: name,
+                    count: 1,
+                    totalDuration: duration
+                )
+            }
+        }
+        return groupings.values.map { item in
+            DistractionRank(
+                name: item.name,
+                bundleID: item.bundleID,
+                domain: item.domain,
+                count: item.count,
+                totalDurationSeconds: Int(item.totalDuration)
+            )
+        }.sorted { $0.totalDurationSeconds > $1.totalDurationSeconds }
     }
 
     private func computeFocusTimePerHourForLast24Hours(relativeTo referenceDate: Date, calendar: Calendar) throws -> [DashboardTimeBucket] {

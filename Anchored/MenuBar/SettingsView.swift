@@ -24,6 +24,7 @@ private enum SettingsTheme {
 
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general = "General"
+    case privacy = "Privacy & Data"
     case distractions = "Distraction List"
     case captainsLog = "Captain's Log"
     case about = "About"
@@ -34,6 +35,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general:
             return isPirateMode ? "Rigging" : "General"
+        case .privacy:
+            return isPirateMode ? "Privacy & Data" : "Privacy & Data"
         case .distractions:
             return isPirateMode ? "Siren List" : "Distraction List"
         case .captainsLog:
@@ -46,6 +49,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .general:      return "helm"
+        case .privacy:      return "lock.shield.fill"
         case .distractions: return "shield.fill"
         case .captainsLog:  return "book.closed.fill"
         case .about:        return "info.circle.fill"
@@ -55,6 +59,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var iconColor: Color {
         switch self {
         case .general:      return SettingsTheme.accent
+        case .privacy:      return Color(red: 0.3, green: 0.6, blue: 0.9)
         case .distractions: return SettingsTheme.bronze
         case .captainsLog:  return SettingsTheme.accentShadow
         case .about:        return SettingsTheme.accent.opacity(0.85)
@@ -67,6 +72,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 enum SidebarItem: Hashable {
     case profile(UUID)
     case general
+    case privacy
     case captainsLog
     case about
 }
@@ -154,6 +160,8 @@ struct SettingsView: View {
         switch initialSection {
         case .general:
             initialItem = .general
+        case .privacy:
+            initialItem = .privacy
         case .distractions:
             initialItem = .profile(ProfileManager.shared.activeProfile.id)
         case .captainsLog:
@@ -172,7 +180,7 @@ struct SettingsView: View {
     }
 
     var filteredSections: [SettingsSection] {
-        let sections: [SettingsSection] = [.general, .captainsLog, .about]
+        let sections: [SettingsSection] = [.general, .privacy, .captainsLog, .about]
         guard !searchQuery.isEmpty else { return sections }
         let q = searchQuery.lowercased()
         return sections.filter { $0.rawValue.lowercased().contains(q) }
@@ -299,6 +307,8 @@ struct SettingsView: View {
                     }
                 case .general:
                     GeneralSettingsPane(isPirateMode: isPirateMode)
+                case .privacy:
+                    PrivacySettingsPane(isPirateMode: isPirateMode)
                 case .captainsLog:
                     CaptainsLogSettingsPane(focusEngine: focusEngine)
                 case .about:
@@ -341,6 +351,7 @@ struct SettingsView: View {
     private func sidebarItem(for section: SettingsSection) -> SidebarItem {
         switch section {
         case .general:      return .general
+        case .privacy:      return .privacy
         case .distractions: return .profile(profileManager.activeProfile.id)
         case .captainsLog:  return .captainsLog
         case .about:        return .about
@@ -751,6 +762,302 @@ struct GeneralSettingsPane: View {
         }
         .onDisappear {
             saveApiKey()
+        }
+    }
+}
+
+// MARK: - Privacy & Data Settings
+
+struct PrivacySettingsPane: View {
+    let isPirateMode: Bool
+    @StateObject private var prefs = PreferencesManager.shared
+
+    @State private var observationCount: Int?
+    @State private var oldestDate: Date?
+    @State private var isLoading = true
+    @State private var loadError: String?
+
+    @State private var showEnableDisclosure = false
+    @State private var showDisableConfirmation = false
+    @State private var showClearConfirmation = false
+    @State private var isClearing = false
+
+    private let retentionOptions = [1, 7, 30, 90, 365]
+
+    var body: some View {
+        SettingsPane(title: settingsCopy("Privacy & Data", pirate: "Privacy & Data", isPirateMode: isPirateMode)) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Context History", pirate: "Context History", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Enable Context History", pirate: "Enable Context History", isPirateMode: isPirateMode),
+                        description: settingsCopy("Stores sanitized app titles and URLs locally for history features. Disabled by default.", pirate: "Stores sanitized titles and routes locally. Off by default.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: Binding(
+                            get: { prefs.contextHistoryEnabled },
+                            set: { newValue in
+                                if newValue {
+                                    showEnableDisclosure = true
+                                } else {
+                                    showDisableConfirmation = true
+                                }
+                            }
+                        ))
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Retention Period", pirate: "Retention Period", isPirateMode: isPirateMode),
+                        description: settingsCopy("Observations older than this are automatically deleted.", pirate: "Old sights beyond this horizon are cast overboard.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        Picker("", selection: $prefs.contextHistoryRetentionDays) {
+                            ForEach(retentionOptions, id: \.self) { days in
+                                Text(retentionLabel(days: days)).tag(days)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 180)
+                    }
+                }
+
+                if !prefs.contextHistoryEnabled {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lock.shield")
+                            .font(.system(size: 11))
+                            .foregroundColor(SettingsTheme.textSecondary)
+                            .padding(.top, 1)
+                        Text(settingsCopy("When disabled, no new context is stored. Previous observations remain until cleared or expired. Session analytics are always preserved.", pirate: "When off, no new sights are charted. Old marks stay till ye clear or they expire. Voyage analytics remain safe.", isPirateMode: isPirateMode))
+                            .font(.system(size: 11))
+                            .foregroundColor(SettingsTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 2)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Local Storage", pirate: "Local Hold", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    if isLoading {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text(settingsCopy("Loading history summary...", pirate: "Charting hold contents...", isPirateMode: isPirateMode))
+                                .font(.system(size: 12))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    } else if let error = loadError {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(SettingsTheme.bronze)
+                                    .font(.system(size: 11))
+                                Text(settingsCopy("Failed to load summary", pirate: "Failed to survey hold", isPirateMode: isPirateMode))
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            Text(error)
+                                .font(.system(size: 11))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                            Button(settingsCopy("Retry", pirate: "Retry", isPirateMode: isPirateMode)) {
+                                refreshStats()
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 11))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    } else {
+                        SettingsRow(
+                            label: settingsCopy("Observation Count", pirate: "Observations Stowed", isPirateMode: isPirateMode),
+                            description: settingsCopy("Total sanitized context snapshots stored locally.", pirate: "Total sanitized sights in the hold.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            Text(observationCount.map { "\($0)" } ?? "0")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .accessibilityLabel("Observation count \(observationCount ?? 0)")
+                        }
+
+                        SettingsRow(
+                            label: settingsCopy("Oldest Record", pirate: "Oldest Mark", isPirateMode: isPirateMode),
+                            description: settingsCopy("Date of the earliest retained observation.", pirate: "When the oldest mark was first charted.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            Text(formattedOldestDate)
+                                .font(.system(size: 12))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .accessibilityLabel(oldestAccessibilityLabel)
+                                .frame(maxWidth: 200, alignment: .trailing)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(settingsCopy("Clear All History", pirate: "Clear All History", isPirateMode: isPirateMode))
+                                    .font(.system(size: 13))
+                                    .foregroundColor(SettingsTheme.textPrimary)
+                                Text(settingsCopy("Deletes all context observations. Sessions and analytics are preserved.", pirate: "Deletes all context marks. Voyages and tallies remain safe.", isPirateMode: isPirateMode))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(SettingsTheme.textSecondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                showClearConfirmation = true
+                            } label: {
+                                if isClearing {
+                                    ProgressView()
+                                        .scaleEffect(0.6)
+                                        .frame(width: 14, height: 14)
+                                } else {
+                                    Text(settingsCopy("Clear All", pirate: "Clear All", isPirateMode: isPirateMode))
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(Color.red.opacity(0.85))
+                                        .cornerRadius(5)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled((observationCount ?? 0) == 0 || isClearing)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Cloud AI", pirate: "Cloud Winds", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
+                        description: settingsCopy("When enabled, context may be sent to your selected cloud provider for classification. Disable to keep all analysis on-device.", pirate: "When on, context may be sent to cloud winds. Keep off for local-only analysis.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        Toggle("", isOn: $prefs.enableCloudClassification)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            refreshStats()
+        }
+        .onReceive(prefs.$contextHistoryEnabled) { _ in
+            refreshStats()
+        }
+        .alert(settingsCopy("Enable Context History?", pirate: "Enable Context History?", isPirateMode: isPirateMode), isPresented: $showEnableDisclosure) {
+            Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
+            Button(settingsCopy("Enable", pirate: "Enable", isPirateMode: isPirateMode)) {
+                prefs.contextHistoryEnabled = true
+                ContextHistoryStore.shared.isEnabled = true
+            }
+        } message: {
+            Text(settingsCopy("Context history stores sanitized app titles and HTTP paths (up to 1,024 chars) locally on this Mac. Credentials, query parameters, and fragments are stripped. Data never leaves this device unless Cloud AI is separately enabled. You can change retention or clear all history at any time. Session analytics are stored separately and always preserved.", pirate: "Context history stows sanitized titles and paths locally on this vessel. Secrets, queries, and fragments are scrubbed. Nothing leaves the ship unless Cloud AI is separately enabled. Ye may adjust retention or clear the hold anytime. Voyage tallies remain untouched.", isPirateMode: isPirateMode))
+        }
+        .alert(settingsCopy("Disable Context History?", pirate: "Disable Context History?", isPirateMode: isPirateMode), isPresented: $showDisableConfirmation) {
+            Button(settingsCopy("Cancel", pirate: "Keep On", isPirateMode: isPirateMode), role: .cancel) {}
+            Button(settingsCopy("Disable", pirate: "Disable", isPirateMode: isPirateMode), role: .destructive) {
+                prefs.contextHistoryEnabled = false
+                ContextHistoryStore.shared.isEnabled = false
+            }
+        } message: {
+            Text(settingsCopy("No new context will be stored. Existing observations remain until cleared or expired by retention settings. Session analytics and streaks are unaffected and will be preserved.", pirate: "No new sights will be charted. Old marks remain till cleared or expired. Voyage tallies and streaks stay safe aboard.", isPirateMode: isPirateMode))
+        }
+        .alert(settingsCopy("Clear All Context History?", pirate: "Clear All Context History?", isPirateMode: isPirateMode), isPresented: $showClearConfirmation) {
+            Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
+            Button(settingsCopy("Clear All", pirate: "Clear All", isPirateMode: isPirateMode), role: .destructive) {
+                performClear()
+            }
+        } message: {
+            Text(settingsCopy("This permanently deletes all stored context observations. This action cannot be undone. Session rows and dashboard aggregates will be preserved.", pirate: "This permanently deletes all charted sights. This cannot be undone. Voyage logs and aggregates remain safe.", isPirateMode: isPirateMode))
+        }
+    }
+
+    private var formattedOldestDate: String {
+        guard let date = oldestDate else {
+            if (observationCount ?? 0) == 0 {
+                return settingsCopy("No history", pirate: "No history", isPirateMode: isPirateMode)
+            }
+            return settingsCopy("Unknown", pirate: "Unknown", isPirateMode: isPirateMode)
+        }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    private var oldestAccessibilityLabel: String {
+        if let date = oldestDate {
+            return "Oldest record \(formattedOldestDate)"
+        }
+        return "No history"
+    }
+
+    private func retentionLabel(days: Int) -> String {
+        switch days {
+        case 1: return settingsCopy("1 day", pirate: "1 day", isPirateMode: isPirateMode)
+        case 7: return settingsCopy("7 days", pirate: "7 days", isPirateMode: isPirateMode)
+        case 30: return settingsCopy("30 days", pirate: "30 days", isPirateMode: isPirateMode)
+        case 90: return settingsCopy("90 days", pirate: "90 days", isPirateMode: isPirateMode)
+        case 365: return settingsCopy("1 year", pirate: "1 year", isPirateMode: isPirateMode)
+        default: return "\(days) days"
+        }
+    }
+
+    private func refreshStats() {
+        isLoading = true
+        loadError = nil
+        let store = ContextHistoryStore.shared
+        store.observationCount { result in
+            switch result {
+            case .success(let count):
+                self.observationCount = count
+                if count == 0 {
+                    self.oldestDate = nil
+                    self.isLoading = false
+                } else {
+                    store.oldestObservationDate { dateResult in
+                        switch dateResult {
+                        case .success(let date):
+                            self.oldestDate = date
+                            self.isLoading = false
+                        case .failure(let error):
+                            self.loadError = error.localizedDescription
+                            self.isLoading = false
+                        }
+                    }
+                }
+            case .failure(let error):
+                self.loadError = error.localizedDescription
+                self.isLoading = false
+            }
+        }
+    }
+
+    private func performClear() {
+        isClearing = true
+        ContextHistoryStore.shared.clearAll { _ in
+            DispatchQueue.main.async {
+                self.isClearing = false
+                self.refreshStats()
+            }
         }
     }
 }
@@ -1202,6 +1509,8 @@ struct AppBreakdownRow: View {
 struct AnalyticsSettingsPane: View {
     let isPirateMode: Bool
     @State private var appBreakdown: [(String, TimeInterval)] = []
+    @State private var appBreakdownState: Loadable<[(String, TimeInterval)]> = .idle
+    @State private var requestGeneration: Int = 0
     @StateObject private var vm = MenuBarViewModel(focusEngine: FocusEngine(
         activityMonitor: AppSwitchMonitor(),
         distractionListManager: DistractionListManager.shared
@@ -1215,42 +1524,59 @@ struct AnalyticsSettingsPane: View {
         SettingsPane(title: "Analytics") {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    // 1. Tidal Wave Chart (Bezier Curve)
                     TidalWaveChartView()
-                    
-                    // 2. Fleet Tree (Spreadmap)
                     FleetTreeSpreadmapView()
-                    
-                    // 3. Constellation Heatmap (Voyage Density)
                     ConstellationHeatmapView()
                     
-                    // 4. Sailing Time by Port
                     VStack(alignment: .leading, spacing: 8) {
                         Text(settingsCopy("Time by App", pirate: "Sailing Time by Port", isPirateMode: isPirateMode))
                             .font(.system(size: 13, weight: .bold, design: .serif))
                             .foregroundColor(SettingsTheme.accent)
                             .padding(.leading, 4)
 
-                        if appBreakdown.isEmpty {
-                            emptyState(settingsCopy("No logs recorded yet.", pirate: "No logs recorded yet.", isPirateMode: isPirateMode))
-                        } else {
-                            let total = totalDuration
-                            VStack(spacing: 0) {
-                                ForEach(appBreakdown.indices, id: \.self) { i in
-                                    let (app, duration) = appBreakdown[i]
-                                    AppBreakdownRow(app: app, duration: duration, total: total)
-                                    if i < appBreakdown.count - 1 {
-                                        Divider().padding(.leading, 16)
+                        Group {
+                            switch appBreakdownState {
+                            case .idle, .loading:
+                                HStack(spacing: 8) {
+                                    ProgressView().tint(SettingsTheme.accent)
+                                    Text("Loading...")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(SettingsTheme.textSecondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 12)
+                            case .failed(let message):
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Failed to load")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text(message)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(SettingsTheme.textSecondary)
+                                }
+                            case .empty:
+                                emptyState(settingsCopy("No logs recorded yet.", pirate: "No logs recorded yet.", isPirateMode: isPirateMode))
+                            case .loaded:
+                                if appBreakdown.isEmpty {
+                                    emptyState(settingsCopy("No logs recorded yet.", pirate: "No logs recorded yet.", isPirateMode: isPirateMode))
+                                } else {
+                                    let total = totalDuration
+                                    VStack(spacing: 0) {
+                                        ForEach(appBreakdown.indices, id: \.self) { i in
+                                            let (app, duration) = appBreakdown[i]
+                                            AppBreakdownRow(app: app, duration: duration, total: total)
+                                            if i < appBreakdown.count - 1 {
+                                                Divider().padding(.leading, 16)
+                                            }
+                                        }
                                     }
+                                    .background(SettingsTheme.surface.opacity(0.78))
+                                    .cornerRadius(12)
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
                                 }
                             }
-                            .background(SettingsTheme.surface.opacity(0.78))
-                            .cornerRadius(12)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
                         }
                     }
 
-                    // 5. Today's Voyages
                     VStack(alignment: .leading, spacing: 8) {
                         Text(settingsCopy("Today's Sessions", pirate: "Today's Voyages", isPirateMode: isPirateMode))
                             .font(.system(size: 13, weight: .bold, design: .serif))
@@ -1296,8 +1622,23 @@ struct AnalyticsSettingsPane: View {
             }
         }
         .onAppear {
-            vm.refresh()
-            appBreakdown = SessionStore.shared.getAppBreakdown().sorted { $0.1 > $1.1 }
+            refresh()
+        }
+    }
+
+    private func refresh() {
+        let generation = requestGeneration &+ 1
+        requestGeneration = generation
+        appBreakdownState = .loading
+        vm.refresh()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let breakdown = SessionStore.shared.getAppBreakdown()
+            let sorted = breakdown.sorted { $0.1 > $1.1 }.map { ($0.key, $0.value) }
+            DispatchQueue.main.async {
+                guard generation == requestGeneration else { return }
+                appBreakdown = sorted
+                appBreakdownState = sorted.isEmpty ? .empty : .loaded(sorted)
+            }
         }
     }
 

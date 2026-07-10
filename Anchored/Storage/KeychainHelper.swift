@@ -24,14 +24,16 @@ public enum KeychainError: Error, LocalizedError {
 public struct KeychainHelper {
     public static let service = "com.varun.Anchored.cloud-ai"
 
-    /// In-memory overlay for tests / custom-keychain injection; production uses Security framework.
-    public static var mockKeys: [String: String] = [:]
-    /// When true, bypass Security framework entirely (for unit tests). Set via test setup, not via XCTest detection.
+    internal static var mockKeys: [String: String] = [:]
     public static var useMockOnly = false
 
     public static func saveKey(_ key: String, forProvider provider: String) throws {
-        mockKeys[provider.lowercased()] = key
-        if useMockOnly { return }
+        let normalized = provider.lowercased()
+        if useMockOnly {
+            mockKeys[normalized] = key
+            return
+        }
+        mockKeys.removeValue(forKey: normalized)
         guard let data = key.data(using: .utf8) else { return }
 
         let query: [String: Any] = [
@@ -49,6 +51,7 @@ public struct KeychainHelper {
         } else if status == errSecItemNotFound {
             var newQuery = query
             newQuery[kSecValueData as String] = data
+            newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             let addStatus = SecItemAdd(newQuery as CFDictionary, nil)
             if addStatus != errSecSuccess {
                 throw KeychainError.unhandledError(status: addStatus)
@@ -59,10 +62,9 @@ public struct KeychainHelper {
     }
 
     public static func loadKey(forProvider provider: String) -> String? {
-        if let mock = mockKeys[provider.lowercased()] {
-            return mock
+        if useMockOnly {
+            return mockKeys[provider.lowercased()]
         }
-        if useMockOnly { return nil }
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -80,8 +82,13 @@ public struct KeychainHelper {
     }
 
     public static func deleteKey(forProvider provider: String) throws {
-        mockKeys.removeValue(forKey: provider.lowercased())
-        if useMockOnly { return }
+        let normalized = provider.lowercased()
+        if useMockOnly {
+            mockKeys.removeValue(forKey: normalized)
+            return
+        }
+
+        mockKeys.removeValue(forKey: normalized)
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -92,5 +99,9 @@ public struct KeychainHelper {
         if status != errSecSuccess && status != errSecItemNotFound {
             throw KeychainError.unhandledError(status: status)
         }
+    }
+
+    internal static func clearMockKeys() {
+        mockKeys.removeAll()
     }
 }

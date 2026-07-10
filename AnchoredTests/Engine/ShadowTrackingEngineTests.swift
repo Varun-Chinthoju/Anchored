@@ -35,7 +35,9 @@ class ShadowTrackingEngineTests: XCTestCase {
             sessionStore: SessionStore(fileURL: testDBURL),
             profileManager: profileManager,
             focusThreshold: 600.0,
-            preferencesManager: preferencesManager
+            preferencesManager: preferencesManager,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker()
         )
         
         shadowEngine = ShadowTrackingEngine(focusEngine: engine, preferencesManager: preferencesManager)

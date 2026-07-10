@@ -75,4 +75,44 @@ protocol DashboardQuerying: AnyObject {
         to endDate: Date,
         completion: @escaping (Result<[DashboardAppDistribution], DashboardQueryError>) -> Void
     )
+
+    func fetchRangeSummary(
+        since startDate: Date,
+        to endDate: Date,
+        completion: @escaping (Result<DashboardRangeSummary, DashboardQueryError>) -> Void
+    )
+
+    func fetchTopDistractions(
+        since startDate: Date,
+        to endDate: Date,
+        completion: @escaping (Result<[DistractionRank], DashboardQueryError>) -> Void
+    )
+
+    func fetchEarliestSessionDate(
+        completion: @escaping (Result<Date?, DashboardQueryError>) -> Void
+    )
+}
+
+extension DashboardQuerying {
+    func fetchRangeSummary(
+        since startDate: Date,
+        to endDate: Date,
+        completion: @escaping (Result<DashboardRangeSummary, DashboardQueryError>) -> Void
+    ) {
+        completion(.success(DashboardRangeSummary(sessionCount: 0, totalFocusDuration: 0, longestSessionDuration: 0)))
+    }
+
+    func fetchTopDistractions(
+        since startDate: Date,
+        to endDate: Date,
+        completion: @escaping (Result<[DistractionRank], DashboardQueryError>) -> Void
+    ) {
+        completion(.success([]))
+    }
+
+    func fetchEarliestSessionDate(
+        completion: @escaping (Result<Date?, DashboardQueryError>) -> Void
+    ) {
+        completion(.success(nil))
+    }
 }

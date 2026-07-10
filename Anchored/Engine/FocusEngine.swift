@@ -5,6 +5,60 @@ import Vision
 import ImageIO
 import UniformTypeIdentifiers
 
+protocol WindowTextExtracting {
+    func extractText() -> String
+}
+
+struct LiveOCRProvider: WindowTextExtracting {
+    func extractText() -> String {
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            return ""
+        }
+        let pid = frontmostApp.processIdentifier
+        let windowListInfo = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        var targetWindowID: CGWindowID?
+        for info in windowListInfo {
+            if let ownerPID = info[kCGWindowOwnerPID as String] as? Int, ownerPID == pid {
+                if let windowID = info[kCGWindowNumber as String] as? CGWindowID {
+                    targetWindowID = windowID
+                    break
+                }
+            }
+        }
+        guard let windowID = targetWindowID,
+              let cgImage = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, .boundsIgnoreFraming) else {
+            return ""
+        }
+        var extractedScreenText = ""
+        let textRequest = VNRecognizeTextRequest { request, error in
+            guard error == nil, let observations = request.results as? [VNRecognizedTextObservation] else {
+                return
+            }
+            for observation in observations.prefix(20) {
+                if let candidate = observation.topCandidates(1).first {
+                    extractedScreenText += candidate.string + " "
+                }
+            }
+        }
+        textRequest.recognitionLevel = .fast
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try requestHandler.perform([textRequest])
+        } catch {}
+        return extractedScreenText
+    }
+}
+
+protocol VisualProductivityChecking {
+    func isProductiveVisual(profileName: String) -> Bool
+}
+
+struct LiveVisualProductivityChecker: VisualProductivityChecking {
+    func isProductiveVisual(profileName: String) -> Bool {
+        return SmartImageClassifier.isProductiveVisual(profileName: profileName)
+    }
+}
+
 /// The central engine that coordinates focus session tracking and state transitions.
 final class FocusEngine {
     private let activityMonitor: ActivityMonitor
@@ -13,6 +67,8 @@ final class FocusEngine {
     private let profileManager: ProfileManager
     
     private let preferencesManager: PreferencesManager
+    private let ocrProvider: WindowTextExtracting
+    private let visualChecker: VisualProductivityChecking
     
     /// The delegate to receive state transition callbacks.
     weak var delegate: FocusEngineDelegate?
@@ -96,7 +152,9 @@ final class FocusEngine {
         sessionStore: SessionStore = .shared,
         profileManager: ProfileManager = .shared,
         focusThreshold: TimeInterval = 600.0,
-        preferencesManager: PreferencesManager = .shared
+        preferencesManager: PreferencesManager = .shared,
+        ocrProvider: WindowTextExtracting = LiveOCRProvider(),
+        visualChecker: VisualProductivityChecking = LiveVisualProductivityChecker()
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
@@ -104,6 +162,8 @@ final class FocusEngine {
         self.profileManager = profileManager
         self.focusThreshold = focusThreshold
         self.preferencesManager = preferencesManager
+        self.ocrProvider = ocrProvider
+        self.visualChecker = visualChecker
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
             self?.handleContextChange(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title, snapshot: snapshot)
@@ -136,17 +196,15 @@ final class FocusEngine {
     }
     
     private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
-    private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
         if preferencesManager.enableCloudClassification {
             triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title)
         }
-
         if let url = url {
             if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                 return false
             }
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
-                if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
+                if visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name) {
                     return false
                 }
                 return true
@@ -160,7 +218,7 @@ final class FocusEngine {
                 if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                     return false
                 }
-                if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
+                if visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name) {
                     return false
                 }
                 return true
@@ -170,7 +228,7 @@ final class FocusEngine {
         if SmartAppClassifier.isProductiveApp(bundleID: bundleID) {
             return false
         }
-        if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
+        if visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name) {
             return false
         }
         if isFocusApp(bundleID: bundleID) {
@@ -186,7 +244,6 @@ final class FocusEngine {
         if preferencesManager.enableCloudClassification {
             triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title)
         }
-
         if let url = url {
             if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                 return true
@@ -203,11 +260,25 @@ final class FocusEngine {
                 if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                     return true
                 }
-                return SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name)
+                return visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name)
             }
             return true
         }
         return isFocusApp(bundleID: bundleID)
+    }
+
+    private func isFocusApp(bundleID: String) -> Bool {
+        let bundleLower = bundleID.lowercased()
+        if bundleLower.contains("antigravity") {
+            return true
+        }
+        if profileManager.activeProfile.allowedApps.contains(bundleID) {
+            return true
+        }
+        if profileManager.activeProfile.allowedApps.isEmpty {
+            return SmartAppClassifier.isProductiveApp(bundleID: bundleID)
+        }
+        return false
     }
 
     private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String) {
@@ -215,7 +286,6 @@ final class FocusEngine {
         let isMain = Thread.isMainThread
         let prefs = preferencesManager
         let profileName = profileManager.activeProfile.name
-
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let ocrText: String
             if isMain {
@@ -235,31 +305,8 @@ final class FocusEngine {
         }
     }
 
-        
-        guard let windowID = targetWindowID,
-              let cgImage = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, .boundsIgnoreFraming) else {
-            return ""
-        }
-        
-        var extractedScreenText = ""
-        let textRequest = VNRecognizeTextRequest { request, error in
-            guard error == nil, let observations = request.results as? [VNRecognizedTextObservation] else {
-                return
-            }
-            for observation in observations.prefix(20) {
-                if let candidate = observation.topCandidates(1).first {
-                    extractedScreenText += candidate.string + " "
-                }
-            }
-        }
-        textRequest.recognitionLevel = .fast
-        
-        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        do {
-            try requestHandler.perform([textRequest])
-        } catch {}
-        
-        return extractedScreenText
+    private func performOCROnFrontmostWindow() -> String {
+        return ocrProvider.extractText()
     }
     
     @objc private func handleActiveProfileChange() {
@@ -855,10 +902,6 @@ enum SmartWebClassifier {
 
 enum SmartImageClassifier {
     static func isProductiveVisual(profileName: String) -> Bool {
-        if NSClassFromString("XCTestCase") != nil {
-            return false
-        }
-        
         let prefs = PreferencesManager.shared
         guard prefs.enableImageClassification else {
             return false
