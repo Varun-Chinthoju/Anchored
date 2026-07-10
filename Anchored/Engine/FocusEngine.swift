@@ -297,7 +297,8 @@ final class FocusEngine {
             classifier.classify(appName: appName, windowTitle: title, url: url, ocrText: ocrText) { result in
                 switch result {
                 case .success(let isProductive):
-                    print("☁️ [Cloud] \(appName) / \(title.prefix(40)) productive=\(isProductive) profile=\(profileName)")
+                    let domain = url?.host ?? "nil"
+                    print("☁️ [Cloud] app=\(appName) domain=\(domain) productive=\(isProductive) profile=\(profileName)")
                 case .failure(let error):
                     print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
                 }
@@ -397,7 +398,8 @@ final class FocusEngine {
         )
         
         let isFocus = isFocusContext(bundleID: bundleID, url: url, title: title)
-        print("📱 [Context Switch] App: \(bundleID) | Name: \(context.localizedName) | URL: \(url?.absoluteString ?? "nil") | Title: \"\(title)\" | Focus: \(isFocus)")
+        let sanitizedDomain = url?.host ?? "nil"
+        print("📱 [Context Switch] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(sanitizedDomain) focus=\(isFocus) titleLen=\(title.count)")
         
         NotificationCenter.default.post(
             name: .focusEngineContextDidChange,
@@ -414,7 +416,7 @@ final class FocusEngine {
         
         if isDistraction(bundleID: bundleID, url: url, title: title) {
             // Distraction app/URL detected
-            print("🚨 [Distraction Detected] Distraction bundle: \(bundleID) | Domain: \(url?.host ?? "nil")")
+            print("🚨 [Distraction Detected] bundleID=\(bundleID) domain=\(url?.host ?? "nil") titleLen=\(title.count)")
             if activeSession != nil {
                 // Distraction app detected + active session -> delegate call to show countdown pill
                 if distractionStartDate == nil {
@@ -443,7 +445,7 @@ final class FocusEngine {
             }
         } else if isFocusContext(bundleID: bundleID, url: url, title: title) {
             // Whitelisted focus app/URL detected
-            print("📈 [Focus Context] Whitelisted app: \(bundleID) | Name: \(context.localizedName) | URL: \(url?.absoluteString ?? "nil")")
+            print("📈 [Focus Context] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(url?.host ?? "nil") focus=true titleLen=\(title.count)")
             lastWorkAppBundleID = bundleID
             
             if activeSession != nil {
