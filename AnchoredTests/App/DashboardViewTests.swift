@@ -5,7 +5,7 @@ import SwiftUI
 
 final class DashboardViewTests: XCTestCase {
     func testDayRangeUsesLast24HoursCaption() {
-        XCTAssertEqual(DashboardRange.day.trendAxisCaption, "Last 24 hours")
+        XCTAssertEqual(DashboardRange.day.trendAxisCaption, "Focus time by hour")
         XCTAssertEqual(DashboardRange.day.trendAxisLabels, ["0", "6", "12", "18", "24"])
     }
 

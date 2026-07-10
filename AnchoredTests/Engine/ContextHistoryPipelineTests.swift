@@ -33,7 +33,8 @@ final class ContextHistoryPipelineTests: XCTestCase {
             distractionListManager: DistractionListManager(defaults: testDefaults),
             sessionStore: SessionStore(fileURL: tempDirectory.appendingPathComponent("sessions.json")),
             profileManager: profileManager,
-            focusThreshold: 600.0
+            focusThreshold: 600.0,
+            preferencesManager: PreferencesManager(defaults: testDefaults)
         )
         historyStore = ContextHistoryStore(sqliteStore: sqliteStore, defaults: testDefaults, isEnabled: true)
         pipeline = ContextHistoryPipeline(focusEngine: engine, historyStore: historyStore)

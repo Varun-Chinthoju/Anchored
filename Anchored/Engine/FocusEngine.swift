@@ -12,6 +12,8 @@ final class FocusEngine {
     private let sessionStore: SessionStore
     private let profileManager: ProfileManager
     
+    private let preferencesManager: PreferencesManager
+    
     /// The delegate to receive state transition callbacks.
     weak var delegate: FocusEngineDelegate?
     
@@ -93,16 +95,18 @@ final class FocusEngine {
         distractionListManager: DistractionListManager,
         sessionStore: SessionStore = .shared,
         profileManager: ProfileManager = .shared,
-        focusThreshold: TimeInterval = 600.0
+        focusThreshold: TimeInterval = 600.0,
+        preferencesManager: PreferencesManager = .shared
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
         self.sessionStore = sessionStore
         self.profileManager = profileManager
         self.focusThreshold = focusThreshold
+        self.preferencesManager = preferencesManager
         
-        self.activityMonitor.onContextChange = { [weak self] bundleID, url, title in
-            self?.handleContextChange(bundleID: bundleID, url: url, title: title)
+        self.activityMonitor.onContextChange = { [weak self] snapshot in
+            self?.handleContextChange(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title, snapshot: snapshot)
         }
         
         NotificationCenter.default.addObserver(
@@ -132,6 +136,37 @@ final class FocusEngine {
     }
     
     private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
+        if preferencesManager.enableCloudClassification {
+            let ocrText = performOCROnFrontmostWindow()
+            let appName = getAppName(for: bundleID)
+            
+            var cloudResult: Bool? = nil
+            let semaphore = DispatchSemaphore(value: 0)
+            
+            let classifier = CloudClassifier(preferences: preferencesManager)
+            classifier.classify(
+                appName: appName,
+                windowTitle: title,
+                url: url,
+                ocrText: ocrText
+            ) { result in
+                switch result {
+                case .success(let isProductive):
+                    cloudResult = isProductive
+                case .failure(let error):
+                    print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
+                }
+                semaphore.signal()
+            }
+            
+            _ = semaphore.wait(timeout: .now() + 2.2)
+            
+            if let isProductive = cloudResult {
+                return !isProductive
+            }
+            print("☁️ [Cloud Classifier] Fallback to local classification logic")
+        }
+
         if let url = url {
             // AI Heuristic: if this is a coding forum, doc, or programming tutorial, it is NOT a distraction
             if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
@@ -183,6 +218,37 @@ final class FocusEngine {
     }
 
     private func isFocusContext(bundleID: String, url: URL?, title: String) -> Bool {
+        if preferencesManager.enableCloudClassification {
+            let ocrText = performOCROnFrontmostWindow()
+            let appName = getAppName(for: bundleID)
+            
+            var cloudResult: Bool? = nil
+            let semaphore = DispatchSemaphore(value: 0)
+            
+            let classifier = CloudClassifier(preferences: preferencesManager)
+            classifier.classify(
+                appName: appName,
+                windowTitle: title,
+                url: url,
+                ocrText: ocrText
+            ) { result in
+                switch result {
+                case .success(let isProductive):
+                    cloudResult = isProductive
+                case .failure(let error):
+                    print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
+                }
+                semaphore.signal()
+            }
+            
+            _ = semaphore.wait(timeout: .now() + 2.2)
+            
+            if let isProductive = cloudResult {
+                return isProductive
+            }
+            print("☁️ [Cloud Classifier] Fallback to local classification logic")
+        }
+
         if let url = url {
             if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                 return true
@@ -219,6 +285,54 @@ final class FocusEngine {
             return SmartAppClassifier.isProductiveApp(bundleID: bundleID)
         }
         return false
+    }
+    
+    private func performOCROnFrontmostWindow() -> String {
+        if NSClassFromString("XCTestCase") != nil {
+            return "mocked test ocr text"
+        }
+        
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            return ""
+        }
+        
+        let pid = frontmostApp.processIdentifier
+        let windowListInfo = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        var targetWindowID: CGWindowID?
+        
+        for info in windowListInfo {
+            if let ownerPID = info[kCGWindowOwnerPID as String] as? Int, ownerPID == pid {
+                if let windowID = info[kCGWindowNumber as String] as? CGWindowID {
+                    targetWindowID = windowID
+                    break
+                }
+            }
+        }
+        
+        guard let windowID = targetWindowID,
+              let cgImage = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, .boundsIgnoreFraming) else {
+            return ""
+        }
+        
+        var extractedScreenText = ""
+        let textRequest = VNRecognizeTextRequest { request, error in
+            guard error == nil, let observations = request.results as? [VNRecognizedTextObservation] else {
+                return
+            }
+            for observation in observations.prefix(20) {
+                if let candidate = observation.topCandidates(1).first {
+                    extractedScreenText += candidate.string + " "
+                }
+            }
+        }
+        textRequest.recognitionLevel = .fast
+        
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try requestHandler.perform([textRequest])
+        } catch {}
+        
+        return extractedScreenText
     }
     
     @objc private func handleActiveProfileChange() {
@@ -284,7 +398,7 @@ final class FocusEngine {
     }
     
     /// Handles context changes from the activity monitor.
-    private func handleContextChange(bundleID: String, url: URL?, title: String) {
+    private func handleContextChange(bundleID: String, url: URL?, title: String, snapshot: ContextSnapshot? = nil) {
         guard bundleID != "com.varun.Anchored" else { return }
         
         currentApp = bundleID
@@ -299,7 +413,18 @@ final class FocusEngine {
         )
         currentContext = context
         
+        let actualSnapshot = snapshot ?? ContextSnapshot(
+            bundleIdentifier: bundleID,
+            localizedName: context.localizedName,
+            url: url,
+            title: title,
+            source: BrowserStrategyFactory.isSupportedBrowser(bundleID) ? (bundleID == "com.apple.Safari" ? .safari : .chromium) : .application,
+            observedAt: now
+        )
+        
         let isFocus = isFocusContext(bundleID: bundleID, url: url, title: title)
+        print("📱 [Context Switch] App: \(bundleID) | Name: \(context.localizedName) | URL: \(url?.absoluteString ?? "nil") | Title: \"\(title)\" | Focus: \(isFocus)")
+        
         NotificationCenter.default.post(
             name: .focusEngineContextDidChange,
             object: self,
@@ -308,12 +433,14 @@ final class FocusEngine {
                 "url": url as Any,
                 "title": title,
                 "isFocus": isFocus,
-                "context": context
+                "context": context,
+                "snapshot": actualSnapshot
             ]
         )
         
         if isDistraction(bundleID: bundleID, url: url, title: title) {
             // Distraction app/URL detected
+            print("🚨 [Distraction Detected] Distraction bundle: \(bundleID) | Domain: \(url?.host ?? "nil")")
             if activeSession != nil {
                 // Distraction app detected + active session -> delegate call to show countdown pill
                 if distractionStartDate == nil {
@@ -342,6 +469,7 @@ final class FocusEngine {
             }
         } else if isFocusContext(bundleID: bundleID, url: url, title: title) {
             // Whitelisted focus app/URL detected
+            print("📈 [Focus Context] Whitelisted app: \(bundleID) | Name: \(context.localizedName) | URL: \(url?.absoluteString ?? "nil")")
             lastWorkAppBundleID = bundleID
             
             if activeSession != nil {
@@ -440,6 +568,7 @@ final class FocusEngine {
             category: category,
             sessionGoal: goal
         )
+        print("⚓️ [Session Started] AppName: \(focusedAppName) | Duration: \(duration)s | Goal: \(goal ?? "None")")
         sessionStore.log(event)
         
         // Schedule session end timer (accounting for retroactive time)
@@ -476,6 +605,7 @@ final class FocusEngine {
             sessionDurationSeconds: Int(duration),
             action: action
         )
+        print("🛑 [Session Ended] AppName: \(session.appName) | Duration: \(duration)s | Action: \(action.rawValue)")
         sessionStore.log(event)
         
         // Clean up state

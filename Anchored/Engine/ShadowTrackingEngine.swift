@@ -35,7 +35,7 @@ final class ShadowTrackingEngine {
             self,
             selector: #selector(handleStateChange),
             name: .focusEngineStateDidChange,
-            object: nil
+            object: focusEngine
         )
         
         // Observe context changes
@@ -43,7 +43,7 @@ final class ShadowTrackingEngine {
             self,
             selector: #selector(handleContextChange(_:)),
             name: .focusEngineContextDidChange,
-            object: nil
+            object: focusEngine
         )
         
         // Observe sleep/wake

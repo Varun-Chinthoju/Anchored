@@ -34,7 +34,8 @@ class ShadowTrackingEngineTests: XCTestCase {
             distractionListManager: distractionListManager,
             sessionStore: SessionStore(fileURL: testDBURL),
             profileManager: profileManager,
-            focusThreshold: 600.0
+            focusThreshold: 600.0,
+            preferencesManager: preferencesManager
         )
         
         shadowEngine = ShadowTrackingEngine(focusEngine: engine, preferencesManager: preferencesManager)

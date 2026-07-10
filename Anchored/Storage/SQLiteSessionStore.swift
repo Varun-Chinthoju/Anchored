@@ -58,6 +58,7 @@ class SQLiteSessionStore {
                 try self.dbQueue.write { db in
                     try persistedEvent.insert(db)
                 }
+                print("💾 [DB Event Logged] Type: \(persistedEvent.type.rawValue) | AppName: \(persistedEvent.appName) | Duration: \(persistedEvent.sessionDurationSeconds ?? 0)s")
                 self.finishWrite(completion, with: .success(()))
             } catch {
                 print("SQLiteSessionStore Error: Failed to log event. \(error.localizedDescription)")

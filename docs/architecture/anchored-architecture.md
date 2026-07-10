@@ -37,7 +37,8 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - `MenuBarController` routes Captain's Log into `SettingsWindow`; `SettingsView.swift` embeds `DashboardView.swift` without its standalone sidebar so analytics, profiles, focus apps, and preferences share one window
 - The settings sidebar no longer exposes separate Stats/Hourglass or Analytics/Voyage Logs destinations; Captain's Log is the single analytics surface
 - `Anchored/App/Views/ControlRoomSurface.swift` now holds the reusable control-room shell/card/footer primitives, and `DashboardView.swift` is the first surface to consume them
-- The new Accessibility provider and sanitizer seams exist, and the history pipeline is already wired from `AppDelegate`, but the live monitor still emits legacy tuples instead of `ContextSnapshot`
+- The async context collection pipeline is fully implemented: `AppSwitchMonitor` queries the `ContextCollector` asynchronously off the main thread, executing AppleScript calls via `AppleEventExecutor` with a 750 ms deadline and serial background queuing. Deduplication uses `ContextIdentity` (normalizing titles and URLs) to capture SPA page shifts and same-URL tab changes.
+- Focus classification supports optional cloud-based context verification with Bring Your Own Key (BYOK) for Google Gemini, OpenAI, and Anthropic. API keys are stored securely using the macOS Keychain, and requests run asynchronously with a 2.0s deadline and fallback to local classifiers.
 
 ## Repo Map
 
@@ -242,26 +243,20 @@ Current role:
 
 - observes `NSWorkspace.didActivateApplicationNotification`
 - identifies the frontmost app bundle ID
-- polls supported browsers every 2.5 seconds
-- emits `bundleID`, optional URL, and title through `onContextChange`
-- falls back to Accessibility window-title reads for native apps
+- triggers asynchronous context queries via `ContextCollector`
+- emits `ContextSnapshot` through `onContextChange` when a context shift is detected
+- deduplicates incoming context changes using `ContextIdentity`
 
 Current constraints:
 
-- browser polling is timer-based and main-run-loop-centric
-- browser strategy calls are synchronous
-- Safari/Chromium use AppleScript
-- Firefox uses Accessibility traversal
-- non-browser apps only provide title, not URL
-- this monitor still owns the raw runtime tuple; the history pipeline listens to `FocusEngine` instead of replacing it yet
-
-This file is one of the main V2.6 refactor targets.
+- browser polling remains timer-based (2.5 seconds) but is fully asynchronous
+- non-browser apps only query native Accessibility context providers
+- timer suspending, locking, and system wake operations suspend active collection requests correctly
 
 #### `Anchored/Engine/BrowserStrategies.swift`
 
 Contains:
 
-- `AppleScriptExecutor` and `NSAppleScriptExecutor`
 - `ChromiumBrowserStrategy`
 - `SafariBrowserStrategy`
 - `FirefoxBrowserStrategy`
@@ -269,21 +264,22 @@ Contains:
 
 Current architectural observations:
 
-- browser context retrieval is synchronous
-- failure mostly collapses to `nil`
-- Safari has a special-case warning path for disabled JavaScript Apple Events
-- Firefox URL discovery walks the accessibility tree directly in the strategy
+- browser context retrieval is asynchronous and non-blocking using `AppleEventExecutor`
+- failure returns typed errors mapped to result completions
+- Safari fallback Javascript checks remain intact
 
 New helper seams that support the V2.6 provider work:
 
 - `Anchored/Engine/AccessibilityValue.swift`
 - `Anchored/Engine/AccessibilityContextProvider.swift`
+- `Anchored/Engine/AppleEventExecutor.swift`
+- `Anchored/Engine/ContextCollector.swift`
 - `Anchored/Engine/ContextHistoryPipeline.swift`
 - `Anchored/Storage/ContextHistoryStore.swift`
 - `Anchored/Models/PersistedContextObservation.swift`
 - `Anchored/Models/DashboardModels.swift`
 
-V2.6 intends to split this into a more explicit async collection pipeline with typed errors, stale-result rejection, and safer Accessibility helpers.
+The V2.6 async context collection pipeline is fully integrated with safe accessibility helpers, serial background queues, and request generation checking.
 
 #### `Anchored/Engine/ContextSanitizer.swift`
 
@@ -414,6 +410,7 @@ Owns:
 - selected settings theme
 - AI Visual Productivity Check (`enableImageClassification`)
 - SmolVLM 256M VLM model toggle (`useLocalGemma`) and download status (`gemmaDownloadStatus`)
+- Cloud AI Productivity Check (`enableCloudClassification`), provider, model, and endpoint settings
 
 Architecture notes:
 
@@ -611,15 +608,9 @@ These come from both the code and repo rules. Future changes should preserve the
 
 These are the places future agents are most likely to touch when implementing V2.6 or debugging regressions.
 
-- `AppSwitchMonitor` mixes activation monitoring, polling, and native/browser context collection.
-- `BrowserStrategies.swift` mixes protocol definitions, AppleScript execution, Safari edge cases, and Firefox Accessibility traversal.
-- The live monitor still publishes legacy tuples and needs the planned `ContextSnapshot`/collector split before the provider seams become first-class.
 - `FocusEngine` owns significant timer/state logic and keeps the focus/distraction policy in-engine, but it now depends on a small injected focus-app provider seam.
 - `SessionStore` and `SQLiteSessionStore` split responsibilities in a way that is not obvious from the names.
 - `AppDelegate` is the de facto dependency injection container.
-- Current context identity is ad hoc: `currentApp`, `currentURL`, and `currentTitle` are tracked separately.
-- History consent is present as a store gate but still needs a visible privacy/settings control wired to user preference state.
-- The settings, popover, overlays, and session prompt views have all been successfully migrated to the shared control-room primitives, eliminating visual style drift.
 - The standalone `DashboardWindow.swift` still compiles for compatibility but is no longer opened by `MenuBarController`.
 - `PreferencesManager.focusPromptExperimentEnabled` is now a legacy rollout preference rather than a live runtime branch.
 
@@ -629,32 +620,24 @@ Read this section before implementing anything from `docs/ideas/anchored-v2.6-pl
 
 ### Planned architectural additions
 
-The V2.6 plan expects new or refactored concepts around:
+The V2.6 core async context pipeline and local history have been fully implemented, including:
 
 - `ContextSnapshot`
 - `ContextIdentity`
 - `ContextCollector`
-- async Apple Event execution
+- async Apple Event execution (`AppleEventExecutor`)
 - safe Accessibility context providers
 - generation-based stale-result rejection
-- injection-friendly scheduler/collector boundaries
 - sanitized context persistence
 - retention/deletion controls
 - privacy settings UI
 - asynchronous analytics contracts
-- `AccessibilityValue`
-- `AccessibilityContextProvider`
-- `ContextSanitizer`
-- versioned GRDB migrations
-
-Already landed in the current tree:
-
-- `ContextHistoryStore`
-- `ContextHistoryPipeline`
+- `ContextHistoryStore` and `ContextHistoryPipeline`
 - `PersistedContextObservation`
 - `DashboardModels`
 - async dashboard query completions and generation-checked chart views
 - a settings-contained Captain's Log that reuses the async dashboard surface
+- `CloudClassifier` and `KeychainHelper` for secure Bring Your Own Key (BYOK) cloud AI context classification
 
 ### ML readiness and rollout
 
@@ -702,11 +685,10 @@ Already landed in the current tree:
 
 ### Expected seam changes
 
-- context collection should become a pipeline rather than direct synchronous strategy calls
-- AppSwitchMonitor should publish deduplicated context snapshots rather than raw ad hoc tuples
-- persistence should support privacy-reviewed context history independently from existing session events
-- tests should move away from arbitrary sleeps where possible
-- the shipped history pipeline currently records the legacy runtime tuple, so the collector/snapshot refactor still needs to replace `AppSwitchMonitor` end-to-end
+- context collection is handled via `ContextCollector` (asynchronous pipeline using serial background queues).
+- `AppSwitchMonitor` publishes deduplicated `ContextSnapshot` values rather than raw tuples.
+- `ContextHistoryPipeline` records `ContextSnapshot` details into sanitized context observations.
+- Unit tests are isolated, deterministic, and avoid arbitrary sleeps.
 
 ## Where To Start By Task Type
 

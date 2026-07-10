@@ -29,16 +29,29 @@ public final class PreferencesManager: ObservableObject {
         public static let enableImageClassification = "com.varun.Anchored.enableImageClassification"
         public static let useLocalGemma = "com.varun.Anchored.useLocalGemma"
         public static let localModelEndpoint = "com.varun.Anchored.localModelEndpoint"
+        public static let enableCloudClassification = "com.varun.Anchored.enableCloudClassification"
+        public static let cloudProvider = "com.varun.Anchored.cloudProvider"
+        public static let cloudModel = "com.varun.Anchored.cloudModel"
+        public static let cloudEndpoint = "com.varun.Anchored.cloudEndpoint"
     }
     
     // Default values
     public static let defaultCountdownDuration = 10
     public static let defaultFocusThreshold: TimeInterval = 600.0
     
+    public static let defaultEnableCloudClassification = false
+    public static let defaultCloudProvider = 0 // 0 = Gemini, 1 = OpenAI, 2 = Anthropic
+    public static let defaultCloudModelGemini = "gemini-2.5-flash"
+    public static let defaultCloudModelOpenAI = "gpt-4o-mini"
+    public static let defaultCloudModelAnthropic = "claude-3-5-haiku"
+    public static let defaultCloudEndpointGemini = "https://generativelanguage.googleapis.com/v1beta/models/"
+    public static let defaultCloudEndpointOpenAI = "https://api.openai.com/v1/chat/completions"
+    public static let defaultCloudEndpointAnthropic = "https://api.anthropic.com/v1/messages"
+    
     /// The distraction countdown duration in seconds. Clamped to [5, 20].
     @Published public var countdownDuration: Int {
         didSet {
-            let clamped = max(1, min(3600, countdownDuration))
+            let clamped = max(0, min(3600, countdownDuration))
             if clamped != countdownDuration {
                 self.countdownDuration = clamped
             } else {
@@ -99,6 +112,70 @@ public final class PreferencesManager: ObservableObject {
             defaults.set(localModelEndpoint, forKey: Keys.localModelEndpoint)
         }
     }
+
+    /// Whether cloud AI classification is enabled.
+    @Published public var enableCloudClassification: Bool {
+        didSet {
+            defaults.set(enableCloudClassification, forKey: Keys.enableCloudClassification)
+        }
+    }
+
+    /// The selected cloud provider (0 = Gemini, 1 = OpenAI, 2 = Anthropic)
+    @Published public var cloudProvider: Int {
+        didSet {
+            defaults.set(cloudProvider, forKey: Keys.cloudProvider)
+            
+            let defaultModel: String
+            let defaultEndpoint: String
+            switch cloudProvider {
+            case 1:
+                defaultModel = Self.defaultCloudModelOpenAI
+                defaultEndpoint = Self.defaultCloudEndpointOpenAI
+            case 2:
+                defaultModel = Self.defaultCloudModelAnthropic
+                defaultEndpoint = Self.defaultCloudEndpointAnthropic
+            default:
+                defaultModel = Self.defaultCloudModelGemini
+                defaultEndpoint = Self.defaultCloudEndpointGemini
+            }
+            
+            let oldProvider = oldValue
+            let oldDefaultModel: String
+            let oldDefaultEndpoint: String
+            switch oldProvider {
+            case 1:
+                oldDefaultModel = Self.defaultCloudModelOpenAI
+                oldDefaultEndpoint = Self.defaultCloudEndpointOpenAI
+            case 2:
+                oldDefaultModel = Self.defaultCloudModelAnthropic
+                oldDefaultEndpoint = Self.defaultCloudEndpointAnthropic
+            default:
+                oldDefaultModel = Self.defaultCloudModelGemini
+                oldDefaultEndpoint = Self.defaultCloudEndpointGemini
+            }
+            
+            if cloudModel == oldDefaultModel {
+                cloudModel = defaultModel
+            }
+            if cloudEndpoint == oldDefaultEndpoint {
+                cloudEndpoint = defaultEndpoint
+            }
+        }
+    }
+
+    /// The selected cloud model name
+    @Published public var cloudModel: String {
+        didSet {
+            defaults.set(cloudModel, forKey: Keys.cloudModel)
+        }
+    }
+
+    /// The custom or default endpoint URL for the cloud provider
+    @Published public var cloudEndpoint: String {
+        didSet {
+            defaults.set(cloudEndpoint, forKey: Keys.cloudEndpoint)
+        }
+    }
     
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
@@ -110,7 +187,7 @@ public final class PreferencesManager: ObservableObject {
         
         // Load countdown duration
         let storedCountdown = defaults.object(forKey: Keys.countdownDuration) as? Int ?? Self.defaultCountdownDuration
-        self.countdownDuration = max(1, min(3600, storedCountdown))
+        self.countdownDuration = max(0, min(3600, storedCountdown))
         
         // Load focus threshold
         self.focusThreshold = defaults.object(forKey: Keys.focusThreshold) as? TimeInterval ?? Self.defaultFocusThreshold
@@ -130,6 +207,28 @@ public final class PreferencesManager: ObservableObject {
         self.enableImageClassification = defaults.object(forKey: Keys.enableImageClassification) as? Bool ?? true
         self.useLocalGemma = defaults.object(forKey: Keys.useLocalGemma) as? Bool ?? false
         self.localModelEndpoint = defaults.string(forKey: Keys.localModelEndpoint) ?? "http://localhost:11434/api/generate"
+        
+        // Load cloud classification preferences
+        self.enableCloudClassification = defaults.object(forKey: Keys.enableCloudClassification) as? Bool ?? Self.defaultEnableCloudClassification
+        
+        let storedCloudProvider = defaults.object(forKey: Keys.cloudProvider) as? Int ?? Self.defaultCloudProvider
+        let defaultModel: String
+        let defaultEndpoint: String
+        switch storedCloudProvider {
+        case 1:
+            defaultModel = Self.defaultCloudModelOpenAI
+            defaultEndpoint = Self.defaultCloudEndpointOpenAI
+        case 2:
+            defaultModel = Self.defaultCloudModelAnthropic
+            defaultEndpoint = Self.defaultCloudEndpointAnthropic
+        default:
+            defaultModel = Self.defaultCloudModelGemini
+            defaultEndpoint = Self.defaultCloudEndpointGemini
+        }
+        
+        self.cloudModel = defaults.string(forKey: Keys.cloudModel) ?? defaultModel
+        self.cloudEndpoint = defaults.string(forKey: Keys.cloudEndpoint) ?? defaultEndpoint
+        self.cloudProvider = storedCloudProvider
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status

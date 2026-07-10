@@ -102,4 +102,25 @@ final class AccessibilityContextProviderTests: XCTestCase {
 
         XCTAssertEqual(provider.context(from: tree), .invalidResponse)
     }
+
+    func testFirefoxProviderStopsAtVisitedLimit() {
+        let provider = FirefoxAccessibilityContextProvider(maxDepth: 10, maxVisitedNodes: 2)
+        let tree = AccessibilityNode(
+            role: "AXWindow",
+            title: "Firefox",
+            children: [
+                AccessibilityNode(
+                    role: "AXGroup",
+                    children: [
+                        AccessibilityNode(role: "AXGroup", children: [
+                            AccessibilityNode(role: "AXTextField", value: "https://example.com")
+                        ])
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertEqual(provider.context(from: tree), .invalidResponse)
+    }
 }
+

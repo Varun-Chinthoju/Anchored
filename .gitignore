@@ -19,3 +19,4 @@ build.log
 # Local scratch/output
 tmp/
 image.png
+.DS_Store

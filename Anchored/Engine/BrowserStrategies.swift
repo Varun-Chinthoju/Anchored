@@ -2,36 +2,6 @@ import Foundation
 import AppKit
 import ApplicationServices
 
-/// Errors that can occur during AppleScript compilation or execution.
-public enum AppleScriptError: Error, Equatable {
-    case compilationFailed
-    case executionFailed(code: Int, message: String)
-}
-
-/// A protocol defining an interface for executing AppleScript source code.
-public protocol AppleScriptExecutor {
-    func execute(_ source: String) throws -> String
-}
-
-/// A concrete implementation of AppleScriptExecutor using NSAppleScript.
-public class NSAppleScriptExecutor: AppleScriptExecutor {
-    public init() {}
-    
-    public func execute(_ source: String) throws -> String {
-        guard let script = NSAppleScript(source: source) else {
-            throw AppleScriptError.compilationFailed
-        }
-        var errorDict: NSDictionary?
-        let result = script.executeAndReturnError(&errorDict)
-        if let error = errorDict {
-            let code = error[NSAppleScript.errorNumber] as? Int ?? 0
-            let message = error[NSAppleScript.errorMessage] as? String ?? "Unknown AppleScript error"
-            throw AppleScriptError.executionFailed(code: code, message: message)
-        }
-        return result.stringValue ?? ""
-    }
-}
-
 public struct BrowserContext: Equatable {
     public let title: String
     public let url: URL
@@ -42,29 +12,28 @@ public struct BrowserContext: Equatable {
     }
 }
 
-/// Protocol defining a strategy for retrieving the active browser context from a browser.
+/// Protocol defining a strategy for retrieving the active browser context from a browser asynchronously.
 public protocol BrowserStrategy {
     /// The bundle identifier of the browser this strategy supports.
     var bundleIdentifier: String { get }
     
     /// Fetches the active context from the browser.
-    /// - Returns: The active context if successfully retrieved, nil otherwise.
-    func getActiveContext() -> BrowserContext?
+    func getActiveContext(completion: @escaping (Result<BrowserContext, CollectionError>) -> Void)
 }
 
 /// Strategy for fetching the active context from Chromium-based browsers using AppleScript.
 public class ChromiumBrowserStrategy: BrowserStrategy {
     public let bundleIdentifier: String
     public let appName: String
-    private let executor: AppleScriptExecutor
+    private let executor: AppleEventExecuting
     
-    public init(bundleIdentifier: String, appName: String, executor: AppleScriptExecutor = NSAppleScriptExecutor()) {
+    public init(bundleIdentifier: String, appName: String, executor: AppleEventExecuting = AppleEventExecutor()) {
         self.bundleIdentifier = bundleIdentifier
         self.appName = appName
         self.executor = executor
     }
     
-    public func getActiveContext() -> BrowserContext? {
+    public func getActiveContext(completion: @escaping (Result<BrowserContext, CollectionError>) -> Void) {
         let scriptSource = """
         tell application "\(appName)"
             if window 1 exists then
@@ -74,28 +43,45 @@ public class ChromiumBrowserStrategy: BrowserStrategy {
             end if
         end tell
         """
-        do {
-            let response = try executor.execute(scriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !response.isEmpty else { return nil }
-            
-            let components = response.components(separatedBy: "\n")
-            let title: String
-            let urlString: String
-            
-            if components.count >= 2 {
-                urlString = components.last!.trimmingCharacters(in: .whitespacesAndNewlines)
-                title = components.dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            } else if components.count == 1 {
-                urlString = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                title = ""
-            } else {
-                return nil
+        executor.execute(scriptSource, timeout: 0.75) { result in
+            switch result {
+            case .success(let response):
+                let responseTrimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !responseTrimmed.isEmpty else {
+                    completion(.failure(.execFailed("Empty response from browser")))
+                    return
+                }
+                
+                let components = responseTrimmed.components(separatedBy: "\n")
+                let title: String
+                let urlString: String
+                
+                if components.count >= 2 {
+                    urlString = components.last!.trimmingCharacters(in: .whitespacesAndNewlines)
+                    title = components.dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if components.count == 1 {
+                    urlString = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    title = ""
+                } else {
+                    completion(.failure(.execFailed("Invalid script output format")))
+                    return
+                }
+                
+                guard !urlString.isEmpty, let url = URL(string: urlString), url.scheme != nil else {
+                    completion(.failure(.execFailed("Invalid URL string: \(urlString)")))
+                    return
+                }
+                
+                completion(.success(BrowserContext(title: title, url: url)))
+                
+            case .failure(let error):
+                switch error {
+                case .timedOut:
+                    completion(.failure(.timedOut))
+                case .execFailed(let msg):
+                    completion(.failure(.execFailed(msg)))
+                }
             }
-            
-            guard !urlString.isEmpty, let url = URL(string: urlString), url.scheme != nil else { return nil }
-            return BrowserContext(title: title, url: url)
-        } catch {
-            return nil
         }
     }
 }
@@ -109,7 +95,7 @@ public protocol SafariBrowserStrategyDelegate: AnyObject {
 /// Strategy for fetching the active URL from Safari, supporting JavaScript validation.
 public class SafariBrowserStrategy: BrowserStrategy {
     public let bundleIdentifier = "com.apple.Safari"
-    private let executor: AppleScriptExecutor
+    private let executor: AppleEventExecuting
     
     public weak var delegate: SafariBrowserStrategyDelegate?
     public var onJavaScriptEventsDisabled: (() -> Void)?
@@ -117,13 +103,12 @@ public class SafariBrowserStrategy: BrowserStrategy {
     /// Tracks whether the warning callback/delegate has already been triggered.
     public var hasTriggeredWarning = false
     
-    public init(executor: AppleScriptExecutor = NSAppleScriptExecutor()) {
+    public init(executor: AppleEventExecuting = AppleEventExecutor()) {
         self.executor = executor
     }
     
-    public func getActiveContext() -> BrowserContext? {
-        // 1. Try to fetch URL and title using JavaScript execution first.
-        // This is necessary to detect if "Allow JavaScript from Apple Events" is enabled/disabled.
+    public func getActiveContext(completion: @escaping (Result<BrowserContext, CollectionError>) -> Void) {
+        // Try JS script first
         let jsScriptSource = """
         tell application "Safari"
             if window 1 exists then
@@ -134,26 +119,32 @@ public class SafariBrowserStrategy: BrowserStrategy {
         end tell
         """
         
-        do {
-            let response = try executor.execute(jsScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !response.isEmpty, let context = parseResponse(response) {
-                return context
-            }
-        } catch let error as AppleScriptError {
-            switch error {
-            case .executionFailed(let code, let message):
-                // Safari returns error code 8 (or a descriptive message) if Apple Event JS is off.
-                if code == 8 || message.contains("Allow JavaScript from Apple Events") {
-                    handleDisabledJavaScript()
+        executor.execute(jsScriptSource, timeout: 0.75) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let response):
+                let responseTrimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !responseTrimmed.isEmpty, let context = self.parseResponse(responseTrimmed) {
+                    completion(.success(context))
+                } else {
+                    self.executeFallback(completion: completion)
                 }
-            default:
-                break
+                
+            case .failure(let error):
+                switch error {
+                case .timedOut:
+                    completion(.failure(.timedOut))
+                case .execFailed(let msg):
+                    if msg.contains("Allow JavaScript from Apple Events") || msg.contains("errAEEventNotAllowed") || msg.contains("code 8") {
+                        self.handleDisabledJavaScript()
+                    }
+                    self.executeFallback(completion: completion)
+                }
             }
-        } catch {
-            // General error
         }
-        
-        // 2. Fallback to standard URL and title property retrieval if JavaScript events are disabled.
+    }
+    
+    private func executeFallback(completion: @escaping (Result<BrowserContext, CollectionError>) -> Void) {
         let fallbackScriptSource = """
         tell application "Safari"
             if window 1 exists then
@@ -162,12 +153,24 @@ public class SafariBrowserStrategy: BrowserStrategy {
         end tell
         """
         
-        do {
-            let response = try executor.execute(fallbackScriptSource).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !response.isEmpty, let context = parseResponse(response) else { return nil }
-            return context
-        } catch {
-            return nil
+        executor.execute(fallbackScriptSource, timeout: 0.75) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let response):
+                let responseTrimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !responseTrimmed.isEmpty, let context = self.parseResponse(responseTrimmed) {
+                    completion(.success(context))
+                } else {
+                    completion(.failure(.execFailed("Fallback empty/invalid")))
+                }
+            case .failure(let error):
+                switch error {
+                case .timedOut:
+                    completion(.failure(.timedOut))
+                case .execFailed(let msg):
+                    completion(.failure(.execFailed(msg)))
+                }
+            }
         }
     }
     
@@ -202,42 +205,49 @@ public class SafariBrowserStrategy: BrowserStrategy {
     }
 }
 
-/// Strategy for fetching the active URL from Firefox using the Accessibility API.
+/// Strategy for fetching the active URL from Firefox using the Accessibility API asynchronously.
 public class FirefoxBrowserStrategy: BrowserStrategy {
     public let bundleIdentifier = "org.mozilla.firefox"
+    private let queue = DispatchQueue(label: "com.varun.Anchored.FirefoxBrowserStrategy", qos: .userInitiated)
     
     public init() {}
     
-    public func getActiveContext() -> BrowserContext? {
-        guard let firefoxApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) else {
-            return nil
-        }
-        
-        let appRef = AXUIElementCreateApplication(firefoxApp.processIdentifier)
-        
-        let targetWindow: AXUIElement
-        var windowRef: AnyObject?
-        let windowError = AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &windowRef)
-        
-        if windowError == .success, let activeWindow = windowRef {
-            targetWindow = activeWindow as! AXUIElement
-        } else {
-            var windowsRef: AnyObject?
-            let windowsError = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &windowsRef)
-            guard windowsError == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
-                return nil
+    public func getActiveContext(completion: @escaping (Result<BrowserContext, CollectionError>) -> Void) {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            guard let firefoxApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == self.bundleIdentifier }) else {
+                completion(.failure(.execFailed("Firefox not running")))
+                return
             }
-            targetWindow = windows[0]
+            
+            let appRef = AXUIElementCreateApplication(firefoxApp.processIdentifier)
+            
+            let targetWindow: AXUIElement
+            var windowRef: AnyObject?
+            let windowError = AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &windowRef)
+            
+            if windowError == .success, let activeWindow = windowRef {
+                targetWindow = activeWindow as! AXUIElement
+            } else {
+                var windowsRef: AnyObject?
+                let windowsError = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &windowsRef)
+                guard windowsError == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
+                    completion(.failure(.execFailed("Firefox window unavailable")))
+                    return
+                }
+                targetWindow = windows[0]
+            }
+            
+            var titleRef: AnyObject?
+            let titleError = AXUIElementCopyAttributeValue(targetWindow, kAXTitleAttribute as CFString, &titleRef)
+            let title = (titleError == .success ? titleRef as? String : nil) ?? ""
+            
+            if let url = self.findURLInUIElement(targetWindow) {
+                completion(.success(BrowserContext(title: title, url: url)))
+            } else {
+                completion(.failure(.execFailed("URL not found in Firefox")))
+            }
         }
-        
-        var titleRef: AnyObject?
-        let titleError = AXUIElementCopyAttributeValue(targetWindow, kAXTitleAttribute as CFString, &titleRef)
-        let title = (titleError == .success ? titleRef as? String : nil) ?? ""
-        
-        if let url = findURLInUIElement(targetWindow) {
-            return BrowserContext(title: title, url: url)
-        }
-        return nil
     }
     
     private func findURLInUIElement(_ element: AXUIElement) -> URL? {
@@ -250,7 +260,6 @@ public class FirefoxBrowserStrategy: BrowserStrategy {
                 if valueError == .success, let urlStr = valueRef as? String {
                     let trimmed = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
-                        // Match address bar containing a URL-like value
                         if trimmed.contains("://") || trimmed.contains(".") {
                             let finalUrlStr = trimmed.contains("://") ? trimmed : "https://" + trimmed
                             if let url = URL(string: finalUrlStr), url.host != nil {
@@ -280,7 +289,7 @@ public class FirefoxBrowserStrategy: BrowserStrategy {
 
 /// Registry factory to map browser bundle identifiers to their respective strategies.
 public struct BrowserStrategyFactory {
-    public static func strategy(for bundleIdentifier: String, executor: AppleScriptExecutor = NSAppleScriptExecutor()) -> BrowserStrategy? {
+    public static func strategy(for bundleIdentifier: String, executor: AppleEventExecuting = AppleEventExecutor()) -> BrowserStrategy? {
         switch bundleIdentifier {
         case "com.google.Chrome":
             return ChromiumBrowserStrategy(bundleIdentifier: bundleIdentifier, appName: "Google Chrome", executor: executor)

@@ -100,6 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         engine.start()
         print("FocusEngine started (focusThreshold: \(prefs.focusThreshold)s, countdown: \(prefs.countdownDuration)s)")
+        print("Accessibility Permission (AXIsProcessTrusted): \(AXIsProcessTrusted())")
         
         // Re-setup main menu with menuBarController target populated
         setupMainMenu()
@@ -110,6 +111,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let window = OnboardingWindow { [weak self] in
             guard let self = self else { return }
             UserDefaults.standard.set(true, forKey: Self.onboardingCompletionKey)
+            UserDefaults.standard.removeObject(forKey: "onboardingCurrentStep")
             self.onboardingWindow = nil
             self.startStandardFlow()
         }

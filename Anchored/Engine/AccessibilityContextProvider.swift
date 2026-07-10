@@ -2,13 +2,13 @@ import Foundation
 import AppKit
 import ApplicationServices
 
-struct AccessibilityNode: Equatable {
-    let role: String?
-    let title: String?
-    let value: String?
-    let children: [AccessibilityNode]
+public struct AccessibilityNode: Equatable {
+    public let role: String?
+    public let title: String?
+    public let value: String?
+    public let children: [AccessibilityNode]
 
-    init(role: String? = nil, title: String? = nil, value: String? = nil, children: [AccessibilityNode] = []) {
+    public init(role: String? = nil, title: String? = nil, value: String? = nil, children: [AccessibilityNode] = []) {
         self.role = role
         self.title = title
         self.value = value
@@ -16,37 +16,39 @@ struct AccessibilityNode: Equatable {
     }
 }
 
-enum AccessibilityContextProviderResult: Equatable {
+public enum AccessibilityContextProviderResult: Equatable {
     case success(title: String, url: URL?)
     case permissionDenied
     case windowUnavailable
     case invalidResponse
 }
 
-protocol AccessibilityContextProviding {
+public protocol AccessibilityContextProviding {
     func context(for bundleID: String) -> AccessibilityContextProviderResult
 }
 
-protocol AccessibilityNodeSource {
+public protocol AccessibilityNodeSource {
     func rootNode(for bundleID: String) -> AccessibilityNode?
 }
 
-struct NativeAccessibilityContextProvider {
-    func context(from node: AccessibilityNode) -> AccessibilityContextProviderResult {
+public struct NativeAccessibilityContextProvider {
+    public init() {}
+
+    public func context(from node: AccessibilityNode) -> AccessibilityContextProviderResult {
         .success(title: node.title ?? "", url: nil)
     }
 }
 
-struct FirefoxAccessibilityContextProvider {
-    let maxDepth: Int
-    let maxVisitedNodes: Int
+public struct FirefoxAccessibilityContextProvider {
+    public let maxDepth: Int
+    public let maxVisitedNodes: Int
 
-    init(maxDepth: Int = 16, maxVisitedNodes: Int = 256) {
+    public init(maxDepth: Int = 16, maxVisitedNodes: Int = 256) {
         self.maxDepth = maxDepth
         self.maxVisitedNodes = maxVisitedNodes
     }
 
-    func context(from node: AccessibilityNode) -> AccessibilityContextProviderResult {
+    public func context(from node: AccessibilityNode) -> AccessibilityContextProviderResult {
         var visitedCount = 0
         let url = findURL(in: node, depth: 0, visitedCount: &visitedCount)
         guard let url else {
@@ -81,13 +83,13 @@ struct FirefoxAccessibilityContextProvider {
     }
 }
 
-struct SystemAccessibilityContextProvider: AccessibilityContextProviding {
+public struct SystemAccessibilityContextProvider: AccessibilityContextProviding {
     private let nodeSource: AccessibilityNodeSource
     private let permissionChecker: () -> Bool
     private let nativeProvider: NativeAccessibilityContextProvider
     private let firefoxProvider: FirefoxAccessibilityContextProvider
 
-    init(
+    public init(
         nodeSource: AccessibilityNodeSource = SystemAccessibilityNodeSource(),
         permissionChecker: @escaping () -> Bool = AXIsProcessTrusted,
         nativeProvider: NativeAccessibilityContextProvider = NativeAccessibilityContextProvider(),
@@ -99,7 +101,7 @@ struct SystemAccessibilityContextProvider: AccessibilityContextProviding {
         self.firefoxProvider = firefoxProvider
     }
 
-    func context(for bundleID: String) -> AccessibilityContextProviderResult {
+    public func context(for bundleID: String) -> AccessibilityContextProviderResult {
         guard permissionChecker() else {
             return .permissionDenied
         }
@@ -116,8 +118,10 @@ struct SystemAccessibilityContextProvider: AccessibilityContextProviding {
     }
 }
 
-private struct SystemAccessibilityNodeSource: AccessibilityNodeSource {
-    func rootNode(for bundleID: String) -> AccessibilityNode? {
+public struct SystemAccessibilityNodeSource: AccessibilityNodeSource {
+    public init() {}
+
+    public func rootNode(for bundleID: String) -> AccessibilityNode? {
         guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) else {
             return nil
         }

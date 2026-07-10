@@ -43,6 +43,12 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertTrue(manager.focusPromptExperimentEnabled)
         XCTAssertEqual(manager.selectedThemeID, ThemeCatalog.defaultThemeID)
         XCTAssertEqual(manager.selectedThemePalette, ThemePalette.baldr)
+        
+        // Cloud classification defaults
+        XCTAssertFalse(manager.enableCloudClassification)
+        XCTAssertEqual(manager.cloudProvider, 0)
+        XCTAssertEqual(manager.cloudModel, "gemini-2.5-flash")
+        XCTAssertEqual(manager.cloudEndpoint, "https://generativelanguage.googleapis.com/v1beta/models/")
     }
     
     func testInitializationWithStoredSettings() {
@@ -51,6 +57,10 @@ final class PreferencesManagerTests: XCTestCase {
         testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
         testDefaults.set(false, forKey: PreferencesManager.Keys.enableSmartNudges)
         testDefaults.set(false, forKey: PreferencesManager.Keys.focusPromptExperimentEnabled)
+        testDefaults.set(true, forKey: PreferencesManager.Keys.enableCloudClassification)
+        testDefaults.set(1, forKey: PreferencesManager.Keys.cloudProvider)
+        testDefaults.set("gpt-4-custom", forKey: PreferencesManager.Keys.cloudModel)
+        testDefaults.set("https://custom.openai.com/v1", forKey: PreferencesManager.Keys.cloudEndpoint)
         mockService.status = .enabled
         
         // When initializing PreferencesManager
@@ -64,6 +74,12 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertTrue(manager.launchAtLogin)
         XCTAssertFalse(manager.enableSmartNudges)
         XCTAssertFalse(manager.focusPromptExperimentEnabled)
+        
+        // Cloud classification loaded values
+        XCTAssertTrue(manager.enableCloudClassification)
+        XCTAssertEqual(manager.cloudProvider, 1)
+        XCTAssertEqual(manager.cloudModel, "gpt-4-custom")
+        XCTAssertEqual(manager.cloudEndpoint, "https://custom.openai.com/v1")
     }
 
     func testRuntimeFocusThresholdOverrideWinsForEngineUse() {
@@ -86,9 +102,9 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 12)
         
         // When setting a value below range
-        manager.countdownDuration = 0
-        XCTAssertEqual(manager.countdownDuration, 1) // clamped to 1
-        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 1)
+        manager.countdownDuration = -5
+        XCTAssertEqual(manager.countdownDuration, 0) // clamped to 0
+        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.countdownDuration), 0)
         
         // When setting a value above range
         manager.countdownDuration = 4000
@@ -202,6 +218,26 @@ final class PreferencesManagerTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
         XCTAssertTrue(manager.launchAtLogin)
         XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.launchAtLogin))
+    }
+    
+    func testCloudPreferencesMutation() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+        
+        // Mutate enableCloudClassification
+        manager.enableCloudClassification = true
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableCloudClassification))
+        
+        // Mutate cloudProvider
+        manager.cloudProvider = 1
+        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.cloudProvider), 1)
+        
+        // Mutate cloudModel
+        manager.cloudModel = "gpt-4-custom"
+        XCTAssertEqual(testDefaults.string(forKey: PreferencesManager.Keys.cloudModel), "gpt-4-custom")
+        
+        // Mutate cloudEndpoint
+        manager.cloudEndpoint = "https://custom.openai.com/v1"
+        XCTAssertEqual(testDefaults.string(forKey: PreferencesManager.Keys.cloudEndpoint), "https://custom.openai.com/v1")
     }
 }
 

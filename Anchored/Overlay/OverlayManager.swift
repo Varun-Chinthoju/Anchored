@@ -23,7 +23,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     private var _countdownDuration: Int = 10
     var countdownDuration: Int {
         get { _countdownDuration }
-        set { _countdownDuration = max(1, min(3600, newValue)) }
+        set { _countdownDuration = max(0, min(3600, newValue)) }
     }
     
     /// Initializes the OverlayManager.

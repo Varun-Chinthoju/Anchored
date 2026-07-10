@@ -6,6 +6,7 @@ final class FocusEngineTests: XCTestCase {
     private var mockActivityMonitor: MockActivityMonitor!
     private var distractionListManager: DistractionListManager!
     private var profileManager: ProfileManager!
+    private var testPreferences: PreferencesManager!
     private var sessionStore: SessionStore!
     private var mockDelegate: MockFocusEngineDelegate!
     private var engine: FocusEngine!
@@ -19,6 +20,7 @@ final class FocusEngineTests: XCTestCase {
         testDefaults.removePersistentDomain(forName: "com.varun.Anchored.tests")
         distractionListManager = DistractionListManager(defaults: testDefaults)
         profileManager = ProfileManager(defaults: testDefaults)
+        testPreferences = PreferencesManager(defaults: testDefaults)
         
         // Setup isolated SessionStore
         let tempDirectory = FileManager.default.temporaryDirectory
@@ -34,7 +36,8 @@ final class FocusEngineTests: XCTestCase {
             distractionListManager: distractionListManager,
             sessionStore: sessionStore,
             profileManager: profileManager,
-            focusThreshold: 600.0
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences
         )
         engine.delegate = mockDelegate
         
@@ -435,7 +438,8 @@ final class FocusEngineTests: XCTestCase {
             distractionListManager: distractionListManager,
             sessionStore: sessionStore,
             profileManager: profileManager,
-            focusThreshold: 600.0
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences
         )
         localEngine.delegate = mockDelegate
         localEngine.distractionCountdownThreshold = 0.05
@@ -461,7 +465,8 @@ final class FocusEngineTests: XCTestCase {
             distractionListManager: distractionListManager,
             sessionStore: sessionStore,
             profileManager: profileManager,
-            focusThreshold: 600.0
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences
         )
         engine.delegate = mockDelegate
         engine.distractionCountdownThreshold = 0.05
@@ -810,6 +815,93 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertGreaterThan(resumedStartDate.timeIntervalSince(initialStartDate), 0.04)
     }
     
+    // MARK: - Cloud Classification Integration Tests
+    
+    func testCloudClassificationIsDistractionProductive() {
+        testPreferences.enableCloudClassification = true
+        testPreferences.cloudProvider = 0 // Gemini
+        try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
+        
+        MockURLProtocol.requestHandler = { request in
+            let expectedJSON = """
+            {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "text": "yes"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, expectedJSON.data(using: .utf8))
+        }
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Test Title")
+        
+        // Productive is true, so it is NOT a distraction. Therefore, it is a WATCHING focus state, not distraction.
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.spotify.client")
+    }
+    
+    func testCloudClassificationIsDistractionUnproductive() {
+        testPreferences.enableCloudClassification = true
+        testPreferences.cloudProvider = 0 // Gemini
+        try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
+        
+        MockURLProtocol.requestHandler = { request in
+            let expectedJSON = """
+            {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "text": "no"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, expectedJSON.data(using: .utf8))
+        }
+        
+        // Set up active session to detect distraction countdown pill
+        engine.workSessionStart = Date()
+        engine.anchorSession(duration: 1500)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Test Title")
+        
+        // Productive is false, so it IS a distraction.
+        XCTAssertEqual(mockDelegate.detectedDistractions.count, 1)
+        XCTAssertEqual(mockDelegate.detectedDistractions.first, "com.spotify.client")
+    }
+    
+    func testCloudClassificationIsDistractionFallbackOnFailure() {
+        testPreferences.enableCloudClassification = true
+        testPreferences.cloudProvider = 0 // Gemini
+        try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
+        
+        // Return 500 error to simulate network/cloud failure
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Test Title")
+        
+        // Should fall back to local check (distraction), resetting workSessionStart to nil
+        XCTAssertNil(engine.workSessionStart)
+    }
+    
     // MARK: - Helper Methods
     
     private func loadEventsFromDisk() -> [SessionEvent] {
@@ -822,7 +914,7 @@ final class FocusEngineTests: XCTestCase {
 // MARK: - Mock Classes
 
 class MockActivityMonitor: ActivityMonitor {
-    var onContextChange: ((_ bundleID: String, _ url: URL?, _ title: String) -> Void)?
+    var onContextChange: ((ContextSnapshot) -> Void)?
     var isStarted = false
     var isStopped = false
     
@@ -835,7 +927,15 @@ class MockActivityMonitor: ActivityMonitor {
     }
     
     func simulateContextChange(bundleID: String, url: URL? = nil, title: String = "") {
-        onContextChange?(bundleID, url, title)
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: bundleID,
+            localizedName: bundleID,
+            url: url,
+            title: title,
+            source: .application,
+            observedAt: Date()
+        )
+        onContextChange?(snapshot)
     }
 }
 

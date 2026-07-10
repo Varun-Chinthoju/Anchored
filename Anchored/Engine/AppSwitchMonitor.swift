@@ -2,21 +2,23 @@ import AppKit
 import ApplicationServices
 
 /// Monitors application switch events via `NSWorkspace.didActivateApplicationNotification`
-/// and publishes the active application's bundle identifier and browser URL, if applicable.
+/// and publishes the active application's bundle identifier and browser URL asynchronously.
 final class AppSwitchMonitor: ActivityMonitor {
     /// Callback invoked when a context change is detected.
-    var onContextChange: ((_ bundleID: String, _ url: URL?, _ title: String) -> Void)?
+    var onContextChange: ((ContextSnapshot) -> Void)?
     
+    private let collector: ContextCollecting
     private var observer: NSObjectProtocol?
     private var isMonitoring = false
     
-    // URL and Window Polling properties
+    // Polling properties
     private var pollingTimer: Timer?
     private var activeBundleID: String?
-    private var lastPolledURL: URL?
-    private var lastPolledTitle = ""
+    private var lastPolledIdentity: ContextIdentity?
     
-    init() {}
+    init(collector: ContextCollecting = ContextCollector()) {
+        self.collector = collector
+    }
     
     /// Starts monitoring application switch notifications and initializes browser URL and window polling.
     func start() {
@@ -47,12 +49,14 @@ final class AppSwitchMonitor: ActivityMonitor {
         startPollingTimer()
     }
     
-    /// Stops monitoring and removes notification observers.
+    /// Stops monitoring, removes notification observers, and cancels polling.
     func stop() {
         guard isMonitoring else { return }
         isMonitoring = false
         
         cancelPollingTimer()
+        activeBundleID = nil
+        lastPolledIdentity = nil
         
         if let observer = observer {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -60,56 +64,9 @@ final class AppSwitchMonitor: ActivityMonitor {
         }
     }
     
-    private func getNativeWindowTitle(for bundleID: String) -> String {
-        guard AXIsProcessTrusted() else {
-            return ""
-        }
-        
-        guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) else {
-            return ""
-        }
-        
-        let appRef = AXUIElementCreateApplication(app.processIdentifier)
-        
-        var windowRef: AnyObject?
-        let windowError = AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &windowRef)
-        guard windowError == .success, let activeWindow = windowRef else {
-            return ""
-        }
-        
-        var titleRef: AnyObject?
-        let titleError = AXUIElementCopyAttributeValue(activeWindow as! AXUIElement, kAXTitleAttribute as CFString, &titleRef)
-        guard titleError == .success, let title = titleRef as? String else {
-            return ""
-        }
-        
-        return title
-    }
-
-    private func handleApplicationActivation(bundleID: String) {
+    func handleApplicationActivation(bundleID: String) {
         activeBundleID = bundleID
-        
-        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
-            if AXIsProcessTrusted() {
-                // Fetch current URL immediately
-                let strategy = BrowserStrategyFactory.strategy(for: bundleID)
-                let context = strategy?.getActiveContext()
-                let currentURL = context?.url
-                let title = (context?.title.isEmpty == false) ? context!.title : getNativeWindowTitle(for: bundleID)
-                lastPolledURL = currentURL
-                lastPolledTitle = title
-                onContextChange?(bundleID, currentURL, title)
-            } else {
-                lastPolledURL = nil
-                lastPolledTitle = ""
-                onContextChange?(bundleID, nil, "")
-            }
-        } else {
-            lastPolledURL = nil
-            let title = getNativeWindowTitle(for: bundleID)
-            lastPolledTitle = title
-            onContextChange?(bundleID, nil, title)
-        }
+        pollActiveContext()
     }
     
     private func startPollingTimer() {
@@ -127,24 +84,35 @@ final class AppSwitchMonitor: ActivityMonitor {
     private func pollActiveContext() {
         guard let bundleID = activeBundleID else { return }
         
-        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
-            guard AXIsProcessTrusted() else { return }
-            let strategy = BrowserStrategyFactory.strategy(for: bundleID)
-            let context = strategy?.getActiveContext()
-            let currentURL = context?.url
-            let title = (context?.title.isEmpty == false) ? context!.title : getNativeWindowTitle(for: bundleID)
-            
-            if currentURL != lastPolledURL || title != lastPolledTitle {
-                lastPolledURL = currentURL
-                lastPolledTitle = title
-                onContextChange?(bundleID, currentURL, title)
-            }
-        } else {
-            let title = getNativeWindowTitle(for: bundleID)
-            if title != lastPolledTitle {
-                lastPolledURL = nil
-                lastPolledTitle = title
-                onContextChange?(bundleID, nil, title)
+        collector.collectContext(for: bundleID) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self, self.isMonitoring, self.activeBundleID == bundleID else { return }
+                
+                switch result {
+                case .success(let snapshot):
+                    let newIdentity = snapshot.identity
+                    if newIdentity != self.lastPolledIdentity {
+                        self.lastPolledIdentity = newIdentity
+                        self.onContextChange?(snapshot)
+                    }
+                case .failure:
+                    // Fallback to empty snapshot for the active bundle ID
+                    let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID })
+                    let localizedName = runningApp?.localizedName ?? ""
+                    let fallbackSnapshot = ContextSnapshot(
+                        bundleIdentifier: bundleID,
+                        localizedName: localizedName,
+                        url: nil,
+                        title: "",
+                        source: .application,
+                        observedAt: Date()
+                    )
+                    let fallbackIdentity = fallbackSnapshot.identity
+                    if fallbackIdentity != self.lastPolledIdentity {
+                        self.lastPolledIdentity = fallbackIdentity
+                        self.onContextChange?(fallbackSnapshot)
+                    }
+                }
             }
         }
     }

@@ -4,7 +4,7 @@ struct OnboardingView: View {
     let windowWidth: CGFloat
     let windowHeight: CGFloat
     
-    @State private var currentStep = 0
+    @AppStorage("onboardingCurrentStep") private var currentStep = 0
     let onComplete: () -> Void
     @ObservedObject private var langManager = LanguageManager.shared
     

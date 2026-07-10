@@ -19,8 +19,8 @@ final class ContextHistoryPipeline {
             forName: .focusEngineContextDidChange,
             object: focusEngine,
             queue: .main
-        ) { [weak self] _ in
-            self?.recordCurrentContext()
+        ) { [weak self] notification in
+            self?.recordContext(from: notification)
         }
     }
 
@@ -30,33 +30,20 @@ final class ContextHistoryPipeline {
         }
     }
 
-    private func recordCurrentContext() {
+    private func recordContext(from notification: Notification) {
         guard historyStore.isEnabled,
-              let context = focusEngine.currentContext else {
+              let userInfo = notification.userInfo,
+              let snapshot = userInfo["snapshot"] as? ContextSnapshot else {
             return
         }
 
-        let source = source(for: context.bundleIdentifier)
         historyStore.record(
-            bundleID: context.bundleIdentifier,
-            appName: context.localizedName,
-            title: context.title,
-            url: focusEngine.currentURL,
-            source: source,
+            bundleID: snapshot.bundleIdentifier,
+            appName: snapshot.localizedName,
+            title: snapshot.title,
+            url: snapshot.url,
+            source: snapshot.source.rawValue,
             sessionState: focusEngine.state
         )
-    }
-
-    private func source(for bundleID: String) -> String {
-        switch BrowserStrategyFactory.strategy(for: bundleID) {
-        case is SafariBrowserStrategy:
-            return "safari"
-        case is FirefoxBrowserStrategy:
-            return "firefox"
-        case is ChromiumBrowserStrategy:
-            return "chromium"
-        default:
-            return "application"
-        }
     }
 }

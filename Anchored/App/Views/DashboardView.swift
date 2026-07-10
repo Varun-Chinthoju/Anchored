@@ -50,13 +50,13 @@ enum DashboardRange: String, CaseIterable, Identifiable {
     var trendAxisCaption: String {
         switch self {
         case .day:
-            return "Last 24 hours"
+            return "Focus time by hour"
         case .week:
-            return "Mon  ·  Tue  ·  Wed  ·  Thu  ·  Fri  ·  Sat  ·  Sun"
+            return "Focus time by day"
         case .month:
-            return "Month start  ·  Mid  ·  End"
+            return "Focus time by day"
         case .quarter:
-            return "Q1  ·  Q2  ·  Q3  ·  Q4"
+            return "Focus time by day"
         }
     }
 
@@ -587,29 +587,9 @@ private struct TrendPanel: View {
 
     var body: some View {
         ControlRoomCard(title: "Tide Over Time", subtitle: range.title, palette: palette) {
-            VStack(alignment: .leading, spacing: 12) {
-                chartArea
-                    .frame(height: 180)
-
-                HStack {
-                    Text(axisCaption)
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundColor(palette.textSecondaryColor)
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(range == .day ? "High" : "High tide")
-                        Text(range == .day ? "Mid" : "Mid tide")
-                        Text(range == .day ? "Low" : "Low tide")
-                    }
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundColor(palette.textSecondaryColor)
-                }
-            }
+            chartArea
+                .frame(height: 180)
         }
-    }
-
-    private var axisCaption: String {
-        range.trendAxisCaption
     }
 
     private var chartArea: some View {
@@ -688,12 +668,37 @@ private struct TrendSparkline: View {
         buckets.map(\.duration)
     }
 
+    private func formatShortDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int(seconds / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours > 0 {
+            if minutes > 0 {
+                return "\(hours)h \(minutes)m"
+            }
+            return "\(hours)h"
+        }
+        return "\(minutes)m"
+    }
+
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
             let height = geo.size.height
             let maxValue = max(1.0, values.max() ?? 1.0)
-            let points = normalizedPoints(in: CGSize(width: width, height: height), maxValue: maxValue)
+            
+            let horizontalPadding: CGFloat = 16
+            let verticalPadding: CGFloat = 16
+            let yAxisWidth: CGFloat = 55
+            let chartWidth = width - yAxisWidth
+            let drawableHeight = height - (2 * verticalPadding)
+
+            let points = normalizedPoints(
+                in: CGSize(width: chartWidth, height: height),
+                maxValue: maxValue,
+                horizontalPadding: horizontalPadding,
+                verticalPadding: verticalPadding
+            )
 
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
@@ -705,12 +710,15 @@ private struct TrendSparkline: View {
                         )
                     )
 
-                GridLines(palette: palette)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 4)
+                GridLines(
+                    palette: palette,
+                    chartWidth: chartWidth,
+                    verticalPadding: verticalPadding,
+                    drawableHeight: drawableHeight
+                )
 
                 if !points.isEmpty {
-                    TrendAreaShape(points: points)
+                    TrendAreaShape(points: points, verticalPadding: verticalPadding)
                         .fill(
                             LinearGradient(
                                 colors: [
@@ -721,7 +729,6 @@ private struct TrendSparkline: View {
                                 endPoint: .bottom
                             )
                         )
-                        .padding(.vertical, 22)
 
                     TrendLineShape(points: points)
                         .stroke(
@@ -733,39 +740,70 @@ private struct TrendSparkline: View {
                             style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
                         )
                         .shadow(color: palette.accentColor.opacity(0.25), radius: 6, x: 0, y: 2)
-                        .padding(.vertical, 22)
+                }
+
+                // Y-axis labels on the right side
+                GeometryReader { labelsGeo in
+                    let h = labelsGeo.size.height
+                    let drawableH = h - (2 * verticalPadding)
+                    let levels: [(Double, String)] = [
+                        (1.0, formatShortDuration(maxValue)),
+                        (0.75, formatShortDuration(maxValue * 0.75)),
+                        (0.5, formatShortDuration(maxValue * 0.5)),
+                        (0.25, formatShortDuration(maxValue * 0.25)),
+                        (0.0, "0m")
+                    ]
+
+                    ForEach(levels, id: \.1) { level, labelText in
+                        let y = verticalPadding + drawableH * (1.0 - level)
+                        Text(labelText)
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .foregroundColor(palette.textSecondaryColor)
+                            .frame(width: yAxisWidth - 6, alignment: .leading)
+                            .position(x: chartWidth + yAxisWidth / 2, y: y)
+                    }
                 }
 
                 VStack {
                     Spacer()
-                    HStack {
-                        ForEach(axisLabels, id: \.self) { label in
+                    GeometryReader { labelsGeo in
+                        let h = labelsGeo.size.height
+                        let drawableWidth = chartWidth - (2 * horizontalPadding)
+                        let step = drawableWidth / CGFloat(max(1, axisLabels.count - 1))
+                        
+                        ForEach(Array(axisLabels.enumerated()), id: \.offset) { index, label in
                             Text(label)
-                            if label != axisLabels.last {
-                                Spacer()
-                            }
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .foregroundColor(palette.textSecondaryColor)
+                                .position(x: horizontalPadding + CGFloat(index) * step, y: h / 2)
                         }
                     }
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundColor(palette.textSecondaryColor)
+                    .frame(height: 20)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.bottom, 8)
             }
         }
     }
 
-    private func normalizedPoints(in size: CGSize, maxValue: Double) -> [CGPoint] {
+    private func normalizedPoints(
+        in size: CGSize,
+        maxValue: Double,
+        horizontalPadding: CGFloat,
+        verticalPadding: CGFloat
+    ) -> [CGPoint] {
+        let w = size.width - (2 * horizontalPadding)
+        let h = size.height - (2 * verticalPadding)
+        
         guard values.count > 1 else {
             guard let value = values.first else { return [] }
-            let y = size.height - (CGFloat(value / maxValue) * size.height)
-            return [CGPoint(x: 0, y: y), CGPoint(x: size.width, y: y)]
+            let y = verticalPadding + h - (CGFloat(value / maxValue) * h)
+            return [CGPoint(x: horizontalPadding, y: y), CGPoint(x: size.width - horizontalPadding, y: y)]
         }
 
-        let step = size.width / CGFloat(values.count - 1)
+        let step = w / CGFloat(values.count - 1)
         return values.enumerated().map { index, value in
-            let x = CGFloat(index) * step
-            let y = size.height - (CGFloat(value / maxValue) * size.height)
+            let x = horizontalPadding + CGFloat(index) * step
+            let y = verticalPadding + h - (CGFloat(value / maxValue) * h)
             return CGPoint(x: x, y: y)
         }
     }
@@ -773,24 +811,28 @@ private struct TrendSparkline: View {
 
 private struct GridLines: View {
     let palette: ThemePalette
+    let chartWidth: CGFloat
+    let verticalPadding: CGFloat
+    let drawableHeight: CGFloat
 
     var body: some View {
-        GeometryReader { geo in
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: geo.size.height * 0.25))
-                path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height * 0.25))
+        Path { path in
+            let y25 = verticalPadding + drawableHeight * 0.25
+            path.move(to: CGPoint(x: 0, y: y25))
+            path.addLine(to: CGPoint(x: chartWidth, y: y25))
 
-                path.move(to: CGPoint(x: 0, y: geo.size.height * 0.5))
-                path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height * 0.5))
+            let y50 = verticalPadding + drawableHeight * 0.5
+            path.move(to: CGPoint(x: 0, y: y50))
+            path.addLine(to: CGPoint(x: chartWidth, y: y50))
 
-                path.move(to: CGPoint(x: 0, y: geo.size.height * 0.75))
-                path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height * 0.75))
-            }
-            .stroke(
-                palette.borderColor.opacity(0.35),
-                style: StrokeStyle(lineWidth: 1, dash: [4, 6])
-            )
+            let y75 = verticalPadding + drawableHeight * 0.75
+            path.move(to: CGPoint(x: 0, y: y75))
+            path.addLine(to: CGPoint(x: chartWidth, y: y75))
         }
+        .stroke(
+            palette.borderColor.opacity(0.35),
+            style: StrokeStyle(lineWidth: 1, dash: [4, 6])
+        )
     }
 }
 
@@ -823,15 +865,17 @@ private struct TrendLineShape: Shape {
 
 private struct TrendAreaShape: Shape {
     let points: [CGPoint]
+    let verticalPadding: CGFloat
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
         guard let first = points.first, let last = points.last else { return path }
-        path.move(to: CGPoint(x: first.x, y: rect.maxY))
+        let bottomY = rect.maxY - verticalPadding
+        path.move(to: CGPoint(x: first.x, y: bottomY))
         path.addLine(to: first)
 
         guard points.count > 1 else {
-            path.addLine(to: CGPoint(x: last.x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: last.x, y: bottomY))
             path.closeSubpath()
             return path
         }
@@ -847,7 +891,7 @@ private struct TrendAreaShape: Shape {
             )
         }
 
-        path.addLine(to: CGPoint(x: last.x, y: rect.maxY))
+        path.addLine(to: CGPoint(x: last.x, y: bottomY))
         path.closeSubpath()
         return path
     }

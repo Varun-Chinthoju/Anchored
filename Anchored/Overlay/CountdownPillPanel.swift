@@ -30,6 +30,11 @@ public class CountdownPillPanel: NSPanel {
         self.secondsRemaining = seconds
         self.completionHandler = onComplete
         
+        if seconds <= 0 {
+            self.completionHandler?()
+            return
+        }
+        
         updateView()
         positionPanel()
         

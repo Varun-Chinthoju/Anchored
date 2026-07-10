@@ -27,7 +27,8 @@ final class OverlayManagerTests: XCTestCase {
             activityMonitor: mockActivityMonitor,
             distractionListManager: distractionListManager,
             sessionStore: sessionStore,
-            focusThreshold: 600.0
+            focusThreshold: 600.0,
+            preferencesManager: PreferencesManager(defaults: testDefaults)
         )
         
         overlayManager = OverlayManager(focusEngine: focusEngine)
@@ -58,8 +59,8 @@ final class OverlayManagerTests: XCTestCase {
         overlayManager.countdownDuration = 10
         XCTAssertEqual(overlayManager.countdownDuration, 10)
         
-        overlayManager.countdownDuration = 0
-        XCTAssertEqual(overlayManager.countdownDuration, 1, "Should clamp to minimum of 1 second")
+        overlayManager.countdownDuration = -5
+        XCTAssertEqual(overlayManager.countdownDuration, 0, "Should clamp to minimum of 0 seconds")
         
         overlayManager.countdownDuration = 4000
         XCTAssertEqual(overlayManager.countdownDuration, 3600, "Should clamp to maximum of 3600 seconds")
@@ -134,7 +135,7 @@ final class OverlayManagerTests: XCTestCase {
 
 // MARK: - TestActivityMonitor
 private class TestActivityMonitor: ActivityMonitor {
-    var onContextChange: ((_ bundleID: String, _ url: URL?, _ title: String) -> Void)?
+    var onContextChange: ((ContextSnapshot) -> Void)?
     
     func start() {}
     func stop() {}

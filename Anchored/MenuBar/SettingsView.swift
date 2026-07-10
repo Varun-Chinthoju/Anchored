@@ -465,6 +465,8 @@ struct GeneralSettingsPane: View {
     @StateObject private var prefs = PreferencesManager.shared
     @ObservedObject private var langManager = LanguageManager.shared
 
+    @State private var apiKey: String = ""
+
     private let thresholds: [(Double, String)] = [
         (300.0, "5 min"), (600.0, "10 min"), (900.0, "15 min"), (1800.0, "30 min")
     ]
@@ -500,6 +502,30 @@ struct GeneralSettingsPane: View {
         }
     }
 
+    private func loadApiKey() {
+        let providerName: String
+        switch prefs.cloudProvider {
+        case 1: providerName = "openai"
+        case 2: providerName = "anthropic"
+        default: providerName = "gemini"
+        }
+        apiKey = KeychainHelper.loadKey(forProvider: providerName) ?? ""
+    }
+
+    private func saveApiKey() {
+        let providerName: String
+        switch prefs.cloudProvider {
+        case 1: providerName = "openai"
+        case 2: providerName = "anthropic"
+        default: providerName = "gemini"
+        }
+        if apiKey.isEmpty {
+            try? KeychainHelper.deleteKey(forProvider: providerName)
+        } else {
+            try? KeychainHelper.saveKey(apiKey, forProvider: providerName)
+        }
+    }
+
     var body: some View {
         SettingsPane(title: settingsCopy("General", pirate: "Rigging", isPirateMode: isPirateMode)) {
             VStack(alignment: .leading, spacing: 6) {
@@ -518,10 +544,10 @@ struct GeneralSettingsPane: View {
                             Slider(value: Binding(
                                 get: { prefs.focusThreshold },
                                 set: { newValue in
-                                    let rounded = (newValue / 5.0).rounded() * 5.0
-                                    prefs.focusThreshold = max(5, min(3600, rounded))
+                                    let rounded = (newValue / 30.0).rounded() * 30.0
+                                    prefs.focusThreshold = max(30, min(3600, rounded))
                                 }
-                            ), in: 5...3600)
+                            ), in: 30...3600)
                                 .frame(width: 250)
                             Text(formatDuration(prefs.focusThreshold))
                                 .font(.system(.body, design: .monospaced))
@@ -540,9 +566,9 @@ struct GeneralSettingsPane: View {
                                 get: { Double(prefs.countdownDuration) },
                                 set: { newValue in
                                     let rounded = Int((newValue / 5.0).rounded() * 5.0)
-                                    prefs.countdownDuration = max(5, min(3600, rounded))
+                                    prefs.countdownDuration = max(0, min(60, rounded))
                                 }
-                            ), in: 5...3600)
+                            ), in: 0...60)
                                 .frame(width: 250)
                             Text(formatDuration(Double(prefs.countdownDuration)))
                                 .font(.system(.body, design: .monospaced))
@@ -615,7 +641,7 @@ struct GeneralSettingsPane: View {
                     SettingsRow(
                         label: settingsCopy("AI Visual Productivity Check", pirate: "AI Spyglass (Visual Check)", isPirateMode: isPirateMode),
                         description: settingsCopy("Use local image classification to prevent false alarms. 100% private.", pirate: "Check screens locally to protect your voyage. 100% private.", isPirateMode: isPirateMode),
-                        showDivider: prefs.enableImageClassification
+                        showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.enableImageClassification)
                     }
@@ -624,7 +650,7 @@ struct GeneralSettingsPane: View {
                         SettingsRow(
                             label: settingsCopy("Use SmolVLM 256M (Local VLM)", pirate: "Call SmolVLM 256M (Local VLM)", isPirateMode: isPirateMode),
                             description: settingsCopy("Queries a local SmolVLM 4-bit vision model (only 145 MB).", pirate: "Steer visual checks to local SmolVLM 4-bit model.", isPirateMode: isPirateMode),
-                            showDivider: prefs.useLocalGemma
+                            showDivider: true
                         ) {
                             Toggle("", isOn: $prefs.useLocalGemma)
                         }
@@ -654,10 +680,77 @@ struct GeneralSettingsPane: View {
                             }
                             .padding(.horizontal, 16)
                             .padding(.bottom, 8)
+                            
+                            Divider().padding(.leading, 16).overlay(SettingsTheme.border.opacity(0.55))
+                        }
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
+                        description: settingsCopy("Use cloud AI classification for high-precision focus validation.", pirate: "Ask the cloud winds if yer context is productive.", isPirateMode: isPirateMode),
+                        showDivider: prefs.enableCloudClassification
+                    ) {
+                        Toggle("", isOn: $prefs.enableCloudClassification)
+                    }
+
+                    if prefs.enableCloudClassification {
+                        SettingsRow(
+                            label: settingsCopy("Cloud Provider", pirate: "Cloud Provider", isPirateMode: isPirateMode),
+                            description: settingsCopy("Choose which cloud LLM service to query.", pirate: "Choose which cloud LLM service to query.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            Picker("", selection: $prefs.cloudProvider) {
+                                Text("Gemini").tag(0)
+                                Text("OpenAI").tag(1)
+                                Text("Anthropic").tag(2)
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 180)
+                        }
+
+                        SettingsRow(
+                            label: settingsCopy("API Key", pirate: "Letters of Marque (API Key)", isPirateMode: isPirateMode),
+                            description: settingsCopy("Enter your personal API key. Stored securely in Keychain.", pirate: "Enter your personal API key. Stored securely in Keychain.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            SecureField("API Key", text: $apiKey, onCommit: {
+                                saveApiKey()
+                            })
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 180)
+                        }
+
+                        SettingsRow(
+                            label: settingsCopy("Model Name", pirate: "Model Name", isPirateMode: isPirateMode),
+                            description: settingsCopy("The identifier of the cloud model to use.", pirate: "The identifier of the cloud model to use.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            TextField("Model Name", text: $prefs.cloudModel)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 180)
+                        }
+
+                        SettingsRow(
+                            label: settingsCopy("Endpoint URL", pirate: "Endpoint URL", isPirateMode: isPirateMode),
+                            description: settingsCopy("The API base URL or custom reverse proxy endpoint.", pirate: "The API base URL or custom reverse proxy endpoint.", isPirateMode: isPirateMode),
+                            showDivider: false
+                        ) {
+                            TextField("Endpoint URL", text: $prefs.cloudEndpoint)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 250)
                         }
                     }
                 }
             }
+        }
+        .onAppear {
+            loadApiKey()
+        }
+        .onChange(of: prefs.cloudProvider) { _ in
+            loadApiKey()
+        }
+        .onDisappear {
+            saveApiKey()
         }
     }
 }
