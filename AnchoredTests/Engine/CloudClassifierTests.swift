@@ -23,6 +23,7 @@ final class CloudClassifierTests: XCTestCase {
         
         classifier = CloudClassifier(preferences: preferences, session: session)
         KeychainHelper.mockKeys = [:]
+        KeychainHelper.useMockOnly = true
     }
     
     override func tearDown() {
@@ -33,6 +34,7 @@ final class CloudClassifierTests: XCTestCase {
         classifier = nil
         MockURLProtocol.requestHandler = nil
         KeychainHelper.mockKeys = [:]
+        KeychainHelper.useMockOnly = false
         super.tearDown()
     }
     
@@ -45,7 +47,7 @@ final class CloudClassifierTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Gemini classifies Yes")
         
         MockURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.url?.absoluteString, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=gemini-test-key")
+            XCTAssertEqual(request.url?.absoluteString, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
             

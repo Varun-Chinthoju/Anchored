@@ -88,19 +88,19 @@ public final class CloudClassifier {
         
         switch providerIndex {
         case 0:
-            // Google Gemini
+            // Google Gemini - key in header, not URL, to avoid leakage in logs
             if endpoint.contains("googleapis.com") {
                 var baseEndpoint = endpoint
                 if !baseEndpoint.hasSuffix("/") {
                     baseEndpoint += "/"
                 }
-                guard let requestURL = URL(string: "\(baseEndpoint)\(model):generateContent?key=\(apiKey)") else {
+                guard let requestURL = URL(string: "\(baseEndpoint)\(model):generateContent") else {
                     completion(.failure(CloudClassifierError.invalidEndpoint))
                     return
                 }
                 request = URLRequest(url: requestURL)
+                request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
             } else {
-                // Custom endpoint/reverse proxy: send key in Authorization header and model in body
                 guard let requestURL = urlComponents.url else {
                     completion(.failure(CloudClassifierError.invalidEndpoint))
                     return

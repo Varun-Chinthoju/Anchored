@@ -136,43 +136,15 @@ final class FocusEngine {
     }
     
     private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
+    private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
         if preferencesManager.enableCloudClassification {
-            let ocrText = performOCROnFrontmostWindow()
-            let appName = getAppName(for: bundleID)
-            
-            var cloudResult: Bool? = nil
-            let semaphore = DispatchSemaphore(value: 0)
-            
-            let classifier = CloudClassifier(preferences: preferencesManager)
-            classifier.classify(
-                appName: appName,
-                windowTitle: title,
-                url: url,
-                ocrText: ocrText
-            ) { result in
-                switch result {
-                case .success(let isProductive):
-                    cloudResult = isProductive
-                case .failure(let error):
-                    print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
-                }
-                semaphore.signal()
-            }
-            
-            _ = semaphore.wait(timeout: .now() + 2.2)
-            
-            if let isProductive = cloudResult {
-                return !isProductive
-            }
-            print("☁️ [Cloud Classifier] Fallback to local classification logic")
+            triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title)
         }
 
         if let url = url {
-            // AI Heuristic: if this is a coding forum, doc, or programming tutorial, it is NOT a distraction
             if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                 return false
             }
-            
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
                 if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
                     return false
@@ -183,10 +155,8 @@ final class FocusEngine {
                 return false
             }
         }
-        
         if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
             if BrowserContextClassifier.isEntertainment(url: url, title: title) {
-                // If categorized as entertainment, verify if it's actually developer related (e.g. YouTube coding tutorial)
                 if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                     return false
                 }
@@ -197,17 +167,12 @@ final class FocusEngine {
             }
             return false
         }
-        
-        // AI Heuristic: if this app is dynamically categorized as productive/IDE, it is NOT a distraction (treated as neutral/focus)
         if SmartAppClassifier.isProductiveApp(bundleID: bundleID) {
             return false
         }
-        
-        // Image Model: check if the app looks visually productive (coding, terminal, workspace, etc.)
         if SmartImageClassifier.isProductiveVisual(profileName: profileManager.activeProfile.name) {
             return false
         }
-        
         if isFocusApp(bundleID: bundleID) {
             return false
         }
@@ -219,41 +184,13 @@ final class FocusEngine {
 
     private func isFocusContext(bundleID: String, url: URL?, title: String) -> Bool {
         if preferencesManager.enableCloudClassification {
-            let ocrText = performOCROnFrontmostWindow()
-            let appName = getAppName(for: bundleID)
-            
-            var cloudResult: Bool? = nil
-            let semaphore = DispatchSemaphore(value: 0)
-            
-            let classifier = CloudClassifier(preferences: preferencesManager)
-            classifier.classify(
-                appName: appName,
-                windowTitle: title,
-                url: url,
-                ocrText: ocrText
-            ) { result in
-                switch result {
-                case .success(let isProductive):
-                    cloudResult = isProductive
-                case .failure(let error):
-                    print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
-                }
-                semaphore.signal()
-            }
-            
-            _ = semaphore.wait(timeout: .now() + 2.2)
-            
-            if let isProductive = cloudResult {
-                return isProductive
-            }
-            print("☁️ [Cloud Classifier] Fallback to local classification logic")
+            triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title)
         }
 
         if let url = url {
             if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                 return true
             }
-            
             if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
                 return true
             }
@@ -273,41 +210,31 @@ final class FocusEngine {
         return isFocusApp(bundleID: bundleID)
     }
 
-    private func isFocusApp(bundleID: String) -> Bool {
-        let bundleLower = bundleID.lowercased()
-        if bundleLower.contains("antigravity") {
-            return true
-        }
-        if profileManager.activeProfile.allowedApps.contains(bundleID) {
-            return true
-        }
-        if profileManager.activeProfile.allowedApps.isEmpty {
-            return SmartAppClassifier.isProductiveApp(bundleID: bundleID)
-        }
-        return false
-    }
-    
-    private func performOCROnFrontmostWindow() -> String {
-        if NSClassFromString("XCTestCase") != nil {
-            return "mocked test ocr text"
-        }
-        
-        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
-            return ""
-        }
-        
-        let pid = frontmostApp.processIdentifier
-        let windowListInfo = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
-        var targetWindowID: CGWindowID?
-        
-        for info in windowListInfo {
-            if let ownerPID = info[kCGWindowOwnerPID as String] as? Int, ownerPID == pid {
-                if let windowID = info[kCGWindowNumber as String] as? CGWindowID {
-                    targetWindowID = windowID
-                    break
+    private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String) {
+        let appName = getAppName(for: bundleID)
+        let isMain = Thread.isMainThread
+        let prefs = preferencesManager
+        let profileName = profileManager.activeProfile.name
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let ocrText: String
+            if isMain {
+                ocrText = ""
+            } else {
+                ocrText = self?.performOCROnFrontmostWindow() ?? ""
+            }
+            let classifier = CloudClassifier(preferences: prefs)
+            classifier.classify(appName: appName, windowTitle: title, url: url, ocrText: ocrText) { result in
+                switch result {
+                case .success(let isProductive):
+                    print("☁️ [Cloud] \(appName) / \(title.prefix(40)) productive=\(isProductive) profile=\(profileName)")
+                case .failure(let error):
+                    print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
                 }
             }
         }
+    }
+
         
         guard let windowID = targetWindowID,
               let cgImage = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, .boundsIgnoreFraming) else {

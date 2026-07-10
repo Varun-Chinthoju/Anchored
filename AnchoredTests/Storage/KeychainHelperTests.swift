@@ -5,8 +5,16 @@ final class KeychainHelperTests: XCTestCase {
     
     private let testProvider = "test-provider-\(UUID().uuidString)"
     
+    override func setUp() {
+        super.setUp()
+        KeychainHelper.useMockOnly = true
+        KeychainHelper.mockKeys = [:]
+    }
+
     override func tearDownWithError() throws {
         try? KeychainHelper.deleteKey(forProvider: testProvider)
+        KeychainHelper.useMockOnly = false
+        KeychainHelper.mockKeys = [:]
         try super.tearDownWithError()
     }
     
