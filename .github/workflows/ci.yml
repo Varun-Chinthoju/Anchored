@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build & Test
+    name: Clean Build & Test
     runs-on: macos-14
     steps:
       - name: Checkout Repository
@@ -20,11 +20,22 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen generate
 
-      - name: Build and Test
+      - name: Build application
+        run: |
+          xcodebuild build \
+            -project Anchored.xcodeproj \
+            -scheme Anchored \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run test suite
         run: |
           xcodebuild test \
             -project Anchored.xcodeproj \
-            -scheme Anchored \
+            -scheme AnchoredTests \
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \

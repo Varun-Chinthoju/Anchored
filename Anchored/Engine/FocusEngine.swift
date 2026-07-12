@@ -67,6 +67,8 @@ final class FocusEngine {
     private let profileManager: ProfileManager
     
     private let preferencesManager: PreferencesManager
+    private let distractionEvaluator: DistractionEvaluator
+    private let cloudClassificationService: CloudClassificationServing
     private let ocrProvider: WindowTextExtracting
     private let visualChecker: VisualProductivityChecking
     
@@ -133,6 +135,9 @@ final class FocusEngine {
     
     /// The date when the active focus session was paused.
     public var pausedDate: Date?
+
+    /// Invalidates optional classifier results whenever the foreground context changes.
+    private var contextGeneration = 0
     
     /// The current state of the focus engine.
     var state: SessionState {
@@ -154,7 +159,8 @@ final class FocusEngine {
         focusThreshold: TimeInterval = 600.0,
         preferencesManager: PreferencesManager = .shared,
         ocrProvider: WindowTextExtracting = LiveOCRProvider(),
-        visualChecker: VisualProductivityChecking = LiveVisualProductivityChecker()
+        visualChecker: VisualProductivityChecking = LiveVisualProductivityChecker(),
+        cloudClassificationService: CloudClassificationServing? = nil
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
@@ -162,8 +168,13 @@ final class FocusEngine {
         self.profileManager = profileManager
         self.focusThreshold = focusThreshold
         self.preferencesManager = preferencesManager
+        self.distractionEvaluator = DistractionEvaluator(
+            distractionListManager: distractionListManager,
+            profileProvider: { profileManager.activeProfile }
+        )
         self.ocrProvider = ocrProvider
         self.visualChecker = visualChecker
+        self.cloudClassificationService = cloudClassificationService ?? LiveCloudClassificationService(preferences: preferencesManager)
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
             self?.handleContextChange(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title, snapshot: snapshot)
@@ -195,73 +206,8 @@ final class FocusEngine {
         cancelIdleTimer()
     }
     
-    private struct ContextDisposition {
-        let isDistraction: Bool
-        let isFocus: Bool
-    }
-
-    private func classifyContext(bundleID: String, url: URL?, title: String) -> ContextDisposition {
-        if preferencesManager.enableCloudClassification {
-            triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title)
-        }
-
-        let profile = profileManager.activeProfile
-        let supportedBrowser = BrowserStrategyFactory.isSupportedBrowser(bundleID)
-        let codingForumOrDoc = SmartWebClassifier.isCodingForumOrDoc(url: url, title: title)
-        var productiveVisual: Bool?
-
-        func hasProductiveVisual() -> Bool {
-            if let productiveVisual {
-                return productiveVisual
-            }
-            let result = visualChecker.isProductiveVisual(profileName: profile.name)
-            productiveVisual = result
-            return result
-        }
-
-        if codingForumOrDoc {
-            return ContextDisposition(isDistraction: false, isFocus: true)
-        }
-
-        if let url = url,
-           URLMatcher.matches(url: url, domains: profile.distractionDomains) {
-            if hasProductiveVisual() {
-                return ContextDisposition(isDistraction: false, isFocus: true)
-            }
-            return ContextDisposition(isDistraction: true, isFocus: false)
-        }
-
-        if supportedBrowser {
-            if BrowserContextClassifier.isEntertainment(url: url, title: title) {
-                if hasProductiveVisual() {
-                    return ContextDisposition(isDistraction: false, isFocus: true)
-                }
-                return ContextDisposition(isDistraction: true, isFocus: false)
-            }
-
-            if let url = url,
-               URLMatcher.matches(url: url, domains: profile.allowedDomains) {
-                return ContextDisposition(isDistraction: false, isFocus: true)
-            }
-
-            return ContextDisposition(isDistraction: false, isFocus: true)
-        }
-
-        let bundleLower = bundleID.lowercased()
-        if bundleLower.contains("antigravity") ||
-           profile.allowedApps.contains(bundleID) ||
-           SmartAppClassifier.isProductiveApp(bundleID: bundleID) {
-            return ContextDisposition(isDistraction: false, isFocus: true)
-        }
-
-        if profile.distractionApps.contains(bundleID) {
-            if hasProductiveVisual() {
-                return ContextDisposition(isDistraction: false, isFocus: true)
-            }
-            return ContextDisposition(isDistraction: true, isFocus: false)
-        }
-
-        return ContextDisposition(isDistraction: false, isFocus: true)
+    private func classifyContext(bundleID: String, url: URL?, title: String) -> ContextDecision {
+        distractionEvaluator.evaluate(bundleID: bundleID, url: url, title: title)
     }
 
     private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
@@ -272,29 +218,72 @@ final class FocusEngine {
         classifyContext(bundleID: bundleID, url: url, title: title).isFocus
     }
 
-    private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String) {
+    private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String, generation: Int) {
         let appName = getAppName(for: bundleID)
-        let isMain = Thread.isMainThread
-        let prefs = preferencesManager
-        let profileName = profileManager.activeProfile.name
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let ocrText: String
-            if isMain {
-                ocrText = ""
-            } else {
-                ocrText = self?.performOCROnFrontmostWindow() ?? ""
-            }
-            let classifier = CloudClassifier(preferences: prefs)
-            classifier.classify(appName: appName, windowTitle: title, url: url, ocrText: ocrText) { result in
+            let ocrText = self?.performOCROnFrontmostWindow() ?? ""
+            let input = CloudClassificationInput(appName: appName, windowTitle: title, url: url, ocrText: ocrText)
+            self?.cloudClassificationService.classify(input) { [weak self] result in
                 switch result {
                 case .success(let isProductive):
-                    let domain = url?.host ?? "nil"
-                    print("☁️ [Cloud] app=\(appName) domain=\(domain) productive=\(isProductive) profile=\(profileName)")
+                    guard isProductive else { return }
+                    DispatchQueue.main.async {
+                        self?.promoteNeutralContextIfCurrent(
+                            bundleID: bundleID,
+                            url: url,
+                            title: title,
+                            generation: generation
+                        )
+                    }
                 case .failure(let error):
                     print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
                 }
             }
         }
+    }
+
+    private func triggerAsyncVisualClassification(bundleID: String, url: URL?, title: String, generation: Int) {
+        let profileName = profileManager.activeProfile.name
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard self?.visualChecker.isProductiveVisual(profileName: profileName) == true else { return }
+            DispatchQueue.main.async {
+                self?.promoteNeutralContextIfCurrent(
+                    bundleID: bundleID,
+                    url: url,
+                    title: title,
+                    generation: generation
+                )
+            }
+        }
+    }
+
+    private func promoteNeutralContextIfCurrent(bundleID: String, url: URL?, title: String, generation: Int) {
+        guard generation == contextGeneration,
+              currentApp == bundleID,
+              currentURL == url,
+              currentTitle == title,
+              classifyContext(bundleID: bundleID, url: url, title: title).disposition == .neutral else {
+            return
+        }
+
+        lastWorkAppBundleID = bundleID
+        if activeSession != nil {
+            let needsUIUpdate = distractionStartDate != nil && !isDimming
+            resumeSessionIfNeeded()
+            if needsUIUpdate {
+                delegate?.didReturnToWork()
+            }
+            cancelDistractionTimer()
+            distractionStartDate = nil
+            return
+        }
+
+        if workSessionStart == nil {
+            workSessionStart = Date()
+            hasPromptedForCurrentFocusRun = false
+        }
+        scheduleFocusPromptTimer()
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
     }
 
     private func performOCROnFrontmostWindow() -> String {
@@ -371,6 +360,7 @@ final class FocusEngine {
         currentApp = bundleID
         currentURL = url
         currentTitle = title
+        contextGeneration += 1
         let now = Date()
         
         let context = AppContext(
@@ -406,6 +396,16 @@ final class FocusEngine {
                 "snapshot": actualSnapshot
             ]
         )
+
+        if disposition.disposition == .neutral {
+            let generation = contextGeneration
+            if preferencesManager.enableImageClassification {
+                triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+            }
+            if preferencesManager.enableCloudClassification {
+                triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+            }
+        }
         
         if disposition.isDistraction {
             // Distraction app/URL detected
@@ -758,41 +758,6 @@ final class FocusEngine {
             }
         }
         return bundleID
-    }
-}
-
-private enum BrowserContextClassifier {
-    private static let entertainmentHosts = [
-        "youtube.com",
-        "netflix.com",
-        "twitch.tv",
-        "hulu.com",
-        "disneyplus.com",
-        "steampowered.com",
-        "store.steampowered.com",
-        "epicgames.com"
-    ]
-
-    private static let entertainmentTerms = [
-        "gaming",
-        "gameplay",
-        "livestream",
-        "live stream",
-        "watch movie",
-        "watch tv",
-        "entertainment",
-        "netflix",
-        "twitch"
-    ]
-
-    static func isEntertainment(url: URL?, title: String) -> Bool {
-        let host = url?.host?.lowercased() ?? ""
-        if entertainmentHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) {
-            return true
-        }
-
-        let searchableText = "\(title) \(url?.path ?? "")".lowercased()
-        return entertainmentTerms.contains(where: searchableText.contains)
     }
 }
 

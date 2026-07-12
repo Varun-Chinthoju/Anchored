@@ -1,241 +1,83 @@
-# ⚓ Anchored
+# Anchored
 
-Anchored is a zero-ritual, context-aware macOS focus utility. Unlike traditional focus blockers that demand upfront commitments or invasive permission handshakes, Anchored passively protects your workflow. It detects when you step away from work, prompts you to protect your momentum (Ghost Mode), and uses gentle ambient friction when you drift.
+[![Clean Build & Test](https://github.com/Varun-Chinthoju/Anchored/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Varun-Chinthoju/Anchored/actions/workflows/ci.yml)
 
-## License
+Anchored is a macOS menu-bar app that notices when your work context drifts and adds a gentle, reversible prompt to help you return.
 
-Anchored is licensed under PolyForm Noncommercial 1.0.0. You may contribute and
-use it for noncommercial purposes, but commercial sale or use is not allowed.
-See [LICENSE](LICENSE) for the full terms.
+> **Stability: experimental.** The V1 focus workflow is usable for testing, but browser, visual, and AI-assisted classification remain actively developed. See [known limitations](#known-limitations) before relying on it all day.
 
-## AI context packs
+## What it does
 
-This repository includes a Repomix workflow for producing a compressed,
-security-checked source context pack without generated Xcode files, local
-databases, or binary assets:
+- **Passive focus detection:** watches app switching and optional browser context, then prompts after sustained work rather than making you start a timer.
+- **Profiles and gentle enforcement:** configure app/domain rules, switch profiles from the menu bar, and use a countdown pill plus click-through dimming overlay during an active session.
+- **Local history:** records session events locally in SQLite and presents an on-device dashboard.
+
+## Install or build
+
+There is not yet a signed public download. Build from source on macOS 13 or later with Xcode 14+ and XcodeGen:
 
 ```bash
-./scripts/pack-repo.sh
+git clone https://github.com/Varun-Chinthoju/Anchored.git
+cd Anchored
+xcodegen generate
+xcodebuild -project Anchored.xcodeproj -scheme Anchored -configuration Release -destination 'platform=macOS' build
 ```
 
-The result is written to `tmp/anchored-repomix.xml`, which is ignored by Git.
-Review `.repomixignore` before sharing a pack outside the local workspace.
+For development and the CI-equivalent test command:
 
----
-
-## 💡 Core Principles
-
-* **Focus Without the Ritual:** No timers to start. Anchored watches your workflow passively in the background. The prompt triggers at the *exit*, validating the work you have already completed.
-* **Earned Trust:** The app starts with zero configuration and zero special permissions. After you complete 10 successful sessions, it presents the "Permission Gate" to request Accessibility permission, unlocking URL-level awareness inside browsers.
-* **Ambient Friction, Not Walls:** Traditional blockers provoke immediate override impulses. Anchored uses custom floating UI capsules and a gradual screen-dimming overlay—friction you can work through if needed, with a clear visual cue to return to work.
-
----
-
-## 🚀 Features
-
-### 👤 Ghost Mode (V1)
-* **Zero-Permission Detection:** Uses passive `NSWorkspace` notifications to track app activation.
-* **Exit Triggers:** Automatically detects when you switch from a work app (e.g., Xcode, VS Code) to a distraction app (e.g., Discord, Slack) after a configurable duration threshold.
-* **Ambient Escalation:** If you drift during an active session, a countdown pill warns you before the screen slowly dims (up to 50% opacity). The overlay is fully click-through and lifts immediately when you return to work.
-
-### 🌐 Context-Aware Browser Monitoring (V2)
-* **Permission Gate:** A spring-animated `NSPanel` prompt presented after 10 sessions to request Accessibility permission.
-* **Multi-Browser Support:** URL-level tracking for Chromium-based browsers (Chrome, Arc, Edge, Brave, Orion) and Safari via AppleScript, and Firefox via the Accessibility API.
-* **Subdomain-Aware Resolution:** Intelligently maps URLs against work profiles so browser windows are evaluated based on their active tabs rather than treated as uniformly neutral.
-
-### 📂 Work Profiles
-* Pre-configured sets (Coding, Writing, Video Creation, Custom) grouping distraction apps, distraction domains, and allowed domains.
-* Quick-switch interface directly from the macOS menu bar or Preferences pane.
-
-### 📊 Focus Dashboard & Smart Nudges
-* **Rich Analytics:** Timeline view of your day, streak tracker, weekly session count, and breakdown of your top distractions.
-* **SQLite Storage:** Session events are migrated from flat JSON to SQLite (powered by GRDB.swift) for high-performance date-filtering and timeline query aggregates.
-* **Shadow Tracking & Smart Nudges:** Opt-in background category tracking that suggests starting a focus session when it detects sustained work (e.g., 5+ minutes in Xcode).
-
----
-
-## 🛠️ Project Structure
-
-The project is organized cleanly by domain responsibility:
-
-```
-Anchored/
-├── App/                # App delegate, lifecycle, and app-level initialization
-├── Audio/              # Sound effects (success chimes, tactile button clicks)
-├── Engine/             # Core engines: FocusEngine, ActivityMonitor, ShadowTracking, BrowserStrategies
-│   ├── ActivityMonitor.swift
-│   ├── AppSwitchMonitor.swift
-│   ├── BrowserStrategies.swift
-│   ├── FocusEngine.swift
-│   ├── FocusEngineDelegate.swift
-│   ├── ProfileManager.swift
-│   ├── ShadowTrackingEngine.swift
-│   ├── SmartNudgeManager.swift
-│   └── URLMatcher.swift
-├── MenuBar/            # macOS Menu bar icon, status item dropdowns, and context menu actions
-├── Models/             # Application data models (Session, Event, ActivityState)
-├── Onboarding/         # Flow-based educational onboarding interface
-├── Overlay/            # Core escalation views (NSPanel, Dimming overlay window)
-├── Storage/            # Persistence layers (SQLiteSessionStore, PreferencesManager, ProfileManager)
-│   ├── DashboardQueries.swift
-│   ├── DistractionListManager.swift
-│   ├── FocusListManager.swift
-│   ├── PreferencesManager.swift
-│   ├── SQLiteSessionStore.swift
-│   └── SessionStore.swift
-└── Resources/          # Asset catalogs, icons, and plist configs
+```bash
+xcodegen generate
+xcodebuild -project Anchored.xcodeproj -scheme AnchoredTests -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO test
 ```
 
----
+The release process, including installation testing, signing, notarization, and GitHub Releases, is tracked in [the release checklist](docs/release-checklist.md).
 
-## 📐 Architecture & Decision Logic
+## Privacy
 
-### FocusEngine Decision Tree
-When an application activation or URL change event occurs, the `FocusEngine` routes the state based on the active profile's configuration:
+Anchored’s default configuration is local-only: focus rules, session events, and the optional context-history database stay on your Mac. It has no telemetry or account sync.
 
-```
-                  [ Incoming Event (App Activation or URL Change) ]
-                                         │
-                                         ▼
-                        Is App in Distraction List?
-                                ├── Yes ──► [ Trigger countdown pill -> Dim overlay ]
-                                └── No
-                                         │
-                                         ▼
-                            Is App a Supported Browser?
-                                ├── No ───► [ Treat as Work / Neutral ]
-                                └── Yes
-                                         │
-                                         ▼
-                               Is Accessibility Granted?
-                                ├── No ───► [ Treat Browser as Neutral ]
-                                └── Yes
-                                         │
-                                         ▼
-                                   Fetch Tab URL
-                                         │
-                                         ▼
-                              Check Domain in Profile
-                                ├── Distraction Domain ──► [ Trigger countdown pill ]
-                                ├── Allowed Domain ──────► [ Treat as Work (Lift Dim) ]
-                                └── Unlisted Domain ─────► [ Treat as Neutral ]
-```
+| Data or capability | Default | Storage / recipient | Control |
+| --- | --- | --- | --- |
+| App bundle ID and session events | On | Local SQLite database | Local history can be cleared in Privacy & Data |
+| Browser URL and window title | Only when browser context is available | Used locally; sanitized before optional history storage | macOS Accessibility permission and context-history toggle |
+| Screen capture / OCR / visual check | On-device feature may be enabled | Not persisted by Anchored | Disable **AI Visual Productivity Check** in Settings |
+| Cloud classification | **Off** | When enabled, app name, title, URL, and any OCR text used for the request are sent to the provider you select (Gemini, OpenAI, or Anthropic) | Disable **Cloud AI classification** in Settings |
+| API keys | N/A | macOS Keychain, device-only while unlocked | Remove or replace them in Settings |
 
-### Browser URL Retrieval Strategies
+Cloud analysis is opt-in. Turning it off prevents new cloud-classification requests; local deterministic rules continue to work. Screenshots are used only in memory for on-device OCR/visual analysis and are not persisted by Anchored. When detailed context history is enabled, its retention period is configurable in Privacy & Data (1–365 days); it is disabled by default.
 
-Different browser engines require different retrieval strategies to minimize CPU utilization and energy impact:
+## Classification policy
 
-1. **Chromium Engine (Chrome, Arc, Edge, Brave, Orion):**
-   Uses `NSAppleScript` executing:
-   ```applescript
-   tell application "Google Chrome"
-       get URL of active tab of front window
-   end tell
-   ```
-2. **Safari Engine:**
-   Uses `NSAppleScript` executing:
-   ```applescript
-   tell application "Safari"
-       get URL of current tab of front window
-   end tell
-   ```
-3. **Firefox Engine:**
-   Uses macOS Accessibility API (`AXUIElement`) to traverse the application's UI tree:
-   * Locates the active window and navigates down to `AXToolbar`.
-   * Queries for the address bar (`AXTextField`) containing a URL-like value.
-   * Extracts the `AXValue` attribute dynamically.
+Focus decisions are deterministic before they are “smart.” The first matching rule wins:
 
----
+1. Explicit allowed-domain rules
+2. Explicit blocked-domain rules
+3. Browser-content heuristics and local browser classifiers
+4. Profile app allow/block rules and local app classifiers
+5. Optional on-device visual result, only for an otherwise neutral context
+6. Optional cloud result, only for the same still-current neutral context
+7. Neutral fallback
 
-## 🗄️ Database Schema
+An asynchronous visual or cloud result never overrides an explicit rule, never applies after the active context changes, and never starts dimming on its own. It can only promote a still-current neutral context to focus, preventing flicker and contradictory enforcement.
 
-The persistence layer uses a local SQLite database located at `~/Library/Application Support/Anchored/anchored.db`. The table schema is defined as follows:
+## V1 scope
 
-```sql
-CREATE TABLE sessions (
-    id TEXT PRIMARY KEY,
-    timestamp TEXT NOT NULL,           -- ISO-8601 string
-    type TEXT NOT NULL,                -- session_start | session_end | distraction_detected | escalation_triggered
-    app_bundle_id TEXT NOT NULL,
-    app_name TEXT NOT NULL,
-    url TEXT,                          -- Populated for V2 browser events
-    focus_duration_seconds INTEGER,
-    session_duration_seconds INTEGER,
-    distraction_app_bundle_id TEXT,
-    distraction_domain TEXT,           -- Extracted from url for fast queries
-    action TEXT                        -- anchored | dismissed | timeout | escalated | returned
-);
+The stable core is deliberately small:
 
-CREATE INDEX idx_sessions_timestamp ON sessions(timestamp);
-CREATE INDEX idx_sessions_type ON sessions(type);
-CREATE INDEX idx_sessions_date ON sessions(date(timestamp));
-```
+- passive focus detection
+- app and domain rules
+- countdown pill and click-through dimming overlay
+- local session history
+- profile switching
 
-During upgrade from V1 to V2, the app automatically reads the legacy JSON format from `~/Library/Application Support/Anchored/sessions.json` and imports it into the SQLite schema, keeping a backup file named `sessions.json.migrated`.
+AI-assisted app, browser, visual, OCR, and cloud classification are experimental aids around that core—not requirements for it.
 
----
+## Known limitations
 
-## ⚙️ Work Profile Configurations
+- Browser context availability depends on Accessibility and browser automation permissions; a browser with no readable active tab resolves safely without blocking the app.
+- No signed/notarized release artifact is published yet; build from source only if you are comfortable with an experimental app.
+- Visual and cloud classifiers are optional and can be slower or less reliable than explicit app/domain rules.
 
-Profiles map your environment context dynamically. Each profile consists of three parts:
+## Contributing
 
-| Profile | Distraction Apps | Distraction Domains | Allowed Domains |
-| :--- | :--- | :--- | :--- |
-| **💻 Coding** | Discord, Slack, Messages, Steam, Spotify, Music | youtube.com, twitter.com, x.com, reddit.com, instagram.com, tiktok.com, facebook.com | github.com, stackoverflow.com, developer.apple.com, docs.python.org, npmjs.com |
-| **🎬 Video Creation** | Discord, Messages, Telegram, Steam, Slack | twitter.com, x.com, reddit.com, instagram.com, tiktok.com | youtube.com (creator exception), studio.youtube.com, frame.io, vimeo.com |
-| **✍️ Writing & Research** | Discord, Slack, Messages, Steam, Spotify, Music | youtube.com, twitter.com, x.com, reddit.com, instagram.com | docs.google.com, wikipedia.org, scholar.google.com, notion.so |
-| **⚙️ Custom** | *Configured by user* | *Configured by user* | *Configured by user* |
-
----
-
-## 🏁 Getting Started
-
-### Prerequisites
-* macOS 13.0 or later
-* Xcode 14.0 or later
-* Swift 5.7+
-* [XcodeGen](https://github.com/yonaskolb/XcodeGen)
-
-### Installation & Build
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/varun/Anchor.git
-   cd Anchor
-   ```
-
-2. **Generate the Xcode Project:**
-   Anchored uses `XcodeGen` to manage its project structure. Run the following to generate `Anchored.xcodeproj`:
-   ```bash
-   xcodegen generate
-   ```
-
-3. **Open and Run:**
-   - Open `Anchored.xcodeproj` in Xcode.
-   - Choose the `Anchored` scheme.
-   - Build and run (`Cmd + R`).
-
----
-
-## 🧪 Testing
-
-To run the unit test suite:
-* Select the `AnchoredTests` target.
-* Run tests (`Cmd + U`) to verify:
-  * Focus logic state machine rules
-  * Profile configurations mapping
-  * SQLite DB migrations
-  * Subdomain and URL resolving heuristics
-
----
-
-## ❓ Troubleshooting & FAQ
-
-#### Q: Why isn't Safari tracking my active tab URLs?
-Safari security policy requires you to authorize external automation. Go to **Safari** ➜ **Develop** menu and check **"Allow JavaScript from Apple Events"**. If the Develop menu is hidden, enable it in **Safari** ➜ **Settings** ➜ **Advanced** ➜ **"Show features for web developers"**.
-
-#### Q: How heavy is the background resource polling?
-To ensure minimal battery impact, the `BrowserURLMonitor` only runs its 2.5-second polling timer when a supported web browser holds the OS focus window. The moment you switch back to Xcode, VS Code, or any other app, the polling timer halts completely.
-
-#### Q: Does my browser data leave my computer?
-No. All URL extraction, domain matching, and session storage operations are executed locally. The app contains no telemetric analytics trackers or external synchronization services.
+Read [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md), and the [architecture map](docs/architecture/anchored-architecture.md). Report bugs and propose features through the included GitHub templates. The repository uses the PolyForm Noncommercial 1.0.0 license; see [LICENSE](LICENSE).

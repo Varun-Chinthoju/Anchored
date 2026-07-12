@@ -31,6 +31,14 @@ Use four-space indentation and standard Swift API naming: `UpperCamelCase` for t
 
 Treat `FocusEngine` state transitions and the ten-session Accessibility permission gate as architectural invariants. Register browser support through `BrowserStrategyFactory`; keep SQL in `SQLiteSessionStore.swift` or `DashboardQueries.swift`.
 
+Additional invariants:
+
+- Focus classification must never block the main thread.
+- Explicit domain rules always override heuristics and optional classifiers.
+- No screenshot data may be persisted.
+- Async visual or cloud results must be discarded when the context changes and may never directly start dimming.
+- Overlay windows must remain click-through.
+
 ## Testing Guidelines
 
 Tests use XCTest. Name files `TypeNameTests.swift` and methods `testBehaviorUnderCondition()`. Add unit coverage for state transitions, URL matching, browser parsing, persistence migrations, and preference changes. Use isolated `UserDefaults` suites and temporary databases; never mutate shared production singletons or rely on arbitrary sleeps. For manual app testing, always prefer a release build, install the built app into `/Applications`, and open that installed copy. Run the full suite before submitting changes.

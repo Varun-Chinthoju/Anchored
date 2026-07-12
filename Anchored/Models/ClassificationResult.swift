@@ -40,19 +40,21 @@ public struct ClassificationResult: Equatable, Codable, Sendable {
 
 public enum ClassificationPolicy {
     /// Precedence (highest to lowest):
-    /// 1. explicit rules - profile allowedApps/distractionApps, allowedDomains/distractionDomains, BrowserStrategyFactory, SmartAppClassifier/SmartWebClassifier
-    /// 2. override cache - user feedback store (Mark as Focus / Distraction / Not Sure) persisted locally
-    /// 3. ML prediction - on-device CoreML model via ContextClassifying, applied only when confidence >= highConfidenceThreshold
-    /// 4. neutral fallback - uncertain, low-confidence, timed-out, or failed predictions resolve to neutral and never trigger blocking
+    /// 1. explicit domain rules - allowed domains, then blocked domains
+    /// 2. local browser/app heuristics and profile app rules
+    /// 3. optional visual classification, only to promote a still-current neutral context
+    /// 4. optional cloud classification, using the same stale-result guard
+    /// 5. neutral fallback - uncertain, timed-out, or failed predictions never trigger blocking
     ///
     /// Privacy: classification input is sanitized ContextSnapshot only (bundleID, host/path, normalized title via ContextSanitizer).
-    /// Safety: ML cannot directly start dimming/blocking without FocusEngine timers and state invariants.
+    /// Safety: asynchronous classifiers cannot directly start dimming/blocking.
     /// Threading: ML inference must run off main on background serial queue with generation-based stale rejection; CoreML stays out of FocusEngine.
 
     public static let precedence: [String] = [
-        "explicitRules",
-        "overrideCache",
-        "mlPrediction",
+        "explicitDomainRules",
+        "localHeuristicsAndProfileRules",
+        "visualNeutralPromotion",
+        "cloudNeutralPromotion",
         "neutralFallback"
     ]
 

@@ -24,8 +24,8 @@ Anchored does not store its Xcode project file in Git to prevent nasty merge con
 ### Local Setup Steps
 1. **Fork and Clone:**
    ```bash
-   git clone https://github.com/YOUR-USERNAME/Anchor.git
-   cd Anchor
+   git clone https://github.com/YOUR-USERNAME/Anchored.git
+   cd Anchored
    ```
 2. **Generate the Project:**
    ```bash

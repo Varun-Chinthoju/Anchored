@@ -427,7 +427,7 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
     }
 
-    func testAllowedAppsDoNotBlockNeutralAppsFromStartingFocusTracking() {
+    func testNeutralAppsDoNotStartFocusTrackingWhenNoRuleMatches() {
         let profile = WorkProfile(
             name: "AllowlistProfile",
             allowedApps: ["com.apple.dt.Xcode"]
@@ -450,9 +450,9 @@ final class FocusEngineTests: XCTestCase {
 
         mockActivityMonitor.simulateContextChange(bundleID: "com.example.Notepad")
 
-        XCTAssertEqual(localEngine.state, .watching)
-        XCTAssertNotNil(localEngine.workSessionStart)
-        XCTAssertEqual(localEngine.lastWorkAppBundleID, "com.example.Notepad")
+        XCTAssertEqual(localEngine.state, .idle)
+        XCTAssertNil(localEngine.workSessionStart)
+        XCTAssertNil(localEngine.lastWorkAppBundleID)
         XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
     }
 
@@ -749,7 +749,7 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNotNil(receivedIsFocus)
     }
     
-    func testSmartWebClassifierPreventsDimmingForCodingForum() {
+    func testExplicitDomainRulesOverrideSmartWebHeuristics() {
         let profile = WorkProfile(
             name: "Coding Forum Profile",
             distractionApps: [],
@@ -766,14 +766,13 @@ final class FocusEngineTests: XCTestCase {
         let forumURL = URL(string: "https://www.reddit.com/r/swift/comments/123")
         mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: forumURL, title: "Swift Programming Forum Thread")
         
-        // The delegate should NOT receive distraction detection call because of the AI override!
-        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.google.Chrome"])
         
         // Enter a coding tutorial on youtube.com
         let tutorialURL = URL(string: "https://www.youtube.com/watch?v=swift-tutorial")
         mockActivityMonitor.simulateContextChange(bundleID: "com.google.Chrome", url: tutorialURL, title: "Build an App in Swift - YouTube")
         
-        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.google.Chrome"])
     }
     
     func testSmartAppClassifierAllowsUnregisteredApp() {
@@ -924,6 +923,68 @@ final class FocusEngineTests: XCTestCase {
         URLProtocol.unregisterClass(MockURLProtocol.self)
         MockURLProtocol.requestHandler = nil
     }
+
+    func testCloudResultPromotesOnlyTheStillCurrentNeutralContext() {
+        let cloudService = DeferredCloudClassificationService()
+        let requestReceived = expectation(description: "cloud request received")
+        cloudService.onRequest = { requestReceived.fulfill() }
+        testPreferences.enableCloudClassification = true
+        let localEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            cloudClassificationService: cloudService
+        )
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Notepad", title: "Draft")
+        XCTAssertEqual(localEngine.state, .idle)
+
+        wait(for: [requestReceived], timeout: 1)
+        cloudService.complete(.success(true))
+        let promoted = expectation(description: "cloud promotion applied")
+        DispatchQueue.main.async { promoted.fulfill() }
+        wait(for: [promoted], timeout: 1)
+
+        XCTAssertEqual(localEngine.state, .watching)
+        XCTAssertEqual(localEngine.lastWorkAppBundleID, "com.example.Notepad")
+        localEngine.stop()
+    }
+
+    func testStaleCloudResultCannotChangeNewerDistractionContext() {
+        let cloudService = DeferredCloudClassificationService()
+        let requestReceived = expectation(description: "cloud request received")
+        cloudService.onRequest = { requestReceived.fulfill() }
+        testPreferences.enableCloudClassification = true
+        let localEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            cloudClassificationService: cloudService
+        )
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Notepad", title: "Draft")
+        wait(for: [requestReceived], timeout: 1)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Music")
+        cloudService.complete(.success(true))
+        let completion = expectation(description: "stale result returned")
+        DispatchQueue.main.async { completion.fulfill() }
+        wait(for: [completion], timeout: 1)
+
+        XCTAssertEqual(localEngine.state, .idle)
+        XCTAssertNil(localEngine.workSessionStart)
+        XCTAssertNil(localEngine.lastWorkAppBundleID)
+        localEngine.stop()
+    }
     
     // MARK: - Helper Methods
     
@@ -999,5 +1060,19 @@ struct MockOCRProvider: WindowTextExtracting {
 struct MockVisualChecker: VisualProductivityChecking {
     func isProductiveVisual(profileName: String) -> Bool {
         return false
+    }
+}
+
+final class DeferredCloudClassificationService: CloudClassificationServing {
+    private var completion: ((Result<Bool, Error>) -> Void)?
+    var onRequest: (() -> Void)?
+
+    func classify(_ input: CloudClassificationInput, completion: @escaping (Result<Bool, Error>) -> Void) {
+        self.completion = completion
+        onRequest?()
+    }
+
+    func complete(_ result: Result<Bool, Error>) {
+        completion?(result)
     }
 }

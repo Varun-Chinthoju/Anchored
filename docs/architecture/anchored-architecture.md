@@ -38,7 +38,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Settings sidebar no longer exposes separate Stats/Hourglass or Analytics/Voyage Logs destinations; Captain's Log is single analytics surface; Privacy & Data pane now exists with toggle, retention picker 1/7/30/90/365, observation count/oldest async, clear-all, and Cloud AI toggle co-located.
 - `Anchored/App/Views/ControlRoomSurface.swift` holds reusable shell/card/footer primitives; dashboard uses `ControlRoomShellBackground` warm dark, no pitch-black fallback; Appearance chooser removed.
 - Async context pipeline fully implemented: `AppSwitchMonitor` queries `ContextCollector` off-main, AppleScript via `AppleEventExecutor` serial queue 750ms discard-late, dedup via `ContextIdentity` (bundleID+sanitizedURL+normalizedTitle), polling 2.5s, suspends on screensDidSleep/sessionDidResignActive, resumes on screensDidWake/sessionDidBecomeActive, stops privileged polling on .permissionDenied. FocusEngine consumes one `ContextSnapshot` atomically, notification includes snapshot, never blocks main.
-- Cloud BYOK: `KeychainHelper` service `com.varun.Anchored.cloud-ai`, `kSecClassGenericPassword`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, internal `mockKeys` only when `useMockOnly`, no UserDefaults leak. `CloudClassifier` header-only transport (x-goog-api-key/Bearer/x-api-key), 2s ephemeral session, fire-and-forget `triggerAsyncCloudClassification` on utility queue, OCR only off-main, fallback to local classifiers, no semaphore.
+- Cloud BYOK: `KeychainHelper` service `com.varun.Anchored.cloud-ai`, `kSecClassGenericPassword`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, internal `mockKeys` only when `useMockOnly`, no UserDefaults leak. `CloudClassificationService` wraps header-only `CloudClassifier` transport (x-goog-api-key/Bearer/x-api-key); OCR and requests run off-main, and only a productive result for the same still-neutral context may promote it to focus. Late, failed, or unproductive results never start dimming or override explicit rules.
 
 ## Repo Map
 
@@ -195,8 +195,8 @@ Responsibilities:
 
 - stores current app, URL, title, and `AppContext` + latest `ContextSnapshot`
 - tracks `idle`, `watching`, `anchored` states
-- decides focus/distraction/neutral via a single `classifyContext` helper that returns a `ContextDisposition`, with explicit distraction apps/domains and browser entertainment taking precedence while neutral native apps still count as focus-positive
-- triggers optional cloud classification fire-and-forget on utility queue (OCR only off-main) via `triggerAsyncCloudClassification`, never blocks main, no semaphore
+- coordinates state transitions after `DistractionEvaluator` returns a `ContextDecision`; it does not own rule precedence
+- schedules optional visual/cloud classification only for neutral contexts; generation checks discard stale results and a successful result can only promote the current neutral context to focus
 - creates `sessionStart`, `distractionDetected`, `escalationTriggered`, `sessionEnd`
 - drives exit-trigger, distraction countdown, dimming
 - posts `focusEngineStateDidChange` and `focusEngineContextDidChange` with snapshot
@@ -229,10 +229,14 @@ State invariants:
 - `lastWorkAppBundleID` last focus context reused for logging
 - `currentContext` latest raw, `PersistedContextObservation` sanitized copy
 - No `NSClassFromString`, no semaphore blocking main, no SQLite on main via engine
+- Explicit domain allow/block rules are final; heuristics, visual checks, and cloud checks cannot reverse them.
+- Async classifier results are discarded when the foreground context generation changes and can never directly initiate dimming.
 
 Files to read:
 
-- `Anchored/Engine/FocusEngine.swift` (now 1100+ lines but includes provider protocols)
+- `Anchored/Engine/FocusEngine.swift` (session-state coordinator)
+- `Anchored/Engine/DistractionEvaluator.swift` (deterministic precedence and browser/app heuristics)
+- `Anchored/Engine/CloudClassificationService.swift` (cloud adapter seam)
 - `Anchored/App/FreshInstallChecker.swift` (new)
 - `Anchored/Engine/ShadowTrackingEngine.swift`
 - `Anchored/Engine/SmartNudgeManager.swift`
@@ -596,7 +600,7 @@ These come from both the code and repo rules. Future changes should preserve the
 - `InstalledAppSuggestionProvider` still calls `NSWorkspace` + file scan synchronously.
 - Remaining singleton mutation in tests: `KeychainHelper.mockKeys` global, `UserDefaults` suite isolated but `NSWorkspace.shared` still real in visual checker unless mocked.
 - Dashboard `TopDistractionsView`/`WeeklyHistoryView` stateless; parent panels now handle Loadable but could still use direct `SessionStore.shared` in some previews.
-- `FocusEngine` classification is still profile-driven; `distractionListManager` is injected but not consulted by the runtime decision path, and the `ContextClassifying`/`ClassificationResult` seam remains unconnected to enforcement until the ML rollout lands.
+- `FocusEngine` remains responsible for timers, session logging, and overlay delegate calls; `SessionTimerCoordinator` and `SessionEventRecorder` are still future extractions. The `ContextClassifying`/`ClassificationResult` on-device ML seam remains separate from the active visual provider.
 
 ## V2.6 Impact Surface
 
