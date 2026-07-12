@@ -51,7 +51,7 @@ open /Applications/Anchored.app
 
 ### UI & Architecture
 * **Interface:** Custom overlays (Capsules, Pills) must be built using **SwiftUI** wrapped in custom, borderless AppKit `NSPanel` subclasses.
-* **Aesthetics:** Follow the core pirate design tokens:
+* **Aesthetics:** Follow the core dark visual design tokens:
   * Gold: `Color(red: 0.9, green: 0.75, blue: 0.3)`
   * Parchment White: `Color(red: 0.95, green: 0.95, blue: 0.9)`
   * Dark Wood: `Color(red: 0.12, green: 0.09, blue: 0.07)`

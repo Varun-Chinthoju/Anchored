@@ -1,6 +1,6 @@
-# ⚓ Ahoy, Anchored!
+# ⚓ Anchored
 
-Anchored is a zero-ritual, context-aware macOS focus utility for scallywags. Unlike traditional focus blockers that demand upfront commitments or invasive permission handshakes, Anchored passive-actively guards yer flow. It detects when ye step away from yer work, prompts ye to protect yer momentum (Ghost Mode), and escalates using gentle ambient friction if ye stray.
+Anchored is a zero-ritual, context-aware macOS focus utility. Unlike traditional focus blockers that demand upfront commitments or invasive permission handshakes, Anchored passively protects your workflow. It detects when you step away from work, prompts you to protect your momentum (Ghost Mode), and uses gentle ambient friction when you drift.
 
 ## License
 
@@ -8,22 +8,35 @@ Anchored is licensed under PolyForm Noncommercial 1.0.0. You may contribute and
 use it for noncommercial purposes, but commercial sale or use is not allowed.
 See [LICENSE](LICENSE) for the full terms.
 
+## AI context packs
+
+This repository includes a Repomix workflow for producing a compressed,
+security-checked source context pack without generated Xcode files, local
+databases, or binary assets:
+
+```bash
+./scripts/pack-repo.sh
+```
+
+The result is written to `tmp/anchored-repomix.xml`, which is ignored by Git.
+Review `.repomixignore` before sharing a pack outside the local workspace.
+
 ---
 
-## 💡 The Captain's Code
+## 💡 Core Principles
 
-* **Focus Without the Ritual:** No timers to start, matey. Anchored watches yer workflow passively in the background. The prompt triggers at the *exit*, validating the work ye've already completed.
-* **Earned Trust:** The app boots with zero configuration and zero special permissions. After ye complete 10 successful sessions, it presents the "Permission Gate" to request Accessibility permission, unlocking URL-level awareness inside browsers.
-* **Ambient Friction, Not Walls:** Traditional blockers provoke immediate override impulses. Anchored uses custom floating UI capsules and a gradual screen-dimming overlay—friction ye can work through if ye must, but clear visual teeth to nudge ye back to yer duties.
+* **Focus Without the Ritual:** No timers to start. Anchored watches your workflow passively in the background. The prompt triggers at the *exit*, validating the work you have already completed.
+* **Earned Trust:** The app starts with zero configuration and zero special permissions. After you complete 10 successful sessions, it presents the "Permission Gate" to request Accessibility permission, unlocking URL-level awareness inside browsers.
+* **Ambient Friction, Not Walls:** Traditional blockers provoke immediate override impulses. Anchored uses custom floating UI capsules and a gradual screen-dimming overlay—friction you can work through if needed, with a clear visual cue to return to work.
 
 ---
 
-## 🚀 Booty & Features
+## 🚀 Features
 
 ### 👤 Ghost Mode (V1)
 * **Zero-Permission Detection:** Uses passive `NSWorkspace` notifications to track app activation.
-* **Exit Triggers:** Automatically detects when ye switch from a work app (e.g., Xcode, VS Code) to a distraction app (e.g., Discord, Slack) after a configurable duration threshold.
-* **Ambient Escalation:** If ye stray during an active session, a countdown pill warns ye before the screen slowly dims (up to 50% opacity). The overlay is fully click-through, lifting immediately when ye return to work.
+* **Exit Triggers:** Automatically detects when you switch from a work app (e.g., Xcode, VS Code) to a distraction app (e.g., Discord, Slack) after a configurable duration threshold.
+* **Ambient Escalation:** If you drift during an active session, a countdown pill warns you before the screen slowly dims (up to 50% opacity). The overlay is fully click-through and lifts immediately when you return to work.
 
 ### 🌐 Context-Aware Browser Monitoring (V2)
 * **Permission Gate:** A spring-animated `NSPanel` prompt presented after 10 sessions to request Accessibility permission.
@@ -35,13 +48,13 @@ See [LICENSE](LICENSE) for the full terms.
 * Quick-switch interface directly from the macOS menu bar or Preferences pane.
 
 ### 📊 Focus Dashboard & Smart Nudges
-* **Rich Analytics:** Beautiful timeline view of yer day, streak tracker, weekly session count, and breakdown of yer top distractions.
+* **Rich Analytics:** Timeline view of your day, streak tracker, weekly session count, and breakdown of your top distractions.
 * **SQLite Storage:** Session events are migrated from flat JSON to SQLite (powered by GRDB.swift) for high-performance date-filtering and timeline query aggregates.
-* **Shadow Tracking & Smart Nudges:** Opt-in background category tracking that suggests dropping the anchor if it detects sustained work (e.g., 5+ minutes in Xcode).
+* **Shadow Tracking & Smart Nudges:** Opt-in background category tracking that suggests starting a focus session when it detects sustained work (e.g., 5+ minutes in Xcode).
 
 ---
 
-## 🛠️ Ship's Map & Structure
+## 🛠️ Project Structure
 
 The project is organized cleanly by domain responsibility:
 
@@ -164,7 +177,7 @@ During upgrade from V1 to V2, the app automatically reads the legacy JSON format
 
 ## ⚙️ Work Profile Configurations
 
-Profiles map yer environment context dynamically. Each profile consists of three parts:
+Profiles map your environment context dynamically. Each profile consists of three parts:
 
 | Profile | Distraction Apps | Distraction Domains | Allowed Domains |
 | :--- | :--- | :--- | :--- |
@@ -219,10 +232,10 @@ To run the unit test suite:
 ## ❓ Troubleshooting & FAQ
 
 #### Q: Why isn't Safari tracking my active tab URLs?
-Safari security policy requires ye to authorize external automation. Go to **Safari** ➜ **Develop** menu and check **"Allow JavaScript from Apple Events"**. If the Develop menu is hidden, enable it in **Safari** ➜ **Settings** ➜ **Advanced** ➜ **"Show features for web developers"**.
+Safari security policy requires you to authorize external automation. Go to **Safari** ➜ **Develop** menu and check **"Allow JavaScript from Apple Events"**. If the Develop menu is hidden, enable it in **Safari** ➜ **Settings** ➜ **Advanced** ➜ **"Show features for web developers"**.
 
 #### Q: How heavy is the background resource polling?
-To ensure minimal battery impact, the `BrowserURLMonitor` only runs its 2.5-second polling timer when a supported web browser holds the OS focus window. The moment ye switch back to Xcode, VS Code, or any other app, the polling timer halts completely.
+To ensure minimal battery impact, the `BrowserURLMonitor` only runs its 2.5-second polling timer when a supported web browser holds the OS focus window. The moment you switch back to Xcode, VS Code, or any other app, the polling timer halts completely.
 
 #### Q: Does my browser data leave my computer?
 No. All URL extraction, domain matching, and session storage operations are executed locally. The app contains no telemetric analytics trackers or external synchronization services.

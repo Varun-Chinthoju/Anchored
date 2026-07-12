@@ -1,0 +1,33 @@
+{
+  "$schema": "https://repomix.com/schemas/latest/schema.json",
+  "input": {
+    "maxFileSize": 2000000
+  },
+  "output": {
+    "filePath": "tmp/anchored-repomix.xml",
+    "style": "xml",
+    "compress": true,
+    "instructionFilePath": "repomix-instruction.md",
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "topFilesLength": 10,
+    "showLineNumbers": false,
+    "includeEmptyDirectories": false,
+    "truncateBase64": true,
+    "tokenCountTree": 1000
+  },
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": []
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}

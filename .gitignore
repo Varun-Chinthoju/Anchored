@@ -20,3 +20,9 @@ build.log
 tmp/
 image.png
 .DS_Store
+
+# Repomix context packs are local, generated artifacts
+repomix-output.*
+
+# Large repository context file
+MEGAFILE.md

@@ -1,18 +1,18 @@
-# 🏴‍☠️ Contributing to Anchored
+# Contributing to Anchored
 
-Ahoy, matey! We be thrilled that ye want to join the crew and help make Anchored the finest focus utility on the seven seas. 
+Thanks for contributing to Anchored. This guide covers the project workflow, testing expectations, and architectural conventions.
 
-Before ye hoist the sails and start coding, please take a moment to review this ship's log to understand how we build, test, and style our software.
+Please review these guidelines before making changes.
 
 ---
 
 ## 📜 Code of Conduct
 
-All scallywags and officers are expected to adhere to our [Code of Conduct](file:///Users/varun/Development/Anchor/CODE_OF_CONDUCT.md). Please report any unacceptable behavior to **varun.chinthoju@gmail.com**.
+All contributors are expected to follow our [Code of Conduct](file:///Users/varun/Development/Anchor/CODE_OF_CONDUCT.md). Please report any unacceptable behavior to **varun.chinthoju@gmail.com**.
 
 ---
 
-## 🛠️ Setting Up Your Ship (Environment Setup)
+## 🛠️ Environment Setup
 
 Anchored does not store its Xcode project file in Git to prevent nasty merge conflicts. Instead, we use **XcodeGen** to generate it on the fly.
 
@@ -40,10 +40,10 @@ Anchored does not store its Xcode project file in Git to prevent nasty merge con
 
 ## 📐 Coding & Architectural Guidelines
 
-To keep the ship sailing smoothly, please follow these core architectural rules:
+Please follow these core architectural rules:
 
 ### 1. SwiftUI Design & Aesthetic Style
-Anchored features a bespoke, rich, pirate-themed dark user interface. When building UI components:
+Anchored features a bespoke, rich dark user interface. When building UI components:
 * **Backgrounds & Overlays:** Use `.ultraThinMaterial` and thin translucent panels.
 * **Borders:** Frame panels and cards with gold borders (`goldColor.opacity(...)`).
 * **Transitions:** Use borderless `NSPanel` structures with custom `alphaValue` transition animations for overlays.
@@ -103,7 +103,7 @@ xcodebuild test \
 
 ## 🚀 Creating a Pull Request
 
-Ready to merge your changes? Hoist the colors!
+Ready to merge your changes?
 
 1. **Create a Feature Branch:**
    ```bash
@@ -112,4 +112,4 @@ Ready to merge your changes? Hoist the colors!
 2. **Commit with Clarity:** Keep commit messages concise, descriptive, and imperative (e.g. `Add Orion browser support to factory`).
 3. **Generate Xcode Project:** Make sure your `project.yml` is updated if you added/removed source files, and verify `xcodegen generate` runs successfully.
 4. **Push & PR:** Push to your fork and submit a Pull Request to our default branch.
-5. **Fill Out the Template:** Ensure you fill out the pull request template entirely (including testing steps and the pirate checklist!).
+5. **Fill Out the Template:** Complete the pull request template, including testing steps.

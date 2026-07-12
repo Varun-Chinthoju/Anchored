@@ -1,0 +1,47 @@
+# Generated Xcode and build output
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+build/
+buildDerivedData/
+xcuserdata/
+*.profraw
+
+# Local application state and databases
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+tmp/
+
+# Binary and visual assets add noise to a text-oriented context pack
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.heic
+*.icns
+*.pdf
+*.mp3
+*.wav
+*.m4a
+
+# Dependency and generated metadata
+Package.resolved
+repomix-output.*
+
+# Historical planning archive; contains credential-shaped examples and is
+# superseded by docs/architecture/ and docs/ideas/.
+MEGAFILE.md
+
+# Tests intentionally exercise URL credential/query sanitization. Their
+# fixture strings resemble secrets to Secretlint but are not real credentials.
+AnchoredTests/Engine/ContextHistoryPipelineTests.swift
+AnchoredTests/Engine/ContextSanitizerTests.swift
+AnchoredTests/Models/ContextSnapshotTests.swift
+AnchoredTests/Models/SessionEventTests.swift
+AnchoredTests/Storage/ContextHistoryStoreTests.swift
+AnchoredTests/Storage/SQLiteMigrationTests.swift
+AnchoredTests/Storage/SQLiteSessionStoreTests.swift

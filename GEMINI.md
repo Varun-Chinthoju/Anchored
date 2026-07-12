@@ -24,7 +24,7 @@ Events are logged in `anchored.db`. All session event logging uses asynchronous 
 ## 🛶 Interaction & Styling Guidelines
 
 ### SwiftUI Design System
-Maintain the bespoke dark, rich, pirate-themed aesthetics. Always wrap layouts using:
+Maintain the bespoke dark visual style. Always wrap layouts using:
 * Clear, borderless `NSPanel` structures with `alphaValue` transition animations.
 * Smooth gradients and drop shadows to ensure readable overlays during dimming states.
 * Thin Material backgrounds (`.ultraThinMaterial`) and custom gold borders (`goldColor.opacity(...)`).
