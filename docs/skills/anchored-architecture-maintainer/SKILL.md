@@ -14,7 +14,7 @@ Read these first:
 - `AGENTS.md`
 - `docs/architecture/anchored-architecture.md`
 - the files you changed
-- `docs/ideas/anchored-v2.6-plan.md` if the work touches the V2.6 context/history/privacy effort
+- `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md` if the work touches the V2.6 context/history/privacy effort
 
 ## What counts as a major update
 
@@ -26,7 +26,7 @@ Run this skill when the change does any of the following:
 - changes browser/native context collection or browser strategy ownership
 - changes database schema, storage ownership, analytics reconstruction, or migration behavior
 - changes settings, permission gates, privacy controls, or history retention behavior
-- adds a new plan-driven architectural seam in `docs/ideas/anchored-v2.6-plan.md`
+- adds a new plan-driven architectural seam in `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`
 
 If the answer is unclear, treat it as major and update the doc.
 
@@ -44,7 +44,7 @@ If the answer is unclear, treat it as major and update the doc.
    - `Where To Start By Task Type`
 4. Replace stale statements instead of only appending new notes.
 5. Add exact file paths for any new seam future agents must read.
-6. If the implementation diverges from `docs/ideas/anchored-v2.6-plan.md`, note the new reality in the architecture doc and update the plan if the task requires it.
+6. If the implementation diverges from `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`, note the new reality in the architecture doc and update the plan if the task requires it.
 7. Before finishing, verify that a new agent could answer these without broad repo search:
    - Where is the composition root?
    - What is the main runtime flow?

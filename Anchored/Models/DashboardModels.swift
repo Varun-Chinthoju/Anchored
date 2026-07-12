@@ -91,6 +91,12 @@ protocol DashboardQuerying: AnyObject {
     func fetchEarliestSessionDate(
         completion: @escaping (Result<Date?, DashboardQueryError>) -> Void
     )
+
+    func fetchTimelineBlocks(
+        for date: Date,
+        calendar: Calendar,
+        completion: @escaping (Result<[TimelineBlock], DashboardQueryError>) -> Void
+    )
 }
 
 extension DashboardQuerying {
@@ -114,5 +120,13 @@ extension DashboardQuerying {
         completion: @escaping (Result<Date?, DashboardQueryError>) -> Void
     ) {
         completion(.success(nil))
+    }
+
+    func fetchTimelineBlocks(
+        for date: Date,
+        calendar: Calendar,
+        completion: @escaping (Result<[TimelineBlock], DashboardQueryError>) -> Void
+    ) {
+        completion(.success([]))
     }
 }

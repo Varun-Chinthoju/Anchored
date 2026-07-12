@@ -10,7 +10,7 @@ Anchored is a Swift 5.7/macOS 13 menu-bar application generated with XcodeGen. A
 - `Storage/`: GRDB/SQLite persistence, preferences, and dashboard queries.
 - `Onboarding/`, `Overlay/`, `Audio/`, and `Resources/`: supporting UI and bundled assets.
 
-Tests mirror these domains under `AnchoredTests/`. Product specifications and plans live in `docs/ideas/`. Update `project.yml` when targets, dependencies, or source layout change; `Anchored.xcodeproj` is generated and ignored.
+Tests mirror these domains under `AnchoredTests/`. Product specifications and plans are archived outside the repo in `/private/tmp/anchored-plans-external/`. Update `project.yml` when targets, dependencies, or source layout change; `Anchored.xcodeproj` is generated and ignored.
 
 ## Build, Test, and Development Commands
 
@@ -47,6 +47,6 @@ Never commit secrets, local databases, DerivedData, or generated Xcode projects.
 
 Start repo orientation with [docs/architecture/anchored-architecture.md](/Users/varun/Development/Anchor/docs/architecture/anchored-architecture.md). It is the canonical map of runtime flows, key modules, storage boundaries, invariants, and the V2.6 impact surface.
 
-For every major update, read and follow [docs/skills/anchored-architecture-maintainer/SKILL.md](/Users/varun/Development/Anchor/docs/skills/anchored-architecture-maintainer/SKILL.md) before finishing the task. A major update includes any change that alters architecture, runtime composition, engine behavior, persistence shape, permissions/privacy flow, module ownership, or the implementation plan in `docs/ideas/anchored-v2.6-plan.md`.
+For every major update, read and follow [docs/skills/anchored-architecture-maintainer/SKILL.md](/Users/varun/Development/Anchor/docs/skills/anchored-architecture-maintainer/SKILL.md) before finishing the task. A major update includes any change that alters architecture, runtime composition, engine behavior, persistence shape, permissions/privacy flow, module ownership, or the archived V2.6 implementation plan in `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`.
 
 Major updates are not complete until the architecture doc is updated to reflect the shipped code and any still-open gaps.

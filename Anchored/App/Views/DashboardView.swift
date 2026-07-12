@@ -107,6 +107,8 @@ final class DashboardDataModel: ObservableObject {
     @Published var topDistractions: [DistractionRank] = []
     @Published var trendState: Loadable<[DashboardTimeBucket]> = .idle
     @Published var distractionsState: Loadable<[DistractionRank]> = .idle
+    @Published var timelineState: Loadable<[TimelineBlock]> = .idle
+    @Published var weeklyState: Loadable<[DashboardTimeBucket]> = .idle
     @Published var rangeSummary: DashboardRangeSummary = DashboardRangeSummary(
         sessionCount: 0,
         totalFocusDuration: 0,
@@ -133,6 +135,8 @@ final class DashboardDataModel: ObservableObject {
         let now = Date()
         trendState = .loading
         distractionsState = .loading
+        timelineState = .loading
+        weeklyState = .loading
 
         querying.fetchEarliestSessionDate { [weak self] result in
             guard let self = self, currentGeneration == self.generation else { return }
@@ -191,6 +195,27 @@ final class DashboardDataModel: ObservableObject {
             } else {
                 self.querying.fetchFocusTimePerDay(since: startDate, to: now, calendar: calendar) { [weak self] result in
                     self?.apply(result: result, generation: currentGeneration)
+                }
+            }
+
+            self.querying.fetchTimelineBlocks(for: now, calendar: calendar) { [weak self] result in
+                guard let self = self, currentGeneration == self.generation else { return }
+                switch result {
+                case .success(let blocks):
+                    self.timelineState = blocks.isEmpty ? .empty : .loaded(blocks)
+                case .failure(let error):
+                    self.timelineState = .failed(error.localizedDescription)
+                }
+            }
+
+            let weeklyStart = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now))!
+            self.querying.fetchFocusTimePerDay(since: weeklyStart, to: now, calendar: calendar) { [weak self] result in
+                guard let self = self, currentGeneration == self.generation else { return }
+                switch result {
+                case .success(let buckets):
+                    self.weeklyState = buckets.isEmpty ? .empty : .loaded(buckets)
+                case .failure(let error):
+                    self.weeklyState = .failed(error.localizedDescription)
                 }
             }
         }

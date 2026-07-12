@@ -22,7 +22,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Core runtime loop: `AppSwitchMonitor -> FocusEngine -> OverlayManager/MenuBarController/SessionStore`
 - Current context model: `bundleID + optional URL + title`, surfaced as `AppContext`
 - Work profiles now persist per-profile `allowedApps` alongside distraction apps and domains
-- Focus classification uses profile `allowedApps`/domains for native apps and explicit browser rules, with a local browser-content heuristic suppressing known gaming and entertainment contexts, smart AI classification layers (`SmartAppClassifier` and `SmartWebClassifier`) dynamically classifying unregistered productive IDEs/apps and web coding forums/tutorials, and an on-device visual AI classification layer (`SmartImageClassifier` utilizing macOS native Vision framework or a local Apple Silicon MLX vision-language model like `SmolVLM-256M-Instruct-4bit`) to inspect the active window's visual layout and prevent false alarms.
+- Focus classification uses explicit distraction apps/domains and browser rules as the blocking side, while profile `allowedApps`/domains are additive positive signals rather than a hard gate, so neutral native apps still start `workSessionStart`; a local browser-content heuristic suppresses known gaming and entertainment contexts, smart AI classification layers (`SmartAppClassifier` and `SmartWebClassifier`) dynamically classify unregistered productive IDEs/apps and web coding forums/tutorials, and an on-device visual AI classification layer (`SmartImageClassifier` utilizing macOS native Vision framework or a local Apple Silicon MLX vision-language model like `SmolVLM-256M-Instruct-4bit`) inspects the active window's visual layout to prevent false alarms.
 - The application includes privacy controls to toggle the AI Visual Productivity Check (`PreferencesManager.enableImageClassification`) and choose/download the local MLX VLM model (`useLocalGemma` and `downloadGemmaModel()`) during onboarding and in settings.
 - The application dynamically updates its `NSApplication` activation policy: it runs as a background-only accessory app (no Dock or Cmd+Tab app switcher icon) by default, but elevates to a regular application (showing the Dock/Cmd+Tab icon) when onboarding, settings, or focus session windows are open.
 - The onboarding focus threshold and distraction countdown remain separate: focus threshold controls session establishment, while countdown duration controls fog/dimming after distraction
@@ -195,7 +195,7 @@ Responsibilities:
 
 - stores current app, URL, title, and `AppContext` + latest `ContextSnapshot`
 - tracks `idle`, `watching`, `anchored` states
-- decides focus/distraction/neutral via `SmartAppClassifier`, `SmartWebClassifier`, `VisualProductivityChecking`, URLMatcher, profile allowed/distraction lists
+- decides focus/distraction/neutral via a single `classifyContext` helper that returns a `ContextDisposition`, with explicit distraction apps/domains and browser entertainment taking precedence while neutral native apps still count as focus-positive
 - triggers optional cloud classification fire-and-forget on utility queue (OCR only off-main) via `triggerAsyncCloudClassification`, never blocks main, no semaphore
 - creates `sessionStart`, `distractionDetected`, `escalationTriggered`, `sessionEnd`
 - drives exit-trigger, distraction countdown, dimming
@@ -580,7 +580,7 @@ These come from both the code and repo rules. Future changes should preserve the
 - AppKit/UI mutations on main, persistence off-main, dashboard queries async via `performDashboardQuery` + generation per view.
 - Sensitive titles/URLs local, no raw logging, cloud prompt text-only sanitized, keys header-only, never logged.
 - Accessibility permission loss degrades gracefully, stops privileged polling on `.permissionDenied`, suspend/resume on sleep/wake/lock/unlock, never crash.
-- Profile `allowedApps`/allowedDomains positive focus signals; distraction domains/entertainment suppress focus.
+- Profile `allowedApps`/allowedDomains are additive positive focus signals; explicit distraction apps/domains and entertainment suppress focus, but any non-explicit distraction native app still counts as focus for session start.
 - Fog/dimming uses `distractionCountdownThreshold`; focus prompting/Auto Voyage uses `focusThreshold`; not conflated.
 - Keychain service `com.varun.Anchored.cloud-ai`, `kSecClassGenericPassword`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, mockKeys only when `useMockOnly`, no UserDefaults leak.
 - No production code probes `XCTestCase` or `MockURLProtocol` via `NSClassFromString`; dependency injection via protocols/closures/URLSession param.
@@ -596,10 +596,11 @@ These come from both the code and repo rules. Future changes should preserve the
 - `InstalledAppSuggestionProvider` still calls `NSWorkspace` + file scan synchronously.
 - Remaining singleton mutation in tests: `KeychainHelper.mockKeys` global, `UserDefaults` suite isolated but `NSWorkspace.shared` still real in visual checker unless mocked.
 - Dashboard `TopDistractionsView`/`WeeklyHistoryView` stateless; parent panels now handle Loadable but could still use direct `SessionStore.shared` in some previews.
+- `FocusEngine` classification is still profile-driven; `distractionListManager` is injected but not consulted by the runtime decision path, and the `ContextClassifying`/`ClassificationResult` seam remains unconnected to enforcement until the ML rollout lands.
 
 ## V2.6 Impact Surface
 
-Read this section before implementing anything from `docs/ideas/anchored-v2.6-plan.md`.
+Read this section before implementing anything from `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`.
 
 ### Planned architectural additions — status 2026-07-09 (P0-P1 hardened, tests 166 green)
 
@@ -622,13 +623,15 @@ Remaining V2.6 follow-ups: Task 10 full singleton-free test isolation (remove al
 
 ### ML readiness and rollout
 
-`docs/ideas/anchored-ml-engine-plan.md` is the focused execution plan for the future on-device classifier. It requires:
+`/private/tmp/anchored-plans-external/anchored-ml-engine-plan.md` is the focused execution plan for the future on-device classifier. It requires:
 
 - completing the `ContextSnapshot` runtime path before CoreML integration
 - keeping classification behind a `ContextClassifying` protocol and outside `FocusEngine`
 - preserving explicit profile rules over ML output
 - validating the model in shadow mode before predictions can affect enforcement
 - using neutral fallback for low-confidence, stale, timed-out, or failed predictions
+
+`Anchored/Engine/ContextClassifying.swift` and `Anchored/Models/ClassificationResult.swift` already define that contract, but they are still a future seam rather than the live runtime classifier.
 
 ### Files most likely to change
 
@@ -679,16 +682,23 @@ Read:
 
 - `docs/architecture/anchored-architecture.md`
 - `Anchored/Engine/FocusEngine.swift`
+- `Anchored/Engine/ShadowTrackingEngine.swift`
 - `Anchored/Storage/InstalledAppSuggestionProvider.swift`
 - `AnchoredTests/Engine/FocusEngineTests.swift`
+- `AnchoredTests/Engine/ShadowTrackingEngineTests.swift`
 - `Anchored/Overlay/OverlayManager.swift`
+
+If you are working on ML-backed focus decisions specifically, also read:
+
+- `Anchored/Engine/ContextClassifying.swift`
+- `Anchored/Models/ClassificationResult.swift`
 
 ### If you are changing browser or app context collection
 
 Read:
 
 - `docs/architecture/anchored-architecture.md`
-- `docs/ideas/anchored-v2.6-plan.md`
+- `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`
 - `Anchored/Engine/AppSwitchMonitor.swift`
 - `Anchored/Engine/BrowserStrategies.swift`
 - `Anchored/Engine/AccessibilityValue.swift`

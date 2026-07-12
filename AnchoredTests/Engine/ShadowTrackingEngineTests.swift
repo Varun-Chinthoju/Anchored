@@ -9,7 +9,6 @@ class ShadowTrackingEngineTests: XCTestCase {
     var preferencesManager: PreferencesManager!
     var profileManager: ProfileManager!
     var shadowEngine: ShadowTrackingEngine!
-    private var originalDistractions: [String] = []
     
     override func setUp() {
         super.setUp()
@@ -20,14 +19,14 @@ class ShadowTrackingEngineTests: XCTestCase {
         distractionListManager = DistractionListManager(defaults: testDefaults!)
         preferencesManager = PreferencesManager(defaults: testDefaults!)
         profileManager = ProfileManager(defaults: testDefaults!)
-        let profile = WorkProfile(name: "Test Focus", allowedApps: ["com.apple.dt.Xcode"])
+        let profile = WorkProfile(
+            name: "Test Focus",
+            distractionApps: ["com.spotify.client"],
+            allowedApps: ["com.apple.dt.Xcode"]
+        )
         profileManager.addProfile(profile)
         profileManager.switchProfile(to: profile.name)
-        
-        originalDistractions = DistractionListManager.shared.allDistractions
-        DistractionListManager.shared.add("com.spotify.client")
-        DistractionListManager.shared.remove("com.apple.dt.Xcode")
-        
+
         let testDBURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("test_shadow_\(UUID().uuidString).json")
         engine = FocusEngine(
             activityMonitor: mockMonitor,
@@ -53,16 +52,7 @@ class ShadowTrackingEngineTests: XCTestCase {
         distractionListManager = nil
         preferencesManager = nil
         profileManager = nil
-        
-        // Restore DistractionListManager.shared
-        let currentDistractions = DistractionListManager.shared.allDistractions
-        for app in currentDistractions {
-            DistractionListManager.shared.remove(app)
-        }
-        for app in originalDistractions {
-            DistractionListManager.shared.add(app)
-        }
-        
+
         super.tearDown()
     }
     

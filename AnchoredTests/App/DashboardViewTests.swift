@@ -33,10 +33,10 @@ final class DashboardViewTests: XCTestCase {
         let load = expectation(description: "week load")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             XCTAssertEqual(querying.hourlyCalls, 0)
-            XCTAssertEqual(querying.dailyCalls, 1)
+            XCTAssertEqual(querying.dailyCalls, 2)
 
-            guard let endDate = querying.lastDailyEndDate,
-                  let startDate = querying.lastDailyStartDate else {
+            guard let endDate = querying.dailyCallsHistory.first?.endDate,
+                  let startDate = querying.dailyCallsHistory.first?.startDate else {
                 XCTFail("Missing daily query window")
                 load.fulfill()
                 return
@@ -98,9 +98,9 @@ final class DashboardViewTests: XCTestCase {
         let load = expectation(description: "month load")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             XCTAssertEqual(querying.hourlyCalls, 0)
-            XCTAssertEqual(querying.dailyCalls, 1)
+            XCTAssertEqual(querying.dailyCalls, 2)
             XCTAssertEqual(
-                querying.lastDailyStartDate?.timeIntervalSince1970 ?? 0,
+                querying.dailyCallsHistory.first?.startDate.timeIntervalSince1970 ?? 0,
                 firstUse.timeIntervalSince1970,
                 accuracy: 0.001
             )
@@ -135,7 +135,7 @@ final class DashboardViewTests: XCTestCase {
         let load = expectation(description: "day load")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             XCTAssertEqual(querying.hourlyCalls, 1)
-            XCTAssertEqual(querying.dailyCalls, 0)
+            XCTAssertEqual(querying.dailyCalls, 1)
 
             if case .loaded(let buckets) = model.trendState {
                 XCTAssertEqual(buckets.count, 1)
@@ -190,6 +190,7 @@ private final class DashboardQueryingSpy: DashboardQuerying {
     var dailyCalls = 0
     var lastDailyStartDate: Date?
     var lastDailyEndDate: Date?
+    var dailyCallsHistory: [(startDate: Date, endDate: Date)] = []
     var earliestDate: Date?
     var rangeSummaryToReturn: DashboardRangeSummary?
     var allTimeSummaryToReturn: DashboardRangeSummary?
@@ -213,6 +214,7 @@ private final class DashboardQueryingSpy: DashboardQuerying {
         dailyCalls += 1
         lastDailyStartDate = startDate
         lastDailyEndDate = endDate
+        dailyCallsHistory.append((startDate: startDate, endDate: endDate))
         completion(.success([DashboardTimeBucket(date: startDate, duration: 5400)]))
     }
 

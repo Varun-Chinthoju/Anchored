@@ -427,7 +427,7 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
     }
 
-    func testAllowedAppsRestrictFocusToSelectedAppsWhenPresent() {
+    func testAllowedAppsDoNotBlockNeutralAppsFromStartingFocusTracking() {
         let profile = WorkProfile(
             name: "AllowlistProfile",
             allowedApps: ["com.apple.dt.Xcode"]
@@ -448,11 +448,11 @@ final class FocusEngineTests: XCTestCase {
         localEngine.delegate = mockDelegate
         localEngine.distractionCountdownThreshold = 0.05
 
-        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Terminal")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Notepad")
 
-        XCTAssertEqual(localEngine.state, .idle)
-        XCTAssertNil(localEngine.workSessionStart)
-        XCTAssertNil(localEngine.lastWorkAppBundleID)
+        XCTAssertEqual(localEngine.state, .watching)
+        XCTAssertNotNil(localEngine.workSessionStart)
+        XCTAssertEqual(localEngine.lastWorkAppBundleID, "com.example.Notepad")
         XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
     }
 

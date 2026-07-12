@@ -195,90 +195,81 @@ final class FocusEngine {
         cancelIdleTimer()
     }
     
-    private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
+    private struct ContextDisposition {
+        let isDistraction: Bool
+        let isFocus: Bool
+    }
+
+    private func classifyContext(bundleID: String, url: URL?, title: String) -> ContextDisposition {
         if preferencesManager.enableCloudClassification {
             triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title)
         }
-        if let url = url {
-            if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
-                return false
+
+        let profile = profileManager.activeProfile
+        let supportedBrowser = BrowserStrategyFactory.isSupportedBrowser(bundleID)
+        let codingForumOrDoc = SmartWebClassifier.isCodingForumOrDoc(url: url, title: title)
+        var productiveVisual: Bool?
+
+        func hasProductiveVisual() -> Bool {
+            if let productiveVisual {
+                return productiveVisual
             }
-            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
-                if visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name) {
-                    return false
-                }
-                return true
-            }
-            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
-                return false
-            }
+            let result = visualChecker.isProductiveVisual(profileName: profile.name)
+            productiveVisual = result
+            return result
         }
-        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
+
+        if codingForumOrDoc {
+            return ContextDisposition(isDistraction: false, isFocus: true)
+        }
+
+        if let url = url,
+           URLMatcher.matches(url: url, domains: profile.distractionDomains) {
+            if hasProductiveVisual() {
+                return ContextDisposition(isDistraction: false, isFocus: true)
+            }
+            return ContextDisposition(isDistraction: true, isFocus: false)
+        }
+
+        if supportedBrowser {
             if BrowserContextClassifier.isEntertainment(url: url, title: title) {
-                if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
-                    return false
+                if hasProductiveVisual() {
+                    return ContextDisposition(isDistraction: false, isFocus: true)
                 }
-                if visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name) {
-                    return false
-                }
-                return true
+                return ContextDisposition(isDistraction: true, isFocus: false)
             }
-            return false
+
+            if let url = url,
+               URLMatcher.matches(url: url, domains: profile.allowedDomains) {
+                return ContextDisposition(isDistraction: false, isFocus: true)
+            }
+
+            return ContextDisposition(isDistraction: false, isFocus: true)
         }
-        if SmartAppClassifier.isProductiveApp(bundleID: bundleID) {
-            return false
+
+        let bundleLower = bundleID.lowercased()
+        if bundleLower.contains("antigravity") ||
+           profile.allowedApps.contains(bundleID) ||
+           SmartAppClassifier.isProductiveApp(bundleID: bundleID) {
+            return ContextDisposition(isDistraction: false, isFocus: true)
         }
-        if visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name) {
-            return false
+
+        if profile.distractionApps.contains(bundleID) {
+            if hasProductiveVisual() {
+                return ContextDisposition(isDistraction: false, isFocus: true)
+            }
+            return ContextDisposition(isDistraction: true, isFocus: false)
         }
-        if isFocusApp(bundleID: bundleID) {
-            return false
-        }
-        if !profileManager.activeProfile.allowedApps.isEmpty {
-            return true
-        }
-        return profileManager.activeProfile.distractionApps.contains(bundleID)
+
+        return ContextDisposition(isDistraction: false, isFocus: true)
+    }
+
+    private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
+        classifyContext(bundleID: bundleID, url: url, title: title).isDistraction
     }
 
     private func isFocusContext(bundleID: String, url: URL?, title: String) -> Bool {
-        if preferencesManager.enableCloudClassification {
-            triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title)
-        }
-        if let url = url {
-            if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
-                return true
-            }
-            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.allowedDomains) {
-                return true
-            }
-            if URLMatcher.matches(url: url, domains: profileManager.activeProfile.distractionDomains) {
-                return false
-            }
-        }
-        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
-            if BrowserContextClassifier.isEntertainment(url: url, title: title) {
-                if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
-                    return true
-                }
-                return visualChecker.isProductiveVisual(profileName: profileManager.activeProfile.name)
-            }
-            return true
-        }
-        return isFocusApp(bundleID: bundleID)
-    }
-
-    private func isFocusApp(bundleID: String) -> Bool {
-        let bundleLower = bundleID.lowercased()
-        if bundleLower.contains("antigravity") {
-            return true
-        }
-        if profileManager.activeProfile.allowedApps.contains(bundleID) {
-            return true
-        }
-        if profileManager.activeProfile.allowedApps.isEmpty {
-            return SmartAppClassifier.isProductiveApp(bundleID: bundleID)
-        }
-        return false
+        classifyContext(bundleID: bundleID, url: url, title: title).isFocus
     }
 
     private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String) {
@@ -314,11 +305,12 @@ final class FocusEngine {
         guard let currentApp = currentApp else { return }
         
         let now = Date()
-        let isCurrentlyDistraction = isDistraction(
+        let disposition = classifyContext(
             bundleID: currentApp,
             url: currentURL,
             title: currentTitle
         )
+        let isCurrentlyDistraction = disposition.isDistraction
         
         if isCurrentlyDistraction {
             // It is now a distraction under the new active profile
@@ -360,7 +352,7 @@ final class FocusEngine {
                 distractionStartDate = nil
             } else {
                 // No active session: it is now a work or neutral app
-                if isFocusContext(bundleID: currentApp, url: currentURL, title: currentTitle) {
+                if disposition.isFocus {
                     lastWorkAppBundleID = currentApp
                     if workSessionStart == nil {
                         workSessionStart = now
@@ -397,7 +389,8 @@ final class FocusEngine {
             observedAt: now
         )
         
-        let isFocus = isFocusContext(bundleID: bundleID, url: url, title: title)
+        let disposition = classifyContext(bundleID: bundleID, url: url, title: title)
+        let isFocus = disposition.isFocus
         let sanitizedDomain = url?.host ?? "nil"
         print("📱 [Context Switch] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(sanitizedDomain) focus=\(isFocus) titleLen=\(title.count)")
         
@@ -414,7 +407,7 @@ final class FocusEngine {
             ]
         )
         
-        if isDistraction(bundleID: bundleID, url: url, title: title) {
+        if disposition.isDistraction {
             // Distraction app/URL detected
             print("🚨 [Distraction Detected] bundleID=\(bundleID) domain=\(url?.host ?? "nil") titleLen=\(title.count)")
             if activeSession != nil {
@@ -443,7 +436,7 @@ final class FocusEngine {
                 requestFocusPromptIfEligible(now: now)
                 resetFocusTracking()
             }
-        } else if isFocusContext(bundleID: bundleID, url: url, title: title) {
+        } else if disposition.isFocus {
             // Whitelisted focus app/URL detected
             print("📈 [Focus Context] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(url?.host ?? "nil") focus=true titleLen=\(title.count)")
             lastWorkAppBundleID = bundleID
@@ -691,7 +684,7 @@ final class FocusEngine {
     internal func focusPromptTimerExpired() {
         cancelFocusPromptTimer()
         guard let bundleID = currentApp,
-              isFocusContext(bundleID: bundleID, url: currentURL, title: currentTitle) else {
+              classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle).isFocus else {
             return
         }
 
