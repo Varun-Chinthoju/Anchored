@@ -2,9 +2,13 @@ import SwiftUI
 
 public struct CountdownPillView: View {
     let secondsRemaining: Int
+    let isDimmed: Bool
+    let onBreak: (() -> Void)?
     
-    public init(secondsRemaining: Int) {
+    public init(secondsRemaining: Int, isDimmed: Bool = false, onBreak: (() -> Void)? = nil) {
         self.secondsRemaining = secondsRemaining
+        self.isDimmed = isDimmed
+        self.onBreak = onBreak
     }
     
     public var body: some View {
@@ -15,13 +19,24 @@ public struct CountdownPillView: View {
                 .frame(width: 8, height: 8)
                 .shadow(color: PirateTheme.gold.opacity(0.8), radius: 4)
             
-            Text("Plundering…")
+            Text(isDimmed ? "Screen dimmed" : "Plundering…")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundColor(PirateTheme.parchment.opacity(0.8))
             
-            Text("Sirens in \(secondsRemaining)s")
+            if !isDimmed {
+                Text("Sirens in \(secondsRemaining)s")
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundColor(PirateTheme.gold)
+            }
+
+            if let onBreak {
+                Button("Break") {
+                    onBreak()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(PirateTheme.gold)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

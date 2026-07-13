@@ -6,7 +6,6 @@ protocol FreshInstallChecking {
 
 struct LiveFreshInstallChecker: FreshInstallChecking {
     private static let onboardingCompletionKey = "hasCompletedOnboarding"
-    private static let lastInstalledModDateKey = "lastInstalledModDate"
     private static let lastInstalledPathKey = "lastInstalledPath"
 
     private let fileManager: FileManager
@@ -21,15 +20,11 @@ struct LiveFreshInstallChecker: FreshInstallChecking {
     }
 
     func shouldShowOnboardingFlow(defaults: UserDefaults) -> Bool {
+        _ = fileManager
         let appPath = appPathProvider()
-        let attrs = try? fileManager.attributesOfItem(atPath: appPath)
-        let modDate = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-
-        let lastModDate = defaults.double(forKey: Self.lastInstalledModDateKey)
         let lastPath = defaults.string(forKey: Self.lastInstalledPathKey)
 
-        if lastModDate != modDate || lastPath != appPath {
-            defaults.set(modDate, forKey: Self.lastInstalledModDateKey)
+        if lastPath != appPath {
             defaults.set(appPath, forKey: Self.lastInstalledPathKey)
             defaults.set(false, forKey: Self.onboardingCompletionKey)
             return true

@@ -18,6 +18,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// The active dim overlay windows (one per screen).
     var dimWindows: [DimOverlayWindow] = []
+    private(set) var lastBreakReview: (intention: String, result: BreakReviewResult)?
+    private(set) var refusedBreakCount = 0
     
     /// Configurable countdown duration in seconds. Clamped to the range 5-20.
     private var _countdownDuration: Int = 10
@@ -82,10 +84,12 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         let pill = CountdownPillPanel()
         countdownPillPanel = pill
         
-        pill.show(seconds: countdownDuration) { [weak self] in
+        pill.show(seconds: countdownDuration, onComplete: { [weak self] in
             // On expiry (0 seconds), trigger escalation on the DimOverlayWindow instances
             self?.startEscalation()
-        }
+        }, onBreak: { [weak self] in
+            self?.focusEngine?.requestBreak(intention: "Take a restorative break")
+        })
     }
     
     /// Callback from FocusEngine when the user returns to work.
@@ -122,6 +126,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             window.close()
         }
         dimWindows.removeAll()
+        lastBreakReview = nil
     }
     
     /// Callback from FocusEngine to request showing the Accessibility Permission Gate.
@@ -146,6 +151,19 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             self?.permissionGatePanel = nil
         })
     }
+
+    func didRequestBreakReview(intention: String, result: BreakReviewResult) {
+        lastBreakReview = (intention: intention, result: result)
+        RuntimeTrace.event("overlay_break_review_requested", fields: [
+            "outcome": String(describing: result.outcome),
+            "enforcing": String(result.mayStartExistingCountdown)
+        ])
+    }
+
+    func didRefuseBreak() {
+        refusedBreakCount += 1
+        RuntimeTrace.event("break_refused_under_minimum")
+    }
     
     // MARK: - Helper Methods
     
@@ -159,8 +177,9 @@ class OverlayManager: NSObject, FocusEngineDelegate {
 
         RuntimeTrace.event("overlay_escalation_started", fields: ["screenCount": String(NSScreen.screens.count)])
         
-        // The countdown pill panel is no longer needed since it has expired
-        countdownPillPanel = nil
+        // Keep the status-level panel visible above the click-through dim layer so
+        // the user can still choose a break or return through the menu bar.
+        countdownPillPanel?.showDimmedState()
         
         // Create and show one dim window per connected screen
         for screen in NSScreen.screens {

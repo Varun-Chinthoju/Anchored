@@ -5,7 +5,9 @@ public class CountdownPillPanel: NSPanel {
     private var timer: Timer?
     private var secondsRemaining = 0
     private var completionHandler: (() -> Void)?
+    private var breakHandler: (() -> Void)?
     private var hostingView: NSHostingView<CountdownPillView>?
+    private var isDimmed = false
     
     public init() {
         super.init(
@@ -19,16 +21,18 @@ public class CountdownPillPanel: NSPanel {
         self.backgroundColor = .clear
         self.hasShadow = false
         self.ignoresMouseEvents = false
-        self.level = .floating // Above normal windows, below dim overlay (level statusBar/screenSaver)
+        self.level = .statusBar
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     }
     
-    public func show(seconds: Int, onComplete: @escaping () -> Void) {
+    public func show(seconds: Int, onComplete: @escaping () -> Void, onBreak: (() -> Void)? = nil) {
         // Cancel any active countdown timer first
         cancelTimer()
         
         self.secondsRemaining = seconds
         self.completionHandler = onComplete
+        self.breakHandler = onBreak
+        self.isDimmed = false
         
         if seconds <= 0 {
             self.completionHandler?()
@@ -71,6 +75,7 @@ public class CountdownPillPanel: NSPanel {
     
     public func cancel() {
         cancelTimer()
+        breakHandler = nil
         
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.2
@@ -87,7 +92,11 @@ public class CountdownPillPanel: NSPanel {
     }
     
     private func updateView() {
-        let view = CountdownPillView(secondsRemaining: secondsRemaining)
+        let view = CountdownPillView(
+            secondsRemaining: secondsRemaining,
+            isDimmed: isDimmed,
+            onBreak: breakHandler
+        )
         if let host = self.hostingView {
             host.rootView = view
         } else {
@@ -102,6 +111,13 @@ public class CountdownPillPanel: NSPanel {
             frame.size = viewSize
             self.setFrame(frame, display: true)
         }
+    }
+
+    public func showDimmedState() {
+        isDimmed = true
+        updateView()
+        positionPanel()
+        orderFront(nil)
     }
     
     private func positionPanel() {

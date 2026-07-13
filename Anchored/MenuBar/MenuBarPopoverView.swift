@@ -5,6 +5,12 @@ struct MenuBarPopoverView: View {
     @ObservedObject private var profileManager = ProfileManager.shared
     @ObservedObject private var prefs = PreferencesManager.shared
     @State private var showStartForm = false
+    @State private var showBreakComposer = false
+    @State private var showSummaryComposer = false
+    @State private var breakIntention = ""
+    @State private var summaryText = ""
+    @State private var showBreakRefusal = false
+    @State private var editingSummaryID: UUID?
 
     private var themeAccent: Color {
         prefs.selectedThemePalette.accentColor
@@ -154,19 +160,35 @@ struct MenuBarPopoverView: View {
                         .frame(height: 6)
                         .padding(.horizontal, 8)
                         
-                        Button(action: {
-                            viewModel.endSession()
-                        }) {
-                            Text("End Session")
+                        if viewModel.breakState == .breakActive {
+                            Text("Break active • (viewModel.breakRemainingTimeFormatted)")
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundColor(themeTextPrimary)
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 8)
-                                .background(themeSurfaceSubtle)
-                                .cornerRadius(8)
+                                .foregroundColor(themeAccent)
+                        } else if viewModel.breakState == .breakReview {
+                            Button("Return to Work") {
+                                viewModel.resumeAfterBreakReview()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            HStack(spacing: 10) {
+                                Button("Break") {
+                                    breakIntention = ""
+                                    showBreakComposer = true
+                                }
+                                .buttonStyle(.bordered)
+
+                                Button("Done") {
+                                    if prefs.sessionSummaryPromptEnabled {
+                                        summaryText = ""
+                                        showSummaryComposer = true
+                                    } else {
+                                        viewModel.endSession()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                            .padding(.top, 4)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.top, 4)
                     }
                     .padding(.vertical, 16)
                     .padding(.horizontal, 12)
@@ -278,7 +300,7 @@ struct MenuBarPopoverView: View {
                             .background(themeSurface.opacity(0.55))
                             .cornerRadius(8)
                     } else {
-                        ForEach(viewModel.recentSessions, id: \.id) { session in
+                                ForEach(viewModel.recentSessions, id: \.id) { session in
                             HStack {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(themeAccent)
@@ -290,13 +312,31 @@ struct MenuBarPopoverView: View {
                                     Text(formatTime(session.timestamp))
                                         .font(.system(size: 10))
                                         .foregroundColor(themeTextSecondary)
+                                    if let summary = session.sessionSummary {
+                                        Text(summary)
+                                            .font(.system(size: 10))
+                                            .foregroundColor(themeTextSecondary)
+                                            .lineLimit(2)
+                                    }
                                 }
                                 
                                 Spacer()
                                 
-                                Text(formatDuration(Double(session.sessionDurationSeconds ?? 0)))
+                                    Text(formatDuration(Double(session.sessionDurationSeconds ?? 0)))
                                     .font(.system(size: 11, weight: .medium, design: .rounded))
                                     .foregroundColor(themeTextSecondary)
+                            }
+                            .contextMenu {
+                                if session.sessionSummary != nil {
+                                    Button("Edit Summary") {
+                                        editingSummaryID = session.id
+                                        summaryText = session.sessionSummary ?? ""
+                                        showSummaryComposer = true
+                                    }
+                                    Button("Delete Summary", role: .destructive) {
+                                        viewModel.updateSummary(id: session.id, summary: nil)
+                                    }
+                                }
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
@@ -317,6 +357,43 @@ struct MenuBarPopoverView: View {
         .onAppear {
             viewModel.refresh()
         }
+        .sheet(isPresented: $showBreakComposer) {
+            BreakIntentionSheet(intention: $breakIntention) {
+                showBreakComposer = false
+                let result = viewModel.requestBreak(intention: breakIntention)
+                if result == .refusedUnderMinimum {
+                    showBreakRefusal = true
+                }
+            } onCancel: {
+                showBreakComposer = false
+            }
+        }
+        .sheet(isPresented: $showSummaryComposer) {
+            SessionSummarySheet(summary: $summaryText) {
+                showSummaryComposer = false
+                if let editingSummaryID {
+                    viewModel.updateSummary(id: editingSummaryID, summary: summaryText) {
+                        self.editingSummaryID = nil
+                    }
+                } else {
+                    viewModel.endSession(summary: summaryText)
+                }
+            } onSkip: {
+                showSummaryComposer = false
+                if let editingSummaryID {
+                    viewModel.updateSummary(id: editingSummaryID, summary: nil) {
+                        self.editingSummaryID = nil
+                    }
+                } else {
+                    viewModel.endSession(summary: nil)
+                }
+            }
+        }
+        .alert("Nice try", isPresented: $showBreakRefusal) {
+            Button("Keep Focusing", role: .cancel) {}
+        } message: {
+            Text("Breaks unlock after 30 minutes of net focused time.")
+        }
         .accentColor(themeAccent)
         .tint(themeAccent)
     }
@@ -333,6 +410,58 @@ struct MenuBarPopoverView: View {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+private struct BreakIntentionSheet: View {
+    @Binding var intention: String
+    let onAccept: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Commit to a two-minute break")
+                .font(.headline)
+            Text("What will you do during the break?")
+                .foregroundColor(.secondary)
+            TextField("Stretch, get water…", text: $intention)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Button("Cancel", action: onCancel)
+                Spacer()
+                Button("Start Break", action: onAccept)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(intention.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 340)
+    }
+}
+
+private struct SessionSummarySheet: View {
+    @Binding var summary: String
+    let onDone: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Session summary")
+                .font(.headline)
+            Text("Capture what you finished. This stays on this Mac.")
+                .foregroundColor(.secondary)
+            TextEditor(text: $summary)
+                .frame(height: 100)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.25)))
+            HStack {
+                Button("Skip", action: onSkip)
+                Spacer()
+                Button("Save", action: onDone)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(width: 360)
     }
 }
 

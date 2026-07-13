@@ -219,8 +219,14 @@ struct SettingsView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 8)
 
-                List(selection: $selectedItem) {
-                    Section {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Profiles")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(themeTextSecondary)
+                            .padding(.horizontal, 14)
+                            .padding(.top, 8)
+
                         ForEach(filteredProfiles) { profile in
                             ProfileRowView(
                                 profile: profile,
@@ -230,9 +236,15 @@ struct SettingsView: View {
                                 onMakeActive: { makeProfileActive(profile) },
                                 canDelete: profileManager.profiles.count > 1
                             )
-                            .tag(SidebarItem.profile(profile.id))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(selectedItem == .profile(profile.id) ? themeAccent.opacity(0.18) : .clear)
+                            .cornerRadius(6)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectedItem = .profile(profile.id) }
                         }
-                        
+
                         Button {
                             newProfileName = ""
                             showAddAlert = true
@@ -244,32 +256,36 @@ struct SettingsView: View {
                                     .padding(4)
                                     .background(SettingsTheme.accent)
                                     .clipShape(Circle())
-                                
                                 Text("Add Profile")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(SettingsTheme.accent)
                             }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)
-                        .padding(.vertical, 4)
-                    } header: {
-                        Text("Profiles")
+
+                        Text(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(themeTextSecondary)
-                    }
+                            .padding(.horizontal, 14)
+                            .padding(.top, 14)
 
-                    Section(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode)) {
                         ForEach(filteredSections) { section in
                             Label(section.displayName(isPirateMode: isPirateMode), systemImage: section.iconName)
-                                .tag(sidebarItem(for: section))
                                 .labelStyle(ColoredLabelStyle(color: section.iconColor))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.18) : .clear)
+                                .cornerRadius(6)
+                                .contentShape(Rectangle())
+                                .onTapGesture { selectedItem = sidebarItem(for: section) }
                         }
                     }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 12)
                 }
-                .listStyle(.sidebar)
-                .accentColor(themeAccent)
-                .tint(themeAccent)
-                .scrollContentBackground(.hidden)
                 .background(
                     LinearGradient(
                         colors: [
@@ -591,6 +607,52 @@ struct GeneralSettingsPane: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Session Review", pirate: "Voyage Review", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Automatic Session Duration", pirate: "Automatic Voyage Duration", isPirateMode: isPirateMode),
+                        description: settingsCopy("How long an automatically started session runs. This does not change the focus threshold.", pirate: "How long an automatic voyage runs. This does not change the sailing threshold.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(
+                                get: { prefs.automaticSessionDuration },
+                                set: { newValue in
+                                    let rounded = (newValue / 60.0).rounded() * 60.0
+                                    prefs.automaticSessionDuration = max(60, min(7200, rounded))
+                                }
+                            ), in: 5 * 60...120 * 60)
+                                .frame(width: 250)
+                            Text(formatDuration(prefs.automaticSessionDuration))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .frame(width: 100, alignment: .trailing)
+                        }
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Session Summary Prompt", pirate: "Voyage Summary Prompt", isPirateMode: isPirateMode),
+                        description: settingsCopy("Offer a private, skippable summary prompt when you choose Done.", pirate: "Offer a private, skippable log when ye choose Done.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.sessionSummaryPromptEnabled)
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Weekly Review Notifications", pirate: "Weekly Review Bells", isPirateMode: isPirateMode),
+                        description: settingsCopy("Send a local aggregate review every Sunday at 8:00 AM when notification permission is available.", pirate: "Send a local tally every Sunday at 8:00 AM when notification permission allows.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        Toggle("", isOn: $prefs.weeklyReviewNotificationsEnabled)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Language & Mode", pirate: "Tongue & Navigation", isPirateMode: isPirateMode))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(SettingsTheme.textSecondary)
@@ -792,6 +854,8 @@ struct PrivacySettingsPane: View {
     @State private var feedbackCount = 0
     @State private var showClearFeedbackConfirmation = false
     @State private var isClearingFeedback = false
+    @State private var showClearSummariesConfirmation = false
+    @State private var isClearingSummaries = false
 
     private let retentionOptions = [1, 7, 30, 90, 365]
 
@@ -951,6 +1015,27 @@ struct PrivacySettingsPane: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Session Summaries", pirate: "Voyage Summaries", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Clear Saved Summaries", pirate: "Clear Saved Summaries", isPirateMode: isPirateMode),
+                        description: settingsCopy("Deletes written session summaries while preserving session duration analytics.", pirate: "Deletes written voyage notes while preserving voyage tallies.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode)) {
+                            showClearSummariesConfirmation = true
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isClearingSummaries)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Classification Feedback", pirate: "Classification Feedback", isPirateMode: isPirateMode))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(SettingsTheme.textSecondary)
@@ -1055,6 +1140,20 @@ struct PrivacySettingsPane: View {
             }
         } message: {
             Text(settingsCopy("This permanently deletes locally stored correction examples. Context history and session analytics are unchanged.", pirate: "This clears stored correction examples. Context history and voyage analytics remain unchanged.", isPirateMode: isPirateMode))
+        }
+        .alert(settingsCopy("Clear Saved Summaries?", pirate: "Clear Saved Summaries?", isPirateMode: isPirateMode), isPresented: $showClearSummariesConfirmation) {
+            Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
+            Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode), role: .destructive) {
+                isClearingSummaries = true
+                DispatchQueue.global(qos: .userInitiated).async {
+                    try? SessionStore.shared.clearAllSessionSummaries()
+                    DispatchQueue.main.async {
+                        isClearingSummaries = false
+                    }
+                }
+            }
+        } message: {
+            Text(settingsCopy("This permanently deletes written summaries only. Session analytics and durations remain intact.", pirate: "This deletes written notes only. Voyage tallies remain intact.", isPirateMode: isPirateMode))
         }
     }
 

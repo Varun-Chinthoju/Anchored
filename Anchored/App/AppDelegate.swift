@@ -35,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         RuntimeTrace.event("standard_flow_start", fields: [
             "focusThreshold": String(prefs.effectiveFocusThreshold),
+            "automaticSessionDuration": String(prefs.automaticSessionDuration),
             "countdown": String(prefs.countdownDuration),
             "localText": String(prefs.enableLocalTextClassification),
             "cloud": String(prefs.enableCloudClassification),
@@ -127,6 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         engine.start()
         RuntimeTrace.event("focus_engine_started", fields: [
             "focusThreshold": String(prefs.effectiveFocusThreshold),
+            "automaticSessionDuration": String(prefs.automaticSessionDuration),
             "countdown": String(prefs.countdownDuration)
         ])
         print("FocusEngine started (focusThreshold: \(prefs.focusThreshold)s, countdown: \(prefs.countdownDuration)s)")

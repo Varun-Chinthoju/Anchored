@@ -12,6 +12,8 @@ class MenuBarViewModel: ObservableObject {
     @Published var stats: SessionStats = SessionStats(focusedTimeToday: 0, sessionCountToday: 0, streakDays: 0)
     @Published var recentSessions: [SessionEvent] = []
     @Published var currentClassification: ClassificationDecision = .neutral()
+    @Published var breakState: CommitmentState?
+    @Published var breakDeadline: Date?
     
     init(focusEngine: FocusEngine, sessionStore: SessionStore = .shared) {
         self.focusEngine = focusEngine
@@ -67,6 +69,8 @@ class MenuBarViewModel: ObservableObject {
 
     func refresh() {
         self.activeSession = focusEngine.activeSession
+        self.breakState = focusEngine.breakState
+        self.breakDeadline = focusEngine.activeBreakCommitment?.deadline
         self.currentClassification = focusEngine.currentClassification
         let currentGen = statsGeneration &+ 1
         statsGeneration = currentGen
@@ -145,7 +149,50 @@ class MenuBarViewModel: ObservableObject {
     }
     
     func endSession() {
-        focusEngine.endSession()
+        focusEngine.endSession(action: .dismissed, completionOutcome: .done)
         refresh()
+    }
+
+    func endSession(summary: String?) {
+        focusEngine.endSession(action: .dismissed, completionOutcome: .done, summary: summary)
+        refresh()
+    }
+
+    var breakRemainingTimeFormatted: String {
+        guard let deadline = breakDeadline else { return "00:00" }
+        let remaining = max(0, deadline.timeIntervalSinceNow)
+        return String(format: "%02d:%02d", Int(remaining) / 60, Int(remaining) % 60)
+    }
+
+    @discardableResult
+    func requestBreak(intention: String) -> BreakRequestDecision {
+        let result = focusEngine.requestBreak(intention: intention)
+        refresh()
+        return result
+    }
+
+    func resumeAfterBreakReview() {
+        focusEngine.resumeAfterBreakReview()
+        refresh()
+    }
+
+    func updateSummary(id: UUID, summary: String?, completion: (() -> Void)? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            try? self?.sessionStore.updateSessionSummary(id: id, summary: summary)
+            DispatchQueue.main.async {
+                self?.refresh()
+                completion?()
+            }
+        }
+    }
+
+    func clearAllSummaries(completion: (() -> Void)? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            try? self?.sessionStore.clearAllSessionSummaries()
+            DispatchQueue.main.async {
+                self?.refresh()
+                completion?()
+            }
+        }
     }
 }
