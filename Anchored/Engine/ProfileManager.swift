@@ -176,6 +176,60 @@ public class ProfileManager: ObservableObject {
             }
         }
     }
+
+    /// Applies a correction as an explicit rule and removes the opposite rule
+    /// for the same target so new contradictions cannot be created.
+    @discardableResult
+    public func applyCorrection(
+        _ correction: ClassificationCorrection,
+        bundleID: String,
+        url: URL?
+    ) -> Bool {
+        var updated = activeProfile
+        var changed = false
+
+        switch correction {
+        case .allowApp, .markSessionProductive:
+            if !updated.allowedApps.contains(bundleID) {
+                updated.allowedApps.append(bundleID)
+                changed = true
+            }
+            let originalCount = updated.distractionApps.count
+            updated.distractionApps.removeAll { $0 == bundleID }
+            changed = changed || originalCount != updated.distractionApps.count
+        case .blockApp:
+            if !updated.distractionApps.contains(bundleID) {
+                updated.distractionApps.append(bundleID)
+                changed = true
+            }
+            let originalCount = updated.allowedApps.count
+            updated.allowedApps.removeAll { $0 == bundleID }
+            changed = changed || originalCount != updated.allowedApps.count
+        case .allowDomain, .blockDomain:
+            guard let domain = url?.host?.lowercased(), !domain.isEmpty else { return false }
+            if correction == .allowDomain {
+                if !updated.allowedDomains.contains(domain) {
+                    updated.allowedDomains.append(domain)
+                    changed = true
+                }
+                let originalCount = updated.distractionDomains.count
+                updated.distractionDomains.removeAll { $0 == domain }
+                changed = changed || originalCount != updated.distractionDomains.count
+            } else {
+                if !updated.distractionDomains.contains(domain) {
+                    updated.distractionDomains.append(domain)
+                    changed = true
+                }
+                let originalCount = updated.allowedDomains.count
+                updated.allowedDomains.removeAll { $0 == domain }
+                changed = changed || originalCount != updated.allowedDomains.count
+            }
+        }
+
+        guard changed else { return false }
+        updateProfile(updated)
+        return true
+    }
     
     public func switchProfile(id: UUID) {
         if let found = profiles.first(where: { $0.id == id }) {

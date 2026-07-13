@@ -32,6 +32,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         appSwitchMonitor = AppSwitchMonitor()
         let prefs = PreferencesManager.shared
+
+        RuntimeTrace.event("standard_flow_start", fields: [
+            "focusThreshold": String(prefs.effectiveFocusThreshold),
+            "countdown": String(prefs.countdownDuration),
+            "localText": String(prefs.enableLocalTextClassification),
+            "cloud": String(prefs.enableCloudClassification),
+            "visual": String(prefs.enableImageClassification),
+            "accessibility": String(AXIsProcessTrusted())
+        ])
         
         let listManager = DistractionListManager.shared
         let engine = FocusEngine(
@@ -94,10 +103,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 historyStore?.prune(retentionDays: days)
             }
             .store(in: &preferencesCancellables)
+
+        let feedbackStore = ClassificationFeedbackStore.shared
+        feedbackStore.isEnabled = prefs.classificationFeedbackEnabled
+        feedbackStore.prune(retentionDays: prefs.contextHistoryRetentionDays)
+
+        prefs.$classificationFeedbackEnabled
+            .dropFirst()
+            .sink { [weak feedbackStore] enabled in
+                feedbackStore?.isEnabled = enabled
+            }
+            .store(in: &preferencesCancellables)
+
+        prefs.$contextHistoryRetentionDays
+            .dropFirst()
+            .sink { [weak feedbackStore] days in
+                feedbackStore?.prune(retentionDays: days)
+            }
+            .store(in: &preferencesCancellables)
         
         menuBarController = MenuBarController(focusEngine: engine)
         
         engine.start()
+        RuntimeTrace.event("focus_engine_started", fields: [
+            "focusThreshold": String(prefs.effectiveFocusThreshold),
+            "countdown": String(prefs.countdownDuration)
+        ])
         print("FocusEngine started (focusThreshold: \(prefs.focusThreshold)s, countdown: \(prefs.countdownDuration)s)")
         print("Accessibility Permission (AXIsProcessTrusted): \(AXIsProcessTrusted())")
         

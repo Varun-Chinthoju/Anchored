@@ -183,4 +183,22 @@ final class ProfileManagerTests: XCTestCase {
         XCTAssertEqual(loadedProfile?.allowedApps, ["com.apple.dt.Xcode", "com.apple.Terminal"])
         XCTAssertEqual(loadedProfile?.allowedDomains, ["github.com", "google.com"])
     }
+
+    func testCorrectionReplacesOppositeRuleImmediately() {
+        let manager = ProfileManager(defaults: testDefaults)
+        var profile = manager.activeProfile
+        profile.allowedApps = ["com.example.Editor"]
+        profile.distractionApps = ["com.example.Player"]
+        profile.allowedDomains = ["example.com"]
+        profile.distractionDomains = ["video.example.com"]
+        manager.updateProfile(profile)
+
+        XCTAssertTrue(manager.applyCorrection(.blockApp, bundleID: "com.example.Editor", url: nil))
+        XCTAssertTrue(manager.applyCorrection(.allowDomain, bundleID: "com.google.Chrome", url: URL(string: "https://video.example.com/watch")))
+
+        XCTAssertFalse(manager.activeProfile.allowedApps.contains("com.example.Editor"))
+        XCTAssertTrue(manager.activeProfile.distractionApps.contains("com.example.Editor"))
+        XCTAssertFalse(manager.activeProfile.distractionDomains.contains("video.example.com"))
+        XCTAssertTrue(manager.activeProfile.allowedDomains.contains("video.example.com"))
+    }
 }

@@ -28,6 +28,7 @@ final class AppSwitchMonitor: ActivityMonitor {
     func start() {
         guard !isMonitoring else { return }
         isMonitoring = true
+        RuntimeTrace.event("monitor_start")
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -83,6 +84,7 @@ final class AppSwitchMonitor: ActivityMonitor {
     func stop() {
         guard isMonitoring else { return }
         isMonitoring = false
+        RuntimeTrace.event("monitor_stop")
 
         cancelPollingTimer()
         activeBundleID = nil
@@ -104,6 +106,7 @@ final class AppSwitchMonitor: ActivityMonitor {
 
     func handleApplicationActivation(bundleID: String) {
         activeBundleID = bundleID
+        RuntimeTrace.event("application_activation", fields: ["bundleID": bundleID])
         pollActiveContext()
     }
 
@@ -158,14 +161,28 @@ final class AppSwitchMonitor: ActivityMonitor {
 
                 switch result {
                 case .success(let snapshot):
+                    RuntimeTrace.event("context_collected", fields: [
+                        "bundleID": bundleID,
+                        "source": snapshot.source.rawValue,
+                        "hasURL": String(snapshot.url != nil),
+                        "titleLength": String(snapshot.title.count)
+                    ])
                     let newIdentity = snapshot.identity
                     if newIdentity != self.lastPolledIdentity {
                         self.lastPolledIdentity = newIdentity
+                        RuntimeTrace.event("context_change_published", fields: ["bundleID": bundleID])
                         self.onContextChange?(snapshot)
+                    } else {
+                        RuntimeTrace.event("context_deduplicated", fields: ["bundleID": bundleID])
                     }
                 case .failure(let error):
+                    RuntimeTrace.event("context_collection_failed", fields: [
+                        "bundleID": bundleID,
+                        "error": RuntimeTrace.collectionErrorCode(error)
+                    ])
                     if case .permissionDenied = error {
                         self.cancelPollingTimer()
+                        RuntimeTrace.event("monitor_paused_permission_denied", fields: ["bundleID": bundleID])
                         return
                     }
                     let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID })
@@ -181,6 +198,7 @@ final class AppSwitchMonitor: ActivityMonitor {
                     let fallbackIdentity = fallbackSnapshot.identity
                     if fallbackIdentity != self.lastPolledIdentity {
                         self.lastPolledIdentity = fallbackIdentity
+                        RuntimeTrace.event("fallback_context_published", fields: ["bundleID": bundleID])
                         self.onContextChange?(fallbackSnapshot)
                     }
                 }

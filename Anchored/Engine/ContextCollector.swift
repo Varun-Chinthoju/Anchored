@@ -32,6 +32,12 @@ public final class ContextCollector: ContextCollecting {
         currentGeneration += 1
         let generation = currentGeneration
         lock.unlock()
+
+        RuntimeTrace.event("context_collection_started", fields: [
+            "bundleID": bundleID,
+            "generation": String(generation),
+            "browser": String(BrowserStrategyFactory.isSupportedBrowser(bundleID))
+        ])
         
         let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID })
         let localizedName = runningApp?.localizedName ?? ""
@@ -44,6 +50,11 @@ public final class ContextCollector: ContextCollecting {
             
             if generation < activeGen {
                 // Discard stale callback
+                RuntimeTrace.event("collector_result_discarded_stale", fields: [
+                    "bundleID": bundleID,
+                    "generation": String(generation),
+                    "activeGeneration": String(activeGen)
+                ])
                 return
             }
             

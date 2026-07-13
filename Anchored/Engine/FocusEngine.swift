@@ -54,8 +54,14 @@ protocol VisualProductivityChecking {
 }
 
 struct LiveVisualProductivityChecker: VisualProductivityChecking {
+    private let preferences: PreferencesManager
+
+    init(preferences: PreferencesManager = .shared) {
+        self.preferences = preferences
+    }
+
     func isProductiveVisual(profileName: String) -> Bool {
-        return SmartImageClassifier.isProductiveVisual(profileName: profileName)
+        return SmartImageClassifier.isProductiveVisual(profileName: profileName, preferences: preferences)
     }
 }
 
@@ -68,9 +74,12 @@ final class FocusEngine {
     
     private let preferencesManager: PreferencesManager
     private let distractionEvaluator: DistractionEvaluator
+    private let classificationResolver: ClassificationResolver
     private let cloudClassificationService: CloudClassificationServing
     private let ocrProvider: WindowTextExtracting
     private let visualChecker: VisualProductivityChecking
+    private let interactionSummaryProvider: InteractionSummaryProviding
+    private let localTextClassifier: ContextClassifying
     
     /// The delegate to receive state transition callbacks.
     weak var delegate: FocusEngineDelegate?
@@ -86,6 +95,9 @@ final class FocusEngine {
     
     /// The current context of the active window/tab.
     private(set) var currentContext: AppContext?
+
+    /// The latest safe, UI-facing classification decision for the current context.
+    private(set) var currentClassification: ClassificationDecision = .neutral()
     
     /// The start date of the current work session (focused time).
     var workSessionStart: Date?
@@ -160,7 +172,9 @@ final class FocusEngine {
         preferencesManager: PreferencesManager = .shared,
         ocrProvider: WindowTextExtracting = LiveOCRProvider(),
         visualChecker: VisualProductivityChecking = LiveVisualProductivityChecker(),
-        cloudClassificationService: CloudClassificationServing? = nil
+        cloudClassificationService: CloudClassificationServing? = nil,
+        interactionSummaryProvider: InteractionSummaryProviding? = nil,
+        localTextClassifier: ContextClassifying? = nil
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
@@ -172,9 +186,12 @@ final class FocusEngine {
             distractionListManager: distractionListManager,
             profileProvider: { profileManager.activeProfile }
         )
+        self.classificationResolver = ClassificationResolver()
         self.ocrProvider = ocrProvider
         self.visualChecker = visualChecker
         self.cloudClassificationService = cloudClassificationService ?? LiveCloudClassificationService(preferences: preferencesManager)
+        self.interactionSummaryProvider = interactionSummaryProvider ?? LocalInteractionSummaryProvider()
+        self.localTextClassifier = localTextClassifier ?? LocalTextClassifier()
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
             self?.handleContextChange(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title, snapshot: snapshot)
@@ -194,11 +211,16 @@ final class FocusEngine {
     
     /// Starts monitoring application switch events.
     func start() {
+        RuntimeTrace.event("focus_engine_start", fields: [
+            "focusThreshold": String(focusThreshold),
+            "promptsEnabled": String(focusPromptsEnabled)
+        ])
         activityMonitor.start()
     }
     
     /// Stops monitoring application switch events.
     func stop() {
+        RuntimeTrace.event("focus_engine_stop")
         activityMonitor.stop()
         cancelSessionTimer()
         cancelDistractionTimer()
@@ -206,8 +228,13 @@ final class FocusEngine {
         cancelIdleTimer()
     }
     
-    private func classifyContext(bundleID: String, url: URL?, title: String) -> ContextDecision {
-        distractionEvaluator.evaluate(bundleID: bundleID, url: url, title: title)
+    private func classifyContext(bundleID: String, url: URL?, title: String) -> ClassificationDecision {
+        classificationResolver.resolve(
+            distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title),
+            interactionSummary: preferencesManager.interactionSummaryEnabled
+                ? interactionSummaryProvider.summary(at: Date())
+                : nil
+        )
     }
 
     private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
@@ -218,53 +245,149 @@ final class FocusEngine {
         classifyContext(bundleID: bundleID, url: url, title: title).isFocus
     }
 
+    private func triggerCloudOrVisualFallback(bundleID: String, url: URL?, title: String, generation: Int) {
+        guard generation == contextGeneration,
+              currentApp == bundleID,
+              currentURL == url,
+              currentTitle == title else { return }
+
+        if preferencesManager.enableCloudClassification {
+            RuntimeTrace.event("fallback_cloud_selected", fields: ["bundleID": bundleID, "generation": String(generation)])
+            triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+        } else if preferencesManager.enableImageClassification {
+            RuntimeTrace.event("fallback_visual_selected", fields: ["bundleID": bundleID, "generation": String(generation)])
+            triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+        } else {
+            RuntimeTrace.event("fallbacks_disabled", fields: ["bundleID": bundleID, "generation": String(generation)])
+        }
+    }
+
     private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String, generation: Int) {
-        let appName = getAppName(for: bundleID)
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let ocrText = self?.performOCROnFrontmostWindow() ?? ""
-            let input = CloudClassificationInput(appName: appName, windowTitle: title, url: url, ocrText: ocrText)
-            self?.cloudClassificationService.classify(input) { [weak self] result in
+        let input = CloudClassificationFeatureExtractor.make(
+            appName: getAppName(for: bundleID),
+            bundleID: bundleID,
+            url: url,
+            title: title,
+            source: bundleID == "com.apple.Safari"
+                ? .safari
+                : (BrowserStrategyFactory.isSupportedBrowser(bundleID) ? .chromium : .application)
+        )
+        RuntimeTrace.event("cloud_classification_started", fields: [
+            "bundleID": bundleID,
+            "generation": String(generation),
+            "appCategory": input.appCategory.rawValue,
+            "domainCategory": input.domainCategory.rawValue,
+            "titleFeatures": input.titleFeatures.map(\.rawValue).joined(separator: ","),
+            "source": input.source.rawValue
+        ])
+        cloudClassificationService.classify(input) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self,
+                      generation == self.contextGeneration,
+                      self.currentApp == bundleID,
+                      self.currentURL == url,
+                      self.currentTitle == title else {
+                    RuntimeTrace.event("cloud_result_discarded_stale", fields: ["bundleID": bundleID, "generation": String(generation)])
+                    return
+                }
+
                 switch result {
-                case .success(let isProductive):
-                    guard isProductive else { return }
-                    DispatchQueue.main.async {
-                        self?.promoteNeutralContextIfCurrent(
-                            bundleID: bundleID,
-                            url: url,
-                            title: title,
-                            generation: generation
-                        )
-                    }
-                case .failure(let error):
-                    print("☁️ [Cloud Classifier Error] \(error.localizedDescription)")
+                case .success(let evidence):
+                    RuntimeTrace.event("cloud_classification_finished", fields: [
+                        "bundleID": bundleID,
+                        "label": evidence.label.rawValue,
+                        "confidence": String(evidence.confidence),
+                        "latencyMs": String(Int(evidence.latency * 1000))
+                    ])
+                case .failure:
+                    RuntimeTrace.event("cloud_classification_failed", fields: ["bundleID": bundleID])
+                }
+
+                if case .success(let evidence) = result,
+                   evidence.label == .productive,
+                   evidence.confidence >= ClassificationPolicy.highConfidenceThreshold,
+                   self.promoteNeutralContextIfCurrent(
+                       bundleID: bundleID,
+                       url: url,
+                       title: title,
+                       generation: generation,
+                       promotion: ClassificationEvidence(
+                           label: .productive,
+                           source: .cloudModel,
+                           confidence: evidence.confidence,
+                           reason: .modelEvidence
+                       )
+                   ) {
+                    RuntimeTrace.event("cloud_productive_promotion_applied", fields: ["bundleID": bundleID, "generation": String(generation)])
+                    return
+                }
+
+                if self.preferencesManager.enableImageClassification {
+                    RuntimeTrace.event("cloud_did_not_promote_using_visual_fallback", fields: ["bundleID": bundleID])
+                    self.triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+                } else {
+                    RuntimeTrace.event("cloud_did_not_promote_no_visual_fallback", fields: ["bundleID": bundleID])
                 }
             }
         }
     }
 
     private func triggerAsyncVisualClassification(bundleID: String, url: URL?, title: String, generation: Int) {
+        guard preferencesManager.enableImageClassification else { return }
         let profileName = profileManager.activeProfile.name
+        RuntimeTrace.event("visual_classification_started", fields: ["bundleID": bundleID, "generation": String(generation)])
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard self?.visualChecker.isProductiveVisual(profileName: profileName) == true else { return }
+            let isProductive = self?.visualChecker.isProductiveVisual(profileName: profileName) == true
             DispatchQueue.main.async {
-                self?.promoteNeutralContextIfCurrent(
+                RuntimeTrace.event("visual_classification_finished", fields: [
+                    "bundleID": bundleID,
+                    "productive": String(isProductive)
+                ])
+                guard isProductive else { return }
+                let promoted = self?.promoteNeutralContextIfCurrent(
                     bundleID: bundleID,
                     url: url,
                     title: title,
-                    generation: generation
+                    generation: generation,
+                    promotion: ClassificationEvidence(
+                        label: .productive,
+                        source: .visualFallback,
+                        confidence: 0.85,
+                        reason: .modelEvidence
+                    )
                 )
+                RuntimeTrace.event("visual_productive_promotion_result", fields: [
+                    "bundleID": bundleID,
+                    "applied": String(promoted == true)
+                ])
             }
         }
     }
 
-    private func promoteNeutralContextIfCurrent(bundleID: String, url: URL?, title: String, generation: Int) {
+    @discardableResult
+    private func promoteNeutralContextIfCurrent(
+        bundleID: String,
+        url: URL?,
+        title: String,
+        generation: Int,
+        promotion: ClassificationEvidence
+    ) -> Bool {
         guard generation == contextGeneration,
               currentApp == bundleID,
               currentURL == url,
               currentTitle == title,
-              classifyContext(bundleID: bundleID, url: url, title: title).disposition == .neutral else {
-            return
+              classifyContext(bundleID: bundleID, url: url, title: title).isNeutral else {
+            return false
         }
+
+        let currentEvidence = distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title)
+        let promotedDecision = classificationResolver.resolve(currentEvidence + [promotion])
+        guard promotedDecision.isFocus else {
+            return false
+        }
+
+        currentClassification = promotedDecision
+        NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
         lastWorkAppBundleID = bundleID
         if activeSession != nil {
@@ -275,7 +398,7 @@ final class FocusEngine {
             }
             cancelDistractionTimer()
             distractionStartDate = nil
-            return
+            return true
         }
 
         if workSessionStart == nil {
@@ -284,22 +407,21 @@ final class FocusEngine {
         }
         scheduleFocusPromptTimer()
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
-    }
-
-    private func performOCROnFrontmostWindow() -> String {
-        return ocrProvider.extractText()
+        return true
     }
     
     @objc private func handleActiveProfileChange() {
         guard let currentApp = currentApp else { return }
         
         let now = Date()
-        let disposition = classifyContext(
+        let decision = classifyContext(
             bundleID: currentApp,
             url: currentURL,
             title: currentTitle
         )
-        let isCurrentlyDistraction = disposition.isDistraction
+        currentClassification = decision
+        NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+        let isCurrentlyDistraction = decision.isDistraction
         
         if isCurrentlyDistraction {
             // It is now a distraction under the new active profile
@@ -341,7 +463,7 @@ final class FocusEngine {
                 distractionStartDate = nil
             } else {
                 // No active session: it is now a work or neutral app
-                if disposition.isFocus {
+                if decision.isFocus {
                     lastWorkAppBundleID = currentApp
                     if workSessionStart == nil {
                         workSessionStart = now
@@ -362,6 +484,9 @@ final class FocusEngine {
         currentTitle = title
         contextGeneration += 1
         let now = Date()
+        if preferencesManager.interactionSummaryEnabled {
+            interactionSummaryProvider.beginContext(at: now)
+        }
         
         let context = AppContext(
             bundleIdentifier: bundleID,
@@ -379,8 +504,23 @@ final class FocusEngine {
             observedAt: now
         )
         
-        let disposition = classifyContext(bundleID: bundleID, url: url, title: title)
-        let isFocus = disposition.isFocus
+        let decision = classifyContext(bundleID: bundleID, url: url, title: title)
+        currentClassification = decision
+        RuntimeTrace.event("context_decision", fields: [
+            "bundleID": bundleID,
+            "generation": String(contextGeneration),
+            "label": decision.label.rawValue,
+            "source": decision.source.rawValue,
+            "reason": decision.reason.rawValue,
+            "confidence": String(decision.confidence),
+            "evidence": decision.evidence.map { "\($0.source.rawValue):\($0.label.rawValue):\($0.reason.rawValue)" }.joined(separator: ","),
+            "activeSession": String(activeSession != nil),
+            "dimming": String(isDimming),
+            "urlPresent": String(url != nil),
+            "titleLength": String(title.count)
+        ])
+        NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+        let isFocus = decision.isFocus
         let sanitizedDomain = url?.host ?? "nil"
         print("📱 [Context Switch] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(sanitizedDomain) focus=\(isFocus) titleLen=\(title.count)")
         
@@ -397,18 +537,24 @@ final class FocusEngine {
             ]
         )
 
-        if disposition.disposition == .neutral {
+        if decision.isNeutral {
             let generation = contextGeneration
-            if preferencesManager.enableImageClassification {
-                triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
-            }
-            if preferencesManager.enableCloudClassification {
-                triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+            if preferencesManager.enableLocalTextClassification {
+                RuntimeTrace.event("neutral_local_text_selected", fields: ["bundleID": bundleID, "generation": String(generation)])
+                triggerAsyncLocalTextClassification(snapshot: actualSnapshot, generation: generation)
+            } else {
+                RuntimeTrace.event("neutral_cloud_visual_pipeline_selected", fields: ["bundleID": bundleID, "generation": String(generation)])
+                triggerCloudOrVisualFallback(bundleID: bundleID, url: url, title: title, generation: generation)
             }
         }
         
-        if disposition.isDistraction {
+        if decision.isDistraction {
             // Distraction app/URL detected
+            RuntimeTrace.event("distraction_detected", fields: [
+                "bundleID": bundleID,
+                "activeSession": String(activeSession != nil),
+                "countdownSeconds": String(distractionCountdownThreshold)
+            ])
             print("🚨 [Distraction Detected] bundleID=\(bundleID) domain=\(url?.host ?? "nil") titleLen=\(title.count)")
             if activeSession != nil {
                 // Distraction app detected + active session -> delegate call to show countdown pill
@@ -427,6 +573,7 @@ final class FocusEngine {
                     sessionStore.log(event)
                     
                     delegate?.didDetectDistraction(bundleID: bundleID)
+                    RuntimeTrace.event("distraction_countdown_started", fields: ["bundleID": bundleID])
                     
                     // Start countdown timer
                     scheduleDistractionTimer(distractionBundleID: bundleID)
@@ -436,8 +583,9 @@ final class FocusEngine {
                 requestFocusPromptIfEligible(now: now)
                 resetFocusTracking()
             }
-        } else if disposition.isFocus {
+        } else if decision.isFocus {
             // Whitelisted focus app/URL detected
+            RuntimeTrace.event("focus_context_applied", fields: ["bundleID": bundleID, "activeSession": String(activeSession != nil)])
             print("📈 [Focus Context] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(url?.host ?? "nil") focus=true titleLen=\(title.count)")
             lastWorkAppBundleID = bundleID
             
@@ -458,6 +606,7 @@ final class FocusEngine {
             }
         } else {
             // Neutral app/URL detected
+            RuntimeTrace.event("neutral_context_applied", fields: ["bundleID": bundleID, "activeSession": String(activeSession != nil)])
             if activeSession != nil {
                 let needsUIUpdate = (distractionStartDate != nil && !isDimming)
                 resumeSessionIfNeeded()
@@ -470,6 +619,64 @@ final class FocusEngine {
                 // Check if the user accumulated enough focus time on the previous focus app before switching away
                 requestFocusPromptIfEligible(now: now)
                 resetFocusTracking()
+            }
+        }
+    }
+
+    private func triggerAsyncLocalTextClassification(snapshot: ContextSnapshot, generation: Int) {
+        let identity = snapshot.identity
+        let sanitizedSnapshot = ContextSnapshot(
+            bundleIdentifier: identity.bundleID,
+            localizedName: snapshot.localizedName,
+            url: identity.sanitizedURL.flatMap(URL.init(string:)),
+            title: identity.normalizedTitle,
+            source: snapshot.source,
+            observedAt: snapshot.observedAt
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.localTextClassifier.classify(snapshot: sanitizedSnapshot)
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      generation == self.contextGeneration,
+                      self.currentApp == snapshot.bundleIdentifier,
+                      self.currentURL == snapshot.url,
+                      self.currentTitle == snapshot.title else {
+                    RuntimeTrace.event("local_text_result_discarded_stale", fields: ["bundleID": snapshot.bundleIdentifier, "generation": String(generation)])
+                    return
+                }
+
+                RuntimeTrace.event("local_text_classification_finished", fields: [
+                    "bundleID": snapshot.bundleIdentifier,
+                    "label": result.label.rawValue,
+                    "confidence": String(result.confidence),
+                    "latencyMs": String(Int(result.latency * 1000))
+                ])
+
+                if result.label == .productive,
+                   result.confidence >= ClassificationPolicy.highConfidenceThreshold,
+                   self.promoteNeutralContextIfCurrent(
+                       bundleID: snapshot.bundleIdentifier,
+                       url: snapshot.url,
+                       title: snapshot.title,
+                       generation: generation,
+                       promotion: ClassificationEvidence(
+                           label: .productive,
+                           source: .localModel,
+                           confidence: result.confidence,
+                           reason: .modelEvidence
+                       )
+                   ) {
+                    return
+                }
+
+                self.triggerCloudOrVisualFallback(
+                    bundleID: snapshot.bundleIdentifier,
+                    url: snapshot.url,
+                    title: snapshot.title,
+                    generation: generation
+                )
             }
         }
     }
@@ -502,6 +709,34 @@ final class FocusEngine {
         }
     }
     
+    /// Applies a user correction as an explicit profile rule.
+    func applyCorrection(_ correction: ClassificationCorrection) {
+        guard let bundleID = currentApp else { return }
+        let originalDecision = currentClassification
+        guard profileManager.applyCorrection(correction, bundleID: bundleID, url: currentURL) else { return }
+
+        // ProfileManager broadcasts the profile change synchronously. Re-read
+        // the current context so callers observe the correction immediately.
+        currentClassification = classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle)
+        NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+
+        let correctedLabel: ClassificationLabel = correction == .allowApp
+            || correction == .allowDomain
+            || correction == .markSessionProductive
+            ? .productive
+            : .distracting
+        ClassificationFeedbackStore.shared.record(
+            ClassificationFeedback(
+                bundleID: bundleID,
+                domain: currentURL?.host,
+                originalLabel: originalDecision.label,
+                correctedLabel: correctedLabel,
+                correction: correction,
+                source: originalDecision.source
+            )
+        )
+    }
+
     /// Locks in an active focused session.
     func anchorSession(duration: TimeInterval, category: String? = nil, goal: String? = nil) {
         let now = Date()
@@ -516,6 +751,11 @@ final class FocusEngine {
             goal: goal
         )
         self.activeSession = session
+        RuntimeTrace.event("session_anchored", fields: [
+            "duration": String(duration),
+            "appBundleID": lastWorkAppBundleID ?? "",
+            "hasGoal": String(goal != nil)
+        ])
         cancelFocusPromptTimer()
         
         // Reset idle tracking
@@ -676,6 +916,11 @@ final class FocusEngine {
         guard elapsed >= focusThreshold else { return }
 
         hasPromptedForCurrentFocusRun = true
+        RuntimeTrace.event("focus_prompt_requested", fields: [
+            "elapsed": String(now.timeIntervalSince(start)),
+            "threshold": String(focusThreshold),
+            "appBundleID": lastWorkAppBundleID ?? currentApp ?? ""
+        ])
         cancelFocusPromptTimer()
         let focusedAppName = getAppName(for: lastWorkAppBundleID ?? currentApp ?? "")
         delegate?.didRequestExitTrigger(duration: elapsed, appName: focusedAppName)
@@ -724,6 +969,7 @@ final class FocusEngine {
     
     internal func distractionTimerExpired(distractionBundleID: String) {
         isDimming = true
+        RuntimeTrace.event("distraction_timer_expired", fields: ["bundleID": distractionBundleID])
         pausedDate = Date()
         cancelSessionTimer()
         cancelDistractionTimer()
@@ -836,8 +1082,7 @@ enum SmartAppClassifier {
 }
 
 enum SmartWebClassifier {
-    static func isCodingForumOrDoc(url: URL?, title: String) -> Bool {
-        let titleLower = title.lowercased()
+    static func isCodingForumOrDoc(url: URL?, title _: String) -> Bool {
         let urlString = url?.absoluteString.lowercased() ?? ""
         
         let codingKeywords = [
@@ -852,8 +1097,10 @@ enum SmartWebClassifier {
             "kubernetes", "flutter", "vue", "angular", "node.js", "next.js"
         ]
         
+        // Titles alone are weak and may be arbitrary user text. Require a
+        // URL signal before promoting a browser context to productive.
         let matchesKeyword = codingKeywords.contains { keyword in
-            titleLower.contains(keyword) || urlString.contains(keyword)
+            urlString.contains(keyword)
         }
         
         return matchesKeyword
@@ -861,8 +1108,7 @@ enum SmartWebClassifier {
 }
 
 enum SmartImageClassifier {
-    static func isProductiveVisual(profileName: String) -> Bool {
-        let prefs = PreferencesManager.shared
+    static func isProductiveVisual(profileName: String, preferences prefs: PreferencesManager = .shared) -> Bool {
         guard prefs.enableImageClassification else {
             return false
         }
@@ -1049,4 +1295,5 @@ except Exception as e:
 extension Notification.Name {
     static let focusEngineStateDidChange = Notification.Name("com.varun.Anchored.focusEngineStateDidChange")
     static let focusEngineContextDidChange = Notification.Name("com.varun.Anchored.focusEngineContextDidChange")
+    static let focusEngineClassificationDidChange = Notification.Name("com.varun.Anchored.focusEngineClassificationDidChange")
 }

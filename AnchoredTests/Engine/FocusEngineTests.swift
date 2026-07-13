@@ -142,7 +142,7 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.exitTriggers.first?.appName, "Xcode")
     }
 
-    func testBrowserEntertainmentDoesNotStartFocusTracking() {
+    func testAllowedBrowserAppOverridesEntertainmentHeuristic() {
         let profile = WorkProfile(
             name: "Browser",
             allowedApps: ["com.google.Chrome"]
@@ -156,8 +156,8 @@ final class FocusEngineTests: XCTestCase {
             title: "Gaming highlights - YouTube"
         )
 
-        XCTAssertEqual(engine.state, .idle)
-        XCTAssertNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertNotNil(engine.workSessionStart)
     }
 
     func testBrowserWorkContextStartsFocusTracking() {
@@ -176,6 +176,97 @@ final class FocusEngineTests: XCTestCase {
 
         XCTAssertEqual(engine.state, .watching)
         XCTAssertNotNil(engine.workSessionStart)
+    }
+
+    func testCorrectionImmediatelyChangesCurrentClassification() {
+        let profile = WorkProfile(name: "Correction")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Editor")
+        XCTAssertTrue(engine.currentClassification.isNeutral)
+
+        engine.applyCorrection(.blockApp)
+        XCTAssertTrue(engine.currentClassification.isDistraction)
+        XCTAssertTrue(profileManager.activeProfile.distractionApps.contains("com.example.Editor"))
+
+        engine.applyCorrection(.allowApp)
+        XCTAssertTrue(engine.currentClassification.isFocus)
+        XCTAssertFalse(profileManager.activeProfile.distractionApps.contains("com.example.Editor"))
+        XCTAssertTrue(profileManager.activeProfile.allowedApps.contains("com.example.Editor"))
+    }
+
+    func testOptInLocalClassifierPromotesOnlyCurrentNeutralContext() {
+        testPreferences.enableLocalTextClassification = true
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: ProductiveTestClassifier()
+        )
+
+        let promotion = expectation(description: "local productive result promotes current neutral context")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .focusEngineClassificationDidChange,
+            object: engine,
+            queue: .main
+        ) { [weak engine] _ in
+            if engine?.currentClassification.isFocus == true {
+                promotion.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+
+        wait(for: [promotion], timeout: 1.0)
+        XCTAssertTrue(engine.currentClassification.isFocus)
+    }
+
+    func testStaleLocalClassifierResultCannotPromoteNewerContext() {
+        testPreferences.enableLocalTextClassification = true
+        let classifier = DeferredContextClassifier()
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: classifier
+        )
+
+        let request = expectation(description: "local classifier request received")
+        classifier.onRequest = { request.fulfill() }
+        let unexpectedPromotion = expectation(description: "stale local result must not promote")
+        unexpectedPromotion.isInverted = true
+        let observer = NotificationCenter.default.addObserver(
+            forName: .focusEngineClassificationDidChange,
+            object: engine,
+            queue: .main
+        ) { [weak engine] _ in
+            if engine?.currentClassification.isFocus == true {
+                unexpectedPromotion.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+        wait(for: [request], timeout: 1.0)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        classifier.complete(.productive)
+
+        wait(for: [unexpectedPromotion], timeout: 0.2)
+        XCTAssertTrue(engine.currentClassification.isDistraction)
     }
     
     // MARK: - Capsule Actions
@@ -985,6 +1076,45 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNil(localEngine.lastWorkAppBundleID)
         localEngine.stop()
     }
+
+    func testVisualFallbackWaitsUntilCloudClassificationStaysNeutral() {
+        let cloudService = DeferredCloudClassificationService()
+        let visualChecker = RecordingVisualChecker()
+        testPreferences.enableCloudClassification = true
+        testPreferences.enableImageClassification = true
+
+        let cloudRequest = expectation(description: "structured cloud request received")
+        cloudService.onRequest = { cloudRequest.fulfill() }
+        let visualRequest = expectation(description: "visual fallback request received")
+        visualChecker.onRequest = { visualRequest.fulfill() }
+
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: visualChecker,
+            cloudClassificationService: cloudService
+        )
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+        wait(for: [cloudRequest], timeout: 1)
+        XCTAssertFalse(visualChecker.didRequest)
+
+        cloudService.complete(.success(ClassificationResult(
+            label: .neutral,
+            confidence: 0.90,
+            modelVersion: "test-cloud",
+            latency: 0,
+            explanation: "neutral"
+        )))
+        wait(for: [visualRequest], timeout: 1)
+        XCTAssertTrue(visualChecker.didRequest)
+    }
     
     // MARK: - Helper Methods
     
@@ -992,6 +1122,55 @@ final class FocusEngineTests: XCTestCase {
         // Flush queue by doing a sync read:
         _ = sessionStore.recentSessions(limit: 1)
         return sessionStore.allEvents()
+    }
+}
+
+private final class ProductiveTestClassifier: ContextClassifying, Sendable {
+    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+        ClassificationResult(
+            label: .productive,
+            confidence: 0.95,
+            modelVersion: "test-local",
+            latency: 0,
+            explanation: "test productive result"
+        )
+    }
+}
+
+private final class DeferredContextClassifier: ContextClassifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pendingResult: ClassificationResult?
+    private var pendingSignal: DispatchSemaphore?
+    var onRequest: (() -> Void)?
+
+    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+        let semaphore = DispatchSemaphore(value: 0)
+        lock.lock()
+        pendingResult = nil
+        pendingSignal = semaphore
+        lock.unlock()
+        onRequest?()
+        semaphore.wait()
+
+        lock.lock()
+        let result = pendingResult ?? ClassificationResult.neutralMock(version: "test-local")
+        pendingSignal = nil
+        lock.unlock()
+        return result
+    }
+
+    func complete(_ label: ClassificationLabel) {
+        lock.lock()
+        pendingResult = ClassificationResult(
+            label: label,
+            confidence: 0.95,
+            modelVersion: "test-local",
+            latency: 0,
+            explanation: "test deferred result"
+        )
+        let signal = pendingSignal
+        lock.unlock()
+        signal?.signal()
     }
 }
 
@@ -1063,16 +1242,39 @@ struct MockVisualChecker: VisualProductivityChecking {
     }
 }
 
-final class DeferredCloudClassificationService: CloudClassificationServing {
-    private var completion: ((Result<Bool, Error>) -> Void)?
+private final class RecordingVisualChecker: VisualProductivityChecking {
+    var didRequest = false
     var onRequest: (() -> Void)?
 
-    func classify(_ input: CloudClassificationInput, completion: @escaping (Result<Bool, Error>) -> Void) {
+    func isProductiveVisual(profileName: String) -> Bool {
+        didRequest = true
+        onRequest?()
+        return false
+    }
+}
+
+final class DeferredCloudClassificationService: CloudClassificationServing {
+    private var completion: ((Result<ClassificationResult, Error>) -> Void)?
+    var onRequest: (() -> Void)?
+
+    func classify(_ input: CloudClassificationInput, completion: @escaping (Result<ClassificationResult, Error>) -> Void) {
         self.completion = completion
         onRequest?()
     }
 
-    func complete(_ result: Result<Bool, Error>) {
+    func complete(_ result: Result<ClassificationResult, Error>) {
         completion?(result)
+    }
+
+    func complete(_ result: Result<Bool, Error>) {
+        completion?(result.map { isProductive in
+            ClassificationResult(
+                label: isProductive ? .productive : .distracting,
+                confidence: 0.85,
+                modelVersion: "test-cloud",
+                latency: 0,
+                explanation: "test cloud result"
+            )
+        })
     }
 }

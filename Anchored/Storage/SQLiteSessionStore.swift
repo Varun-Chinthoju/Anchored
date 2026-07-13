@@ -182,6 +182,42 @@ class SQLiteSessionStore {
             )
         }
     }
+
+    func insertClassificationFeedback(_ feedback: ClassificationFeedback) throws {
+        try dbQueue.write { db in
+            try feedback.insert(db)
+        }
+    }
+
+    func deleteAllClassificationFeedback() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM classification_feedback;")
+        }
+    }
+
+    func deleteClassificationFeedback(olderThan cutoffDate: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM classification_feedback WHERE createdAt < ?;",
+                arguments: [cutoffDate]
+            )
+        }
+    }
+
+    func classificationFeedbackCount() throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM classification_feedback;") ?? 0
+        }
+    }
+
+    func oldestClassificationFeedbackDate() throws -> Date? {
+        try dbQueue.read { db in
+            try Date.fetchOne(
+                db,
+                sql: "SELECT createdAt FROM classification_feedback ORDER BY createdAt ASC, rowid ASC LIMIT 1;"
+            )
+        }
+    }
     
     func migrateFromJSONIfNeeded(jsonURL: URL) {
         queue.sync {
