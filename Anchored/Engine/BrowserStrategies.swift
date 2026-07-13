@@ -48,7 +48,7 @@ public class ChromiumBrowserStrategy: BrowserStrategy {
             case .success(let response):
                 let responseTrimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !responseTrimmed.isEmpty else {
-                    completion(.failure(.execFailed("Empty response from browser")))
+                    self.executeAccessibilityFallback(completion: completion, originalError: .execFailed("Empty response from browser"))
                     return
                 }
                 
@@ -63,24 +63,40 @@ public class ChromiumBrowserStrategy: BrowserStrategy {
                     urlString = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
                     title = ""
                 } else {
-                    completion(.failure(.execFailed("Invalid script output format")))
+                    self.executeAccessibilityFallback(completion: completion, originalError: .execFailed("Invalid script output format"))
                     return
                 }
                 
                 guard !urlString.isEmpty, let url = URL(string: urlString), url.scheme != nil else {
-                    completion(.failure(.execFailed("Invalid URL string: \(urlString)")))
+                    self.executeAccessibilityFallback(completion: completion, originalError: .execFailed("Invalid URL string: \(urlString)"))
                     return
                 }
                 
                 completion(.success(BrowserContext(title: title, url: url)))
                 
             case .failure(let error):
+                let mappedError: CollectionError
                 switch error {
                 case .timedOut:
-                    completion(.failure(.timedOut))
+                    mappedError = .timedOut
                 case .execFailed(let msg):
-                    completion(.failure(.execFailed(msg)))
+                    mappedError = .execFailed(msg)
                 }
+                self.executeAccessibilityFallback(completion: completion, originalError: mappedError)
+            }
+        }
+    }
+    
+    private func executeAccessibilityFallback(
+        completion: @escaping (Result<BrowserContext, CollectionError>) -> Void,
+        originalError: CollectionError
+    ) {
+        AccessibilityBrowserHelper.getActiveContext(bundleIdentifier: bundleIdentifier) { result in
+            switch result {
+            case .success(let context):
+                completion(.success(context))
+            case .failure:
+                completion(.failure(originalError))
             }
         }
     }
@@ -119,32 +135,36 @@ public class SafariBrowserStrategy: BrowserStrategy {
         end tell
         """
         
-        executor.execute(jsScriptSource, timeout: 0.75) { [weak self] result in
-            guard let self = self else { return }
+        executor.execute(jsScriptSource, timeout: 0.75) { result in
             switch result {
             case .success(let response):
                 let responseTrimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !responseTrimmed.isEmpty, let context = self.parseResponse(responseTrimmed) {
                     completion(.success(context))
                 } else {
-                    self.executeFallback(completion: completion)
+                    self.executeFallback(completion: completion, originalError: .execFailed("JS empty/invalid response"))
                 }
                 
             case .failure(let error):
+                let mappedError: CollectionError
                 switch error {
                 case .timedOut:
-                    completion(.failure(.timedOut))
+                    mappedError = .timedOut
                 case .execFailed(let msg):
+                    mappedError = .execFailed(msg)
                     if msg.contains("Allow JavaScript from Apple Events") || msg.contains("errAEEventNotAllowed") || msg.contains("code 8") {
                         self.handleDisabledJavaScript()
                     }
-                    self.executeFallback(completion: completion)
                 }
+                self.executeFallback(completion: completion, originalError: mappedError)
             }
         }
     }
     
-    private func executeFallback(completion: @escaping (Result<BrowserContext, CollectionError>) -> Void) {
+    private func executeFallback(
+        completion: @escaping (Result<BrowserContext, CollectionError>) -> Void,
+        originalError: CollectionError
+    ) {
         let fallbackScriptSource = """
         tell application "Safari"
             if window 1 exists then
@@ -153,23 +173,38 @@ public class SafariBrowserStrategy: BrowserStrategy {
         end tell
         """
         
-        executor.execute(fallbackScriptSource, timeout: 0.75) { [weak self] result in
-            guard let self = self else { return }
+        executor.execute(fallbackScriptSource, timeout: 0.75) { result in
             switch result {
             case .success(let response):
                 let responseTrimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !responseTrimmed.isEmpty, let context = self.parseResponse(responseTrimmed) {
                     completion(.success(context))
                 } else {
-                    completion(.failure(.execFailed("Fallback empty/invalid")))
+                    self.executeAccessibilityFallback(completion: completion, originalError: .execFailed("Fallback empty/invalid"))
                 }
             case .failure(let error):
+                let fallbackError: CollectionError
                 switch error {
                 case .timedOut:
-                    completion(.failure(.timedOut))
+                    fallbackError = .timedOut
                 case .execFailed(let msg):
-                    completion(.failure(.execFailed(msg)))
+                    fallbackError = .execFailed(msg)
                 }
+                self.executeAccessibilityFallback(completion: completion, originalError: fallbackError)
+            }
+        }
+    }
+    
+    private func executeAccessibilityFallback(
+        completion: @escaping (Result<BrowserContext, CollectionError>) -> Void,
+        originalError: CollectionError
+    ) {
+        AccessibilityBrowserHelper.getActiveContext(bundleIdentifier: bundleIdentifier) { result in
+            switch result {
+            case .success(let context):
+                completion(.success(context))
+            case .failure:
+                completion(.failure(originalError))
             }
         }
     }
@@ -208,12 +243,11 @@ public class SafariBrowserStrategy: BrowserStrategy {
 /// Strategy for fetching the active URL from Firefox using the Accessibility API asynchronously.
 public class FirefoxBrowserStrategy: BrowserStrategy {
     public let bundleIdentifier = "org.mozilla.firefox"
-    private let queue = DispatchQueue(label: "com.varun.Anchored.FirefoxBrowserStrategy", qos: .userInitiated)
     
     public init() {}
     
     public func getActiveContext(completion: @escaping (Result<BrowserContext, CollectionError>) -> Void) {
-        queue.async { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             guard let firefoxApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == self.bundleIdentifier }) else {
                 completion(.failure(.execFailed("Firefox not running")))
@@ -221,6 +255,7 @@ public class FirefoxBrowserStrategy: BrowserStrategy {
             }
             
             let appRef = AXUIElementCreateApplication(firefoxApp.processIdentifier)
+            AXUIElementSetMessagingTimeout(appRef, 0.25)
             
             let targetWindow: AXUIElement
             var windowRef: AnyObject?
@@ -310,5 +345,98 @@ public struct BrowserStrategyFactory {
     
     public static func isSupportedBrowser(_ bundleIdentifier: String) -> Bool {
         return strategy(for: bundleIdentifier) != nil
+    }
+}
+
+internal struct AccessibilityBrowserHelper {
+    static func getActiveContext(
+        bundleIdentifier: String,
+        completion: @escaping (Result<BrowserContext, CollectionError>) -> Void
+    ) {
+        DispatchQueue.main.async {
+            guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) else {
+                completion(.failure(.execFailed("Application not running")))
+                return
+            }
+            
+            let appRef = AXUIElementCreateApplication(app.processIdentifier)
+            AXUIElementSetMessagingTimeout(appRef, 0.25)
+            
+            let targetWindow: AXUIElement
+            var windowRef: AnyObject?
+            let windowError = AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &windowRef)
+            
+            if windowError == .success, let activeWindow = windowRef {
+                targetWindow = activeWindow as! AXUIElement
+            } else {
+                var windowsRef: AnyObject?
+                let windowsError = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &windowsRef)
+                guard windowsError == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
+                    completion(.failure(.execFailed("Window unavailable")))
+                    return
+                }
+                targetWindow = windows[0]
+            }
+            
+            var titleRef: AnyObject?
+            let titleError = AXUIElementCopyAttributeValue(targetWindow, kAXTitleAttribute as CFString, &titleRef)
+            let title = (titleError == .success ? titleRef as? String : nil) ?? ""
+            
+            var visitedCount = 0
+            if let url = findURL(in: targetWindow, depth: 0, visitedCount: &visitedCount) {
+                completion(.success(BrowserContext(title: title, url: url)))
+            } else {
+                completion(.failure(.execFailed("URL not found via Accessibility")))
+            }
+        }
+    }
+    
+    private static func findURL(in element: AXUIElement, depth: Int, visitedCount: inout Int) -> URL? {
+        guard depth <= 16, visitedCount < 256 else { return nil }
+        visitedCount += 1
+        
+        var urlValue: AnyObject?
+        let urlError = AXUIElementCopyAttributeValue(element, "AXURL" as CFString, &urlValue)
+        if urlError == .success {
+            if let url = urlValue as? URL {
+                return url
+            } else if let urlStr = urlValue as? String, let url = URL(string: urlStr), url.host != nil {
+                return url
+            }
+        }
+        
+        var roleValue: AnyObject?
+        let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+        if roleError == .success, let role = roleValue as? String {
+            if role == kAXTextFieldRole || role == "AXComboBox" || role == "AXSearchField" || role == "AXAddressIndicator" {
+                var valueRef: AnyObject?
+                let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+                if valueError == .success, let urlStr = valueRef as? String {
+                    let trimmed = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        if trimmed.contains("://") || trimmed.contains(".") {
+                            let finalUrlStr = trimmed.contains("://") ? trimmed : "https://" + trimmed
+                            if let url = URL(string: finalUrlStr), url.host != nil, url.host!.contains(".") {
+                                return url
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        var childrenRef: AnyObject?
+        let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
+        guard childrenError == .success, let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+        
+        for child in children {
+            if let url = findURL(in: child, depth: depth + 1, visitedCount: &visitedCount) {
+                return url
+            }
+        }
+        
+        return nil
     }
 }

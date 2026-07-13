@@ -121,18 +121,32 @@ public struct SystemAccessibilityContextProvider: AccessibilityContextProviding 
 public struct SystemAccessibilityNodeSource: AccessibilityNodeSource {
     public init() {}
 
+    private func runOnMainThread<T>(_ block: () -> T) -> T {
+        if Thread.isMainThread {
+            return block()
+        } else {
+            return DispatchQueue.main.sync {
+                block()
+            }
+        }
+    }
+
     public func rootNode(for bundleID: String) -> AccessibilityNode? {
-        guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) else {
-            return nil
-        }
+        runOnMainThread {
+            guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) else {
+                return nil
+            }
 
-        let appRef = AXUIElementCreateApplication(app.processIdentifier)
-        guard let window = focusedWindow(for: appRef) ?? firstWindow(for: appRef) else {
-            return nil
-        }
+            let appRef = AXUIElementCreateApplication(app.processIdentifier)
+            AXUIElementSetMessagingTimeout(appRef, 0.25)
+            
+            guard let window = focusedWindow(for: appRef) ?? firstWindow(for: appRef) else {
+                return nil
+            }
 
-        var visitedCount = 0
-        return snapshot(from: window, depth: 0, visitedCount: &visitedCount)
+            var visitedCount = 0
+            return snapshot(from: window, depth: 0, visitedCount: &visitedCount)
+        }
     }
 
     private func focusedWindow(for appRef: AXUIElement) -> AXUIElement? {
