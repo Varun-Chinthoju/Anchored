@@ -53,8 +53,8 @@ Never commit secrets, local databases, DerivedData, or generated Xcode projects.
 
 ## Architecture Doc And Agent Workflow
 
-Start repo orientation with [docs/architecture/anchored-architecture.md](/Users/varun/Development/Anchor/docs/architecture/anchored-architecture.md). It is the canonical map of runtime flows, key modules, storage boundaries, invariants, and the V2.6 impact surface.
+Start repo orientation with [docs/architecture/anchored-architecture.md](docs/architecture/anchored-architecture.md). It is the canonical map of runtime flows, key modules, storage boundaries, invariants, and the V2.6 impact surface.
 
-For every major update, read and follow [docs/skills/anchored-architecture-maintainer/SKILL.md](/Users/varun/Development/Anchor/docs/skills/anchored-architecture-maintainer/SKILL.md) before finishing the task. A major update includes any change that alters architecture, runtime composition, engine behavior, persistence shape, permissions/privacy flow, module ownership, or the archived V2.6 implementation plan in `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`.
+For every major update, read and follow [docs/skills/anchored-architecture-maintainer/SKILL.md](docs/skills/anchored-architecture-maintainer/SKILL.md) before finishing the task. A major update includes any change that alters architecture, runtime composition, engine behavior, persistence shape, permissions/privacy flow, module ownership, or the archived V2.6 implementation plan in `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`.
 
 Major updates are not complete until the architecture doc is updated to reflect the shipped code and any still-open gaps.

@@ -8,7 +8,7 @@ Please review these guidelines before making changes.
 
 ## 📜 Code of Conduct
 
-All contributors are expected to follow our [Code of Conduct](file:///Users/varun/Development/Anchor/CODE_OF_CONDUCT.md). Please report any unacceptable behavior to **varun.chinthoju@gmail.com**.
+All contributors are expected to follow our [Code of Conduct](CODE_OF_CONDUCT.md). Please report any unacceptable behavior to **varun.chinthoju@gmail.com**.
 
 ---
 
@@ -50,7 +50,7 @@ Anchored features a bespoke, rich dark user interface. When building UI componen
 * **Friction overlays:** Dimming overlays should use smooth gradients and drop shadows to ensure readability.
 
 ### 2. FocusEngine State Machine
-The core focus tracking state machine is located in [FocusEngine](file:///Users/varun/Development/Anchor/Anchored/Engine/FocusEngine.swift). All state transitions must follow a strict flow:
+The core focus tracking state machine is located in [FocusEngine](Anchored/Engine/FocusEngine.swift). All state transitions must follow a strict flow:
 * **Idle** ➜ **Watching** (when a Whitelisted App/URL is active).
 * **Watching** ➜ **Prompting** (when switching to a Distraction/Neutral app for too long).
 * **Prompting** ➜ **Anchored** (when the user starts a session) or **Idle** (dismiss/timeout).
@@ -68,14 +68,14 @@ To ensure zero upfront friction:
 * All focus sessions and events are persisted in `anchored.db`.
 * **Writing:** Perform all database writes/insertions asynchronously on a background thread.
 * **Reading:** Use synchronous reads on a serial queue to prevent concurrency anomalies.
-* **Important:** Do NOT write raw SQLite queries outside [SQLiteSessionStore.swift](file:///Users/varun/Development/Anchor/Anchored/Storage/SQLiteSessionStore.swift) or [DashboardQueries.swift](file:///Users/varun/Development/Anchor/Anchored/Storage/DashboardQueries.swift).
+* **Important:** Do NOT write raw SQLite queries outside [SQLiteSessionStore.swift](Anchored/Storage/SQLiteSessionStore.swift) or [DashboardQueries.swift](Anchored/Storage/DashboardQueries.swift).
 
 ### 5. Browser Strategies
 If you are adding or modifying tracking behavior for web browsers:
 * **Chromium (Chrome, Arc, Edge, Brave, Orion):** Use AppleScript via `ChromiumBrowserStrategy` to query active tab URLs.
 * **Safari:** Use AppleScript via `SafariBrowserStrategy` (make sure "Allow JavaScript from Apple Events" is enabled in Safari's Develop settings).
 * **Firefox:** Query the macOS Accessibility API (`AXUIElement`) by traversing the window tree down to `AXToolbar` and locating `AXTextField` to parse the URL address.
-* Register all strategies in `BrowserStrategyFactory` inside [BrowserStrategies.swift](file:///Users/varun/Development/Anchor/Anchored/Engine/BrowserStrategies.swift).
+* Register all strategies in `BrowserStrategyFactory` inside [BrowserStrategies.swift](Anchored/Engine/BrowserStrategies.swift).
 
 ---
 
