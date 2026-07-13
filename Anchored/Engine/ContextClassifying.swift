@@ -12,7 +12,8 @@ import Foundation
 ///         // generation check, then DispatchQueue.main.async for state update
 ///     }
 ///   This preserves V2.6 non-blocking invariant and keeps p95 <50ms off main.
-/// - Precedence documented in ClassificationPolicy: explicit rules > override cache > ML > neutral.
+/// - ClassificationResolver owns precedence; this protocol only returns
+///   evidence/results and never enforces focus state.
 public protocol ContextClassifying: Sendable {
     func classify(snapshot: ContextSnapshot) -> ClassificationResult
 }

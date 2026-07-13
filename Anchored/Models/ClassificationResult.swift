@@ -6,6 +6,103 @@ public enum ClassificationLabel: String, Codable, Equatable, CaseIterable, Senda
     case neutral
 }
 
+/// The policy stage that produced an evidence item or final decision.
+///
+/// These cases intentionally describe trusted categories rather than carrying
+/// app names, domains, titles, or model-generated text. That keeps the decision
+/// trace safe to expose to the UI and safe to retain in future diagnostics.
+public enum ClassificationSource: String, Codable, Equatable, CaseIterable, Sendable {
+    case explicitDomainRule
+    case explicitAppRule
+    case deterministicRule
+    case heuristic
+    case localModel
+    case cloudModel
+    case visualFallback
+    case neutralFallback
+
+    public var isExplicitRule: Bool {
+        switch self {
+        case .explicitDomainRule, .explicitAppRule:
+            return true
+        case .deterministicRule, .heuristic, .localModel, .cloudModel, .visualFallback, .neutralFallback:
+            return false
+        }
+    }
+}
+
+/// A bounded, UI-safe explanation category. Raw context must never be placed
+/// in a classification reason.
+public enum ClassificationReason: String, Codable, Equatable, CaseIterable, Sendable {
+    case explicitAllowRule
+    case explicitBlockRule
+    case deterministicRule
+    case deterministicHeuristic
+    case modelEvidence
+    case conflictingEvidence
+    case lowConfidence
+    case optionalDistractionIsNonEnforcing
+    case neutralFallback
+}
+
+public struct ClassificationEvidence: Equatable, Codable, Sendable {
+    public let label: ClassificationLabel
+    public let source: ClassificationSource
+    public let confidence: Double
+    public let reason: ClassificationReason
+
+    public init(
+        label: ClassificationLabel,
+        source: ClassificationSource,
+        confidence: Double,
+        reason: ClassificationReason
+    ) {
+        self.label = label
+        self.source = source
+        self.confidence = min(max(confidence, 0.0), 1.0)
+        self.reason = reason
+    }
+}
+
+public struct ClassificationDecision: Equatable, Codable, Sendable {
+    public let label: ClassificationLabel
+    public let confidence: Double
+    public let source: ClassificationSource
+    public let reason: ClassificationReason
+    public let evidence: [ClassificationEvidence]
+
+    public var isFocus: Bool { label == .productive }
+    public var isDistraction: Bool { label == .distracting }
+    public var isNeutral: Bool { label == .neutral }
+
+    public init(
+        label: ClassificationLabel,
+        confidence: Double,
+        source: ClassificationSource,
+        reason: ClassificationReason,
+        evidence: [ClassificationEvidence]
+    ) {
+        self.label = label
+        self.confidence = min(max(confidence, 0.0), 1.0)
+        self.source = source
+        self.reason = reason
+        self.evidence = evidence
+    }
+
+    public static func neutral(
+        reason: ClassificationReason = .neutralFallback,
+        evidence: [ClassificationEvidence] = []
+    ) -> ClassificationDecision {
+        ClassificationDecision(
+            label: .neutral,
+            confidence: 0.0,
+            source: .neutralFallback,
+            reason: reason,
+            evidence: evidence
+        )
+    }
+}
+
 public struct ClassificationResult: Equatable, Codable, Sendable {
     public let label: ClassificationLabel
     public let confidence: Double
@@ -39,12 +136,14 @@ public struct ClassificationResult: Equatable, Codable, Sendable {
 }
 
 public enum ClassificationPolicy {
-    /// Precedence (highest to lowest):
-    /// 1. explicit domain rules - allowed domains, then blocked domains
-    /// 2. local browser/app heuristics and profile app rules
-    /// 3. optional visual classification, only to promote a still-current neutral context
-    /// 4. optional cloud classification, using the same stale-result guard
-    /// 5. neutral fallback - uncertain, timed-out, or failed predictions never trigger blocking
+    /// Precedence (highest to lowest): explicit domain rules, explicit app
+    /// rules, deterministic rules, heuristics, local model, cloud model,
+    /// experimental visual fallback, and neutral fallback.
+    ///
+    /// Within one explicit target, an allowed rule wins over a blocked rule to
+    /// preserve the legacy duplicate-domain behavior. A domain rule always
+    /// outranks an app rule. Optional model evidence may promote only to
+    /// productive and never enforces distraction.
     ///
     /// Privacy: classification input is sanitized ContextSnapshot only (bundleID, host/path, normalized title via ContextSanitizer).
     /// Safety: asynchronous classifiers cannot directly start dimming/blocking.
@@ -52,9 +151,12 @@ public enum ClassificationPolicy {
 
     public static let precedence: [String] = [
         "explicitDomainRules",
-        "localHeuristicsAndProfileRules",
-        "visualNeutralPromotion",
-        "cloudNeutralPromotion",
+        "explicitAppRules",
+        "deterministicRules",
+        "heuristics",
+        "localModelPromotion",
+        "cloudModelPromotion",
+        "visualFallbackPromotion",
         "neutralFallback"
     ]
 
@@ -69,5 +171,26 @@ public enum ClassificationPolicy {
 
     public static func resolveToNeutralIfUncertain(confidence: Double) -> Bool {
         return confidence < lowConfidenceThreshold
+    }
+
+    public static func rank(of source: ClassificationSource) -> Int {
+        switch source {
+        case .explicitDomainRule:
+            return 0
+        case .explicitAppRule:
+            return 1
+        case .deterministicRule:
+            return 2
+        case .heuristic:
+            return 3
+        case .localModel:
+            return 4
+        case .cloudModel:
+            return 5
+        case .visualFallback:
+            return 6
+        case .neutralFallback:
+            return 7
+        }
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 public struct ContextSnapshot: Codable, Equatable {
-    public enum Source: String, Codable, Equatable {
+    public enum Source: String, Codable, Equatable, Sendable {
         case application
         case chromium
         case safari

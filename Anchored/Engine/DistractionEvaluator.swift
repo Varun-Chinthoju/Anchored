@@ -1,86 +1,87 @@
 import Foundation
 
-/// The deterministic, synchronous classification boundary used by FocusEngine.
+/// Produces deterministic and heuristic evidence for one context.
 ///
-/// A decision here is final for explicit rules. Optional visual and cloud services may
-/// only promote a neutral decision after FocusEngine verifies the context is still current.
-enum ContextDisposition: Equatable {
-    case focus
-    case distraction
-    case neutral
-}
-
-enum ContextDecisionSource: Equatable {
-    case explicitAllowedDomain
-    case explicitBlockedDomain
-    case profileAllowedApp
-    case profileBlockedApp
-    case browserHeuristic
-    case localHeuristic
-    case neutralFallback
-}
-
-struct ContextDecision: Equatable {
-    let disposition: ContextDisposition
-    let source: ContextDecisionSource
-
-    var isFocus: Bool { disposition == .focus }
-    var isDistraction: Bool { disposition == .distraction }
-}
-
-/// Keeps rule precedence independent from timers, persistence, overlays, and async work.
+/// This type does not resolve conflicts or change FocusEngine state. The
+/// `ClassificationResolver` is the only owner of precedence and final labels.
 final class DistractionEvaluator {
-    private let distractionListManager: DistractionListManager
     private let profileProvider: () -> WorkProfile
 
     init(
         distractionListManager: DistractionListManager,
         profileProvider: @escaping () -> WorkProfile
     ) {
-        self.distractionListManager = distractionListManager
         self.profileProvider = profileProvider
     }
 
-    func evaluate(bundleID: String, url: URL?, title: String) -> ContextDecision {
+    func evidence(bundleID: String, url: URL?, title: String) -> [ClassificationEvidence] {
         let profile = profileProvider()
+        var evidence: [ClassificationEvidence] = []
 
-        // URL rules are more specific than application rules. Within a level, an
-        // explicit allow is intentional and wins over a conflicting explicit block.
+        // Collect both sides of a same-target conflict. The resolver preserves
+        // the legacy allow-wins behavior while retaining the full trace.
         if let url, URLMatcher.matches(url: url, domains: profile.allowedDomains) {
-            return ContextDecision(disposition: .focus, source: .explicitAllowedDomain)
+            evidence.append(ClassificationEvidence(
+                label: .productive,
+                source: .explicitDomainRule,
+                confidence: 1.0,
+                reason: .explicitAllowRule
+            ))
         }
-
         if let url, URLMatcher.matches(url: url, domains: profile.distractionDomains) {
-            return ContextDecision(disposition: .distraction, source: .explicitBlockedDomain)
-        }
-
-        if BrowserStrategyFactory.isSupportedBrowser(bundleID) {
-            guard url != nil else {
-                return ContextDecision(disposition: .neutral, source: .neutralFallback)
-            }
-
-            if BrowserContentHeuristic.isEntertainment(url: url, title: title) {
-                return ContextDecision(disposition: .distraction, source: .browserHeuristic)
-            }
-
-            if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
-                return ContextDecision(disposition: .focus, source: .localHeuristic)
-            }
+            evidence.append(ClassificationEvidence(
+                label: .distracting,
+                source: .explicitDomainRule,
+                confidence: 1.0,
+                reason: .explicitBlockRule
+            ))
         }
 
         if profile.allowedApps.contains(bundleID) {
-            return ContextDecision(disposition: .focus, source: .profileAllowedApp)
+            evidence.append(ClassificationEvidence(
+                label: .productive,
+                source: .explicitAppRule,
+                confidence: 1.0,
+                reason: .explicitAllowRule
+            ))
+        }
+        if profile.distractionApps.contains(bundleID) {
+            evidence.append(ClassificationEvidence(
+                label: .distracting,
+                source: .explicitAppRule,
+                confidence: 1.0,
+                reason: .explicitBlockRule
+            ))
         }
 
-        if profile.distractionApps.contains(bundleID) {
-            return ContextDecision(disposition: .distraction, source: .profileBlockedApp)
+        if BrowserStrategyFactory.isSupportedBrowser(bundleID), url != nil {
+            if BrowserContentHeuristic.isEntertainment(url: url) {
+                evidence.append(ClassificationEvidence(
+                    label: .distracting,
+                    source: .heuristic,
+                    confidence: 0.90,
+                    reason: .deterministicHeuristic
+                ))
+            } else if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
+                evidence.append(ClassificationEvidence(
+                    label: .productive,
+                    source: .heuristic,
+                    confidence: 0.85,
+                    reason: .deterministicHeuristic
+                ))
+            }
         }
 
         if SmartAppClassifier.isProductiveApp(bundleID: bundleID) {
-            return ContextDecision(disposition: .focus, source: .localHeuristic)
+            evidence.append(ClassificationEvidence(
+                label: .productive,
+                source: .heuristic,
+                confidence: 0.85,
+                reason: .deterministicHeuristic
+            ))
         }
 
-        return ContextDecision(disposition: .neutral, source: .neutralFallback)
+        return evidence
     }
 }
 
@@ -100,21 +101,22 @@ private enum BrowserContentHeuristic {
         "gaming",
         "gameplay",
         "livestream",
-        "live stream",
-        "watch movie",
-        "watch tv",
+        "live-stream",
+        "watch-movie",
+        "watch-tv",
         "entertainment",
         "netflix",
         "twitch"
     ]
 
-    static func isEntertainment(url: URL?, title: String) -> Bool {
-        let host = url?.host?.lowercased() ?? ""
+    static func isEntertainment(url: URL?) -> Bool {
+        guard let url else { return false }
+        let host = url.host?.lowercased() ?? ""
         if entertainmentHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) {
             return true
         }
 
-        let searchableText = "\(title) \(url?.path ?? "")".lowercased()
-        return entertainmentTerms.contains(where: searchableText.contains)
+        let searchableURL = url.absoluteString.lowercased()
+        return entertainmentTerms.contains(where: searchableURL.contains)
     }
 }

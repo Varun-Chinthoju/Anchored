@@ -30,14 +30,14 @@ final class DistractionEvaluatorTests: XCTestCase {
             )
         )
 
-        let decision = evaluator.evaluate(
+        let decision = ClassificationResolver().resolve(evaluator.evidence(
             bundleID: "com.google.Chrome",
             url: URL(string: "https://www.youtube.com/watch?v=focus"),
             title: "Focus video"
-        )
+        ))
 
-        XCTAssertEqual(decision.disposition, .focus)
-        XCTAssertEqual(decision.source, .explicitAllowedDomain)
+        XCTAssertEqual(decision.label, .productive)
+        XCTAssertEqual(decision.source, .explicitDomainRule)
     }
 
     func testBlockedDomainWinsOverAllowedBrowserApp() {
@@ -49,14 +49,14 @@ final class DistractionEvaluatorTests: XCTestCase {
             )
         )
 
-        let decision = evaluator.evaluate(
+        let decision = ClassificationResolver().resolve(evaluator.evidence(
             bundleID: "com.google.Chrome",
             url: URL(string: "https://www.youtube.com/watch?v=focus"),
             title: "Focus video"
-        )
+        ))
 
-        XCTAssertEqual(decision.disposition, .distraction)
-        XCTAssertEqual(decision.source, .explicitBlockedDomain)
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.source, .explicitDomainRule)
     }
 
     func testExplicitBlockCannotBeOverriddenByLocalHeuristic() {
@@ -64,38 +64,70 @@ final class DistractionEvaluatorTests: XCTestCase {
             WorkProfile(name: "Rules", distractionDomains: ["reddit.com"])
         )
 
-        let decision = evaluator.evaluate(
+        let decision = ClassificationResolver().resolve(evaluator.evidence(
             bundleID: "com.google.Chrome",
             url: URL(string: "https://www.reddit.com/r/swift/comments/123"),
             title: "Swift programming forum"
-        )
+        ))
 
-        XCTAssertEqual(decision.disposition, .distraction)
-        XCTAssertEqual(decision.source, .explicitBlockedDomain)
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.source, .explicitDomainRule)
     }
 
     func testBrowserWithoutAnActiveTabIsNeutral() {
-        let decision = makeEvaluator(WorkProfile(name: "Browser")).evaluate(
+        let decision = ClassificationResolver().resolve(makeEvaluator(WorkProfile(name: "Browser")).evidence(
             bundleID: "com.google.Chrome",
             url: nil,
             title: ""
-        )
+        ))
 
-        XCTAssertEqual(decision.disposition, .neutral)
+        XCTAssertEqual(decision.label, .neutral)
         XCTAssertEqual(decision.source, .neutralFallback)
     }
 
     func testProfileBlockedAppIsDeterministicallyDistraction() {
-        let decision = makeEvaluator(
+        let decision = ClassificationResolver().resolve(makeEvaluator(
             WorkProfile(name: "Default", distractionApps: ["com.spotify.client"])
-        ).evaluate(
+        ).evidence(
             bundleID: "com.spotify.client",
             url: nil,
             title: "Spotify"
+        ))
+
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.source, .explicitAppRule)
+    }
+
+    func testRulesExposeEvidenceForCentralResolver() {
+        let evaluator = makeEvaluator(
+            WorkProfile(
+                name: "Evidence",
+                distractionDomains: ["youtube.com"],
+                allowedApps: ["com.google.Chrome"]
+            )
         )
 
-        XCTAssertEqual(decision.disposition, .distraction)
-        XCTAssertEqual(decision.source, .profileBlockedApp)
+        let evidence = evaluator.evidence(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://www.youtube.com/watch?v=focus"),
+            title: "Focus video"
+        )
+
+        XCTAssertEqual(evidence.map(\.label), [.distracting, .productive, .distracting])
+        XCTAssertEqual(evidence.map(\.source), [.explicitDomainRule, .explicitAppRule, .heuristic])
+        XCTAssertEqual(evidence.map(\.reason), [.explicitBlockRule, .explicitAllowRule, .deterministicHeuristic])
+    }
+
+    func testTitleOnlyBrowserHeuristicRemainsNeutralEvidence() {
+        let evaluator = makeEvaluator(WorkProfile(name: "Heuristics"))
+
+        let evidence = evaluator.evidence(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://example.com/article"),
+            title: "Swift programming tutorial"
+        )
+
+        XCTAssertTrue(evidence.isEmpty)
     }
 
     private func makeEvaluator(_ profile: WorkProfile) -> DistractionEvaluator {
