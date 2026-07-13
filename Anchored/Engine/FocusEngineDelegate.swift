@@ -17,4 +17,10 @@ protocol FocusEngineDelegate: AnyObject {
     
     /// Called when the permission gate for accessibility access should be displayed.
     func didRequestPermissionGate()
+
+    /// Called when a committed break reaches its review deadline.
+    func didRequestBreakReview(intention: String, result: BreakReviewResult)
+
+    /// Called when a break request is made before the minimum focus period.
+    func didRefuseBreak()
 }

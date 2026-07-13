@@ -360,6 +360,82 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(events.last?.type, .escalationTriggered)
         XCTAssertEqual(events.last?.action, .escalated)
     }
+
+    func testBreakBeforeMinimumIsRefusedWithoutEndingSession() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500)
+
+        let decision = engine.requestBreak(intention: "Stretch")
+
+        XCTAssertEqual(decision, .refusedUnderMinimum)
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.refusedBreaks, 1)
+    }
+
+    func testAcceptedBreakPausesFocusAccountingAndReachesReviewWithoutDimming() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 3600)
+        if let session = engine.activeSession {
+            engine.activeSession = ActiveSession(
+                startDate: session.startDate.addingTimeInterval(-1800),
+                anchoredDuration: session.anchoredDuration,
+                appName: session.appName,
+                category: session.category,
+                goal: session.goal
+            )
+        }
+
+        let beforeBreak = engine.currentSessionFocusedTime()
+        let decision = engine.requestBreak(intention: "Take a short walk")
+
+        guard case .accepted = decision else {
+            return XCTFail("Expected an accepted break")
+        }
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertEqual(engine.currentSessionFocusedTime(), beforeBreak, accuracy: 0.2)
+
+        engine.breakTimerExpired()
+
+        XCTAssertEqual(engine.breakState, .breakReview)
+        XCTAssertEqual(mockDelegate.breakReviews.last?.result.outcome, .mismatch)
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertNotNil(engine.activeSession)
+    }
+
+    func testCancellingBreakResumesSessionAndDoesNotCountBreakTime() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 3600)
+        if let session = engine.activeSession {
+            engine.activeSession = ActiveSession(
+                startDate: session.startDate.addingTimeInterval(-1800),
+                anchoredDuration: session.anchoredDuration,
+                appName: session.appName,
+                category: session.category,
+                goal: session.goal
+            )
+        }
+        let focusedBeforeBreak = engine.currentSessionFocusedTime()
+        _ = engine.requestBreak(intention: "Reset")
+
+        engine.resumeAfterBreakReview()
+
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertEqual(engine.currentSessionFocusedTime(), focusedBeforeBreak, accuracy: 0.2)
+        XCTAssertNotNil(engine.activeSession)
+    }
+
+    func testEndingSessionClearsPendingBreakAndPersistsDoneOutcomeAndSummary() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 3600)
+        engine.endSession(action: .dismissed, completionOutcome: .done, summary: "Finished the plan")
+
+        XCTAssertNil(engine.activeSession)
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.last?.completionOutcome, .done)
+        XCTAssertEqual(events.last?.sessionSummary, "Finished the plan")
+    }
     
     func testReturnToWorkAfterEscalationLiftsOverlay() {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
@@ -1207,6 +1283,8 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     var detectedDistractions: [String] = []
     var returnsToWork = 0
     var endedSessions = 0
+    var breakReviews: [(intention: String, result: BreakReviewResult)] = []
+    var refusedBreaks = 0
     
     func didRequestExitTrigger(duration: TimeInterval, appName: String) {
         exitTriggers.append((duration: duration, appName: appName))
@@ -1227,6 +1305,14 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     var requestedPermissionGate = 0
     func didRequestPermissionGate() {
         requestedPermissionGate += 1
+    }
+
+    func didRequestBreakReview(intention: String, result: BreakReviewResult) {
+        breakReviews.append((intention: intention, result: result))
+    }
+
+    func didRefuseBreak() {
+        refusedBreaks += 1
     }
 }
 

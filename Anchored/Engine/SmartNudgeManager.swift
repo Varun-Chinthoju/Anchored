@@ -6,15 +6,18 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
     private let shadowEngine: ShadowTrackingEngine
     private let focusEngine: FocusEngine
     private let preferencesManager: PreferencesManager
+    private let sessionStore: SessionStore
     
     init(
         shadowEngine: ShadowTrackingEngine,
         focusEngine: FocusEngine,
-        preferencesManager: PreferencesManager = .shared
+        preferencesManager: PreferencesManager = .shared,
+        sessionStore: SessionStore = .shared
     ) {
         self.shadowEngine = shadowEngine
         self.focusEngine = focusEngine
         self.preferencesManager = preferencesManager
+        self.sessionStore = sessionStore
         super.init()
         
         setupNudgeCallback()
@@ -28,14 +31,20 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
         shadowEngine.onThresholdCrossed = { [weak self] in
             guard let self = self else { return }
             
-            // Automatically anchor the focus session!
-            let duration = self.preferencesManager.focusThreshold
-            let activeProfileName = ProfileManager.shared.activeProfile.name
-            self.focusEngine.anchorSession(duration: duration, category: activeProfileName, goal: "Auto-chartered Voyage")
-            
-            // Alert the user via a local notification
-            if self.preferencesManager.enableSmartNudges {
-                self.sendAutoAnchorNotification()
+            self.sessionStore.fetchAllEvents { [weak self] events in
+                guard let self else { return }
+
+                let duration = AutomaticDurationRecommendation.recommendedDuration(
+                    from: events,
+                    fallback: self.preferencesManager.automaticSessionDuration
+                )
+                let activeProfileName = ProfileManager.shared.activeProfile.name
+                self.focusEngine.anchorSession(duration: duration, category: activeProfileName, goal: "Auto-chartered Voyage")
+
+                // Alert the user via a local notification
+                if self.preferencesManager.enableSmartNudges {
+                    self.sendAutoAnchorNotification()
+                }
             }
         }
     }

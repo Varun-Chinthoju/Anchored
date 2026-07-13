@@ -9,16 +9,17 @@ class ShadowTrackingEngineTests: XCTestCase {
     var preferencesManager: PreferencesManager!
     var profileManager: ProfileManager!
     var shadowEngine: ShadowTrackingEngine!
+    private var testDefaults: UserDefaults!
     
     override func setUp() {
         super.setUp()
         let suiteName = "com.varun.Anchored.ShadowTrackingEngineTests.\(UUID().uuidString)"
-        let testDefaults = UserDefaults(suiteName: suiteName)
+        testDefaults = UserDefaults(suiteName: suiteName)
         
         mockMonitor = MockActivityMonitor()
         distractionListManager = DistractionListManager(defaults: testDefaults!)
-        preferencesManager = PreferencesManager(defaults: testDefaults!)
-        profileManager = ProfileManager(defaults: testDefaults!)
+        preferencesManager = PreferencesManager(defaults: testDefaults)
+        profileManager = ProfileManager(defaults: testDefaults)
         let profile = WorkProfile(
             name: "Test Focus",
             distractionApps: ["com.spotify.client"],
@@ -52,6 +53,7 @@ class ShadowTrackingEngineTests: XCTestCase {
         distractionListManager = nil
         preferencesManager = nil
         profileManager = nil
+        testDefaults = nil
 
         super.tearDown()
     }
@@ -151,5 +153,13 @@ class ShadowTrackingEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(shadowEngine.getContinuousWorkTime(), 0.0)
         // Verify it reset after nudge
         XCTAssertEqual(shadowEngine.getContinuousWorkTime(), 0.0)
+    }
+
+    func testRuntimeThresholdOverrideDoesNotChangeAutomaticSessionDurationPreference() {
+        testDefaults.set(5.0, forKey: PreferencesManager.Keys.focusThresholdOverride)
+        let overriddenPreferences = PreferencesManager(defaults: testDefaults)
+
+        XCTAssertEqual(overriddenPreferences.effectiveFocusThreshold, 5.0)
+        XCTAssertEqual(overriddenPreferences.automaticSessionDuration, PreferencesManager.defaultAutomaticSessionDuration)
     }
 }
