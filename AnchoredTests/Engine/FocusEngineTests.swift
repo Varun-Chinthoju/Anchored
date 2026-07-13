@@ -1199,6 +1199,47 @@ final class FocusEngineTests: XCTestCase {
         wait(for: [visualRequest], timeout: 1)
         XCTAssertTrue(visualChecker.didRequest)
     }
+
+    func testDeclaredActivityBypassPreventsDimmingAndReDimsWhenNotMatching() {
+        let testPreferences = PreferencesManager.shared
+        let engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker()
+        )
+        engine.delegate = mockDelegate
+        
+        // Start a session
+        engine.anchorSession(duration: 1500)
+        
+        // Simulate switching to a distraction app
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Safari", url: URL(string: "https://youtube.com/watch?v=123")!)
+        
+        // Starts distraction countdown
+        XCTAssertEqual(mockDelegate.detectedDistractions.count, 1)
+        
+        // Trigger immediate bypass by declaring an activity
+        engine.startDeclaredActivityBypass(activity: "youtube tutorial")
+        XCTAssertTrue(engine.isDeclaredActivityBypassActive)
+        XCTAssertEqual(engine.declaredActivity, "youtube tutorial")
+        XCTAssertFalse(engine.isDimming)
+        
+        // Switch to a matching context - should keep bypass active
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Safari", url: URL(string: "https://youtube.com/watch?v=456")!, title: "watching youtube tutorial video")
+        
+        // Since bypass is active, it shouldn't trigger didDetectDistraction again immediately
+        XCTAssertEqual(mockDelegate.detectedDistractions.count, 1)
+        
+        // Check that matching context matches the declared activity
+        XCTAssertTrue(engine.isDeclaredActivityBypassActive)
+        
+        engine.stopDeclaredActivityBypass()
+    }
     
     // MARK: - Helper Methods
     
@@ -1321,6 +1362,11 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
 
     func didRefuseBreak() {
         refusedBreaks += 1
+    }
+
+    var immediateDims = 0
+    func didRequestImmediateDim() {
+        immediateDims += 1
     }
 }
 

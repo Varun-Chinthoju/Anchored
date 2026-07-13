@@ -23,4 +23,7 @@ protocol FocusEngineDelegate: AnyObject {
 
     /// Called when a break request is made before the minimum focus period.
     func didRefuseBreak()
+    
+    /// Called when the focus engine needs to dim the screen immediately (e.g. failed declared activity check).
+    func didRequestImmediateDim()
 }

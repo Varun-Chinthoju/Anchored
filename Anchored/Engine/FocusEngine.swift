@@ -112,6 +112,13 @@ final class FocusEngine {
     /// A flag indicating whether the user is currently being escalated/dimmed.
     private(set) var isDimming = false
     
+    /// Declared activity for the temporary bypass.
+    private(set) var declaredActivity: String? = nil
+    /// A flag indicating if the declared activity bypass is active.
+    private(set) var isDeclaredActivityBypassActive = false
+    /// Timer checking the declared activity every 2 minutes.
+    private var declaredActivityCheckTimer: Timer? = nil
+    
     /// Productive time selected in onboarding before a focus-session prompt appears.
     var focusThreshold: TimeInterval {
         didSet {
@@ -608,9 +615,8 @@ final class FocusEngine {
             }
         }
 
-        // A committed break suspends normal enforcement until its review
-        // deadline. The reviewer receives the current sanitized identity.
-        if activeBreakCommitment != nil {
+        // A committed break or declared activity bypass suspends normal enforcement
+        if activeBreakCommitment != nil || isDeclaredActivityBypassActive {
             return
         }
         
@@ -777,7 +783,7 @@ final class FocusEngine {
 
     /// Requests a memory-only break from the active session.
     @discardableResult
-    func requestBreak(intention: String, now: Date = Date()) -> BreakRequestDecision {
+    func requestBreak(intention: String, now: Date = Date(), bypassMinimum: Bool = false) -> BreakRequestDecision {
         guard let session = activeSession else {
             return .refusedUnderMinimum
         }
@@ -787,7 +793,8 @@ final class FocusEngine {
             intention: intention,
             now: now,
             sessionID: sessionIdentity,
-            contextGeneration: UInt64(contextGeneration)
+            contextGeneration: UInt64(contextGeneration),
+            bypassMinimum: bypassMinimum
         )
 
         switch decision {
@@ -820,6 +827,115 @@ final class FocusEngine {
         scheduleSessionTimer(duration: remaining)
         delegate?.didReturnToWork()
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+    }
+
+    func resumeSessionFromUI() {
+        isDimming = false
+        pausedDate = nil
+        cancelDistractionTimer()
+        distractionStartDate = nil
+        delegate?.didReturnToWork()
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+    }
+
+    func startDeclaredActivityBypass(activity: String) {
+        guard activeSession != nil else { return }
+        declaredActivity = activity
+        isDeclaredActivityBypassActive = true
+        
+        isDimming = false
+        cancelDistractionTimer()
+        distractionStartDate = nil
+        delegate?.didReturnToWork()
+        
+        scheduleDeclaredActivityCheckTimer()
+        
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+    }
+    
+    func stopDeclaredActivityBypass() {
+        declaredActivity = nil
+        isDeclaredActivityBypassActive = false
+        cancelDeclaredActivityCheckTimer()
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+    }
+    
+    private func scheduleDeclaredActivityCheckTimer() {
+        cancelDeclaredActivityCheckTimer()
+        declaredActivityCheckTimer = Timer.scheduledTimer(withTimeInterval: 120.0, repeats: false) { [weak self] _ in
+            self?.checkDeclaredActivity()
+        }
+    }
+    
+    private func cancelDeclaredActivityCheckTimer() {
+        declaredActivityCheckTimer?.invalidate()
+        declaredActivityCheckTimer = nil
+    }
+    
+    private func checkDeclaredActivity() {
+        guard isDeclaredActivityBypassActive else { return }
+        
+        let now = Date()
+        let decision = classifyContext(
+            bundleID: currentApp ?? "",
+            url: currentURL,
+            title: currentTitle
+        )
+        
+        let isFocused = decision.isFocus
+        let matches = matchesDeclaredActivity()
+        
+        if isFocused || matches {
+            if isDimming {
+                isDimming = false
+                delegate?.didReturnToWork()
+                NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+            }
+        } else {
+            if !isDimming {
+                isDimming = true
+                if let bundleID = currentApp {
+                    let event = SessionEvent(
+                        type: .escalationTriggered,
+                        appBundleID: lastWorkAppBundleID ?? "",
+                        appName: getAppName(for: lastWorkAppBundleID ?? ""),
+                        distractionAppBundleID: bundleID,
+                        action: .escalated
+                    )
+                    sessionStore.log(event)
+                    delegate?.didRequestImmediateDim()
+                }
+                NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+            }
+        }
+        
+        scheduleDeclaredActivityCheckTimer()
+    }
+    
+    private func matchesDeclaredActivity() -> Bool {
+        guard let declared = declaredActivity?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !declared.isEmpty else {
+            return false
+        }
+        
+        if let currentApp = currentApp {
+            let appName = getAppName(for: currentApp).lowercased()
+            if appName.contains(declared) || currentApp.lowercased().contains(declared) {
+                return true
+            }
+        }
+        
+        let titleLower = currentTitle.lowercased()
+        if titleLower.contains(declared) {
+            return true
+        }
+        
+        if let currentURL = currentURL?.absoluteString.lowercased() {
+            if currentURL.contains(declared) {
+                return true
+            }
+        }
+        
+        return false
     }
 
     internal func breakTimerExpired() {
@@ -871,6 +987,7 @@ final class FocusEngine {
     private var activeSessionIdentity: UUID?
 
     private func clearBreakState(at date: Date) {
+        stopDeclaredActivityBypass()
         if let breakStartedAt {
             excludedBreakDuration += max(0, date.timeIntervalSince(breakStartedAt))
         }
@@ -1005,6 +1122,7 @@ final class FocusEngine {
         activeSession = nil
         activeSessionIdentity = nil
         clearBreakState(at: now)
+        stopDeclaredActivityBypass()
         resetFocusTracking()
         isDimming = false
         distractionStartDate = nil

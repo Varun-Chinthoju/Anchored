@@ -14,9 +14,10 @@ enum CommitmentPolicy {
         intention: String,
         now: Date,
         sessionID: UUID,
-        contextGeneration: UInt64
+        contextGeneration: UInt64,
+        bypassMinimum: Bool = false
     ) -> BreakRequestDecision {
-        guard netFocusedDuration >= minimumBreakFocusDuration else {
+        guard bypassMinimum || netFocusedDuration >= minimumBreakFocusDuration else {
             return .refusedUnderMinimum
         }
 
