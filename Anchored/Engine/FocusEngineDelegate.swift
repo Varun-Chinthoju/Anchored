@@ -26,4 +26,7 @@ protocol FocusEngineDelegate: AnyObject {
     
     /// Called when the focus engine needs to dim the screen immediately (e.g. failed declared activity check).
     func didRequestImmediateDim()
+    
+    /// Called when the user has been doomscrolling (using a distraction context outside of a focus session) for too long.
+    func didDetectDoomscrolling(bundleID: String, threshold: TimeInterval)
 }

@@ -649,6 +649,46 @@ struct GeneralSettingsPane: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Doomscroll Loop Breaker", pirate: "Loop Breaker", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Loop Breaker", pirate: "Break the Loop", isPirateMode: isPirateMode),
+                        description: settingsCopy("Alert you when you've been doomscrolling a distraction app outside a focus session for too long, and offer to dim the screen.", pirate: "Warn ye when ye've been doomscrollin' for too long, and offer to fog yer screen.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.enableDoomscrollLoopBreaker)
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Loop Timeout", pirate: "Scroll Timeout", isPirateMode: isPirateMode),
+                        description: settingsCopy("How long you can scroll a distraction app before the loop-breaker alert appears.", pirate: "How long ye can scroll before the loop-breaker warning fires.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(
+                                get: { prefs.doomscrollThreshold },
+                                set: { newValue in
+                                    let rounded = (newValue / 60.0).rounded() * 60.0
+                                    prefs.doomscrollThreshold = max(60, min(3600, rounded))
+                                }
+                            ), in: 60...3600)
+                                .frame(width: 250)
+                                .disabled(!prefs.enableDoomscrollLoopBreaker)
+                                .opacity(prefs.enableDoomscrollLoopBreaker ? 1 : 0.4)
+                            Text(formatDuration(prefs.doomscrollThreshold))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .frame(width: 100, alignment: .trailing)
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Session Review", pirate: "Voyage Review", isPirateMode: isPirateMode))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(SettingsTheme.textSecondary)

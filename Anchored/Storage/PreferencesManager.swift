@@ -43,6 +43,8 @@ public final class PreferencesManager: ObservableObject {
         public static let weeklyReviewNotificationsEnabled = "com.varun.Anchored.weeklyReviewNotificationsEnabled"
         public static let dimOpacity = "com.varun.Anchored.dimOpacity"
         public static let dimTransitionDuration = "com.varun.Anchored.dimTransitionDuration"
+        public static let enableDoomscrollLoopBreaker = "com.varun.Anchored.enableDoomscrollLoopBreaker"
+        public static let doomscrollThreshold = "com.varun.Anchored.doomscrollThreshold"
     }
     
     // Default values
@@ -68,6 +70,8 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultWeeklyReviewNotificationsEnabled = true
     public static let defaultDimOpacity: Double = 0.85
     public static let defaultDimTransitionDuration: Double = 3.0
+    public static let defaultEnableDoomscrollLoopBreaker = true
+    public static let defaultDoomscrollThreshold: TimeInterval = 600.0
     
     /// The distraction countdown duration in seconds. Clamped to [5, 20].
     @Published public var countdownDuration: Int {
@@ -279,6 +283,20 @@ public final class PreferencesManager: ObservableObject {
         }
     }
     
+    /// Whether the doomscroll loop breaker is enabled.
+    @Published public var enableDoomscrollLoopBreaker: Bool {
+        didSet {
+            defaults.set(enableDoomscrollLoopBreaker, forKey: Keys.enableDoomscrollLoopBreaker)
+        }
+    }
+    
+    /// The doomscrolling threshold in seconds.
+    @Published public var doomscrollThreshold: TimeInterval {
+        didSet {
+            defaults.set(doomscrollThreshold, forKey: Keys.doomscrollThreshold)
+        }
+    }
+    
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
     ///   - defaults: The `UserDefaults` instance to use (defaults to `.standard`).
@@ -352,6 +370,8 @@ public final class PreferencesManager: ObservableObject {
         self.weeklyReviewNotificationsEnabled = defaults.object(forKey: Keys.weeklyReviewNotificationsEnabled) as? Bool ?? Self.defaultWeeklyReviewNotificationsEnabled
         self.dimOpacity = defaults.object(forKey: Keys.dimOpacity) as? Double ?? Self.defaultDimOpacity
         self.dimTransitionDuration = defaults.object(forKey: Keys.dimTransitionDuration) as? Double ?? Self.defaultDimTransitionDuration
+        self.enableDoomscrollLoopBreaker = defaults.object(forKey: Keys.enableDoomscrollLoopBreaker) as? Bool ?? Self.defaultEnableDoomscrollLoopBreaker
+        self.doomscrollThreshold = defaults.object(forKey: Keys.doomscrollThreshold) as? TimeInterval ?? Self.defaultDoomscrollThreshold
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status

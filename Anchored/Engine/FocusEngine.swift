@@ -146,6 +146,12 @@ final class FocusEngine {
     private var focusPromptTimer: Timer?
     private var hasPromptedForCurrentFocusRun = false
     
+    // Doomscroll loop breaker
+    private var doomscrollTimer: Timer?
+    /// The bundle ID of the app the user started doomscrolling in.
+    private(set) var doomscrollingBundleID: String?
+    private(set) var hasFiredDoomscrollAlert = false
+    
     // Idle tracking
     var totalIdleTime: TimeInterval = 0.0
     private var idleTimer: Timer?
@@ -257,6 +263,7 @@ final class FocusEngine {
         cancelFocusPromptTimer()
         cancelIdleTimer()
         cancelBreakTimer()
+        cancelDoomscrollTimer()
         clearBreakState(at: Date())
     }
 
@@ -651,7 +658,8 @@ final class FocusEngine {
                     scheduleDistractionTimer(distractionBundleID: bundleID)
                 }
             } else {
-                // Distraction app detected + no session
+                // Distraction app detected + no session → start doomscroll timer
+                scheduleDoomscrollTimer(bundleID: bundleID)
                 requestFocusPromptIfEligible(now: now)
                 resetFocusTracking()
             }
@@ -670,6 +678,7 @@ final class FocusEngine {
                 cancelDistractionTimer()
                 distractionStartDate = nil
             } else {
+                cancelDoomscrollTimer()
                 if workSessionStart == nil {
                     workSessionStart = now
                     hasPromptedForCurrentFocusRun = false
@@ -688,6 +697,8 @@ final class FocusEngine {
                 cancelDistractionTimer()
                 distractionStartDate = nil
             } else {
+                // Neutral context: cancel any doomscroll tracking
+                cancelDoomscrollTimer()
                 // Check if the user accumulated enough focus time on the previous focus app before switching away
                 requestFocusPromptIfEligible(now: now)
                 resetFocusTracking()
@@ -1300,6 +1311,39 @@ final class FocusEngine {
             action: .escalated
         )
         sessionStore.log(event)
+    }
+    
+    // MARK: - Doomscroll Loop Breaker
+    
+    private func scheduleDoomscrollTimer(bundleID: String) {
+        guard preferencesManager.enableDoomscrollLoopBreaker else { return }
+        guard doomscrollTimer == nil else { return }
+        doomscrollingBundleID = bundleID
+        hasFiredDoomscrollAlert = false
+        let threshold = preferencesManager.doomscrollThreshold
+        RuntimeTrace.event("doomscroll_timer_scheduled", fields: ["bundleID": bundleID, "threshold": String(threshold)])
+        doomscrollTimer = Timer.scheduledTimer(withTimeInterval: threshold, repeats: false) { [weak self] _ in
+            self?.doomscrollTimerExpired()
+        }
+    }
+    
+    private func cancelDoomscrollTimer() {
+        doomscrollTimer?.invalidate()
+        doomscrollTimer = nil
+        doomscrollingBundleID = nil
+        hasFiredDoomscrollAlert = false
+    }
+    
+    internal func doomscrollTimerExpired() {
+        guard let bundleID = doomscrollingBundleID,
+              activeSession == nil else {
+            cancelDoomscrollTimer()
+            return
+        }
+        hasFiredDoomscrollAlert = true
+        let threshold = preferencesManager.doomscrollThreshold
+        RuntimeTrace.event("doomscroll_timer_expired", fields: ["bundleID": bundleID, "threshold": String(threshold)])
+        delegate?.didDetectDoomscrolling(bundleID: bundleID, threshold: threshold)
     }
     
     private func getAppName(for bundleID: String) -> String {

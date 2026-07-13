@@ -19,6 +19,9 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// The currently active dim center panel, if any.
     var dimCenterPanel: DimCenterPanel?
     
+    /// The doomscroll loop-breaker panel, if active.
+    var doomscrollBreakerPanel: DoomscrollBreakerPanel?
+    
     /// The active dim overlay windows (one per screen).
     var dimWindows: [DimOverlayWindow] = []
     private(set) var lastBreakReview: (intention: String, result: BreakReviewResult)?
@@ -102,6 +105,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// Callback from FocusEngine when the user returns to work.
     func didReturnToWork() {
         RuntimeTrace.event("overlay_return_to_work")
+        // Dismiss any doomscroll breaker panel
+        dismissDoomscrollBreakerPanel()
         // Cancel the countdown pill if active
         if let pill = countdownPillPanel {
             pill.cancel()
@@ -117,6 +122,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         RuntimeTrace.event("overlay_session_ended")
         // Hide all panels and overlays
         dismissExitTrigger()
+        dismissDoomscrollBreakerPanel()
         
         if let pill = countdownPillPanel {
             pill.cancel()
@@ -174,6 +180,32 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         RuntimeTrace.event("break_refused_under_minimum")
     }
     
+    func didDetectDoomscrolling(bundleID: String, threshold: TimeInterval) {
+        RuntimeTrace.event("overlay_doomscroll_breaker_requested", fields: ["bundleID": bundleID, "threshold": String(threshold)])
+        guard doomscrollBreakerPanel == nil else { return }
+        
+        AudioEngine.shared.play(.pop)
+        
+        let panel = DoomscrollBreakerPanel()
+        doomscrollBreakerPanel = panel
+        
+        panel.show(
+            threshold: threshold,
+            onDim: { [weak self] in
+                self?.doomscrollBreakerPanel = nil
+                self?.startDoomscrollDim()
+            },
+            onStartFocus: { [weak self] in
+                self?.doomscrollBreakerPanel = nil
+                // Treat like a manual focus trigger from menu bar
+                self?.focusEngine?.anchorSession(duration: PreferencesManager.shared.automaticSessionDuration)
+            },
+            onDismiss: { [weak self] in
+                self?.doomscrollBreakerPanel = nil
+            }
+        )
+    }
+    
     // MARK: - Helper Methods
     
     /// Triggers escalation, showing a dim overlay on all screens.
@@ -220,6 +252,52 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         }
     }
     
+    private func dismissDoomscrollBreakerPanel() {
+        if let panel = doomscrollBreakerPanel {
+            panel.closePanel()
+            doomscrollBreakerPanel = nil
+        }
+    }
+    
+    /// Starts a temporary dim for the doomscroll loop-breaker (no session enforcement).
+    private func startDoomscrollDim() {
+        guard dimWindows.isEmpty else { return }
+        RuntimeTrace.event("doomscroll_dim_started")
+        for screen in NSScreen.screens {
+            let window = DimOverlayWindow(screen: screen)
+            window.makeKeyAndOrderFront(nil)
+            window.startEscalation()
+            dimWindows.append(window)
+        }
+        // Show a lightweight center panel for the doomscroll dim state
+        showDoomscrollDimCenterPanel()
+    }
+    
+    private func showDoomscrollDimCenterPanel() {
+        dismissDimCenterPanel()
+        let panel = DimCenterPanel()
+        dimCenterPanel = panel
+        // Re-use the existing DimCenterView; "Return to Work" and "Cancel" both lift the dim
+        panel.show(
+            onBreak: { [weak self] in
+                // Break requested from doomscroll dim: just lift the dim (no active session to pause)
+                self?.liftDimOverlays()
+            },
+            onCancel: { [weak self] in
+                self?.liftDimOverlays()
+            },
+            onReturnToWork: { [weak self] in
+                self?.liftDimOverlays()
+            },
+            onDeclareActivity: { [weak self] _ in
+                self?.liftDimOverlays()
+            },
+            onExitSession: { [weak self] _ in
+                self?.liftDimOverlays()
+            }
+        )
+    }
+    
     private func showDimCenterPanel() {
         dismissDimCenterPanel()
         
@@ -234,6 +312,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             self?.focusEngine?.resumeSessionFromUI()
         }, onDeclareActivity: { [weak self] activity in
             self?.focusEngine?.startDeclaredActivityBypass(activity: activity)
+        }, onExitSession: { [weak self] summary in
+            self?.focusEngine?.endSession(action: .dismissed, completionOutcome: nil, summary: summary)
         })
     }
     
