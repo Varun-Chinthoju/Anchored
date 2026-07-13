@@ -3,7 +3,13 @@ import SwiftUI
 
 /// A borderless, click-through window covering a display screen that gradually dims the view.
 public final class DimOverlayWindow: NSWindow {
-    public init(screen: NSScreen) {
+    public let maxAlpha: CGFloat
+    public let escalationDuration: TimeInterval
+
+    public init(screen: NSScreen, maxAlpha: CGFloat = CGFloat(PreferencesManager.shared.dimOpacity), escalationDuration: TimeInterval = PreferencesManager.shared.dimTransitionDuration) {
+        self.maxAlpha = maxAlpha
+        self.escalationDuration = escalationDuration
+
         super.init(
             contentRect: screen.frame,
             styleMask: [.borderless],
@@ -18,23 +24,25 @@ public final class DimOverlayWindow: NSWindow {
             self.level = .screenSaver
         }
         
-        self.backgroundColor = NSColor(PirateTheme.canvas)
+        self.backgroundColor = PirateTheme.canvasNSColor
         self.alphaValue = 0.0
         self.isOpaque = false
         self.ignoresMouseEvents = true
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         self.hasShadow = false
+        self.isReleasedWhenClosed = false
     }
-    
-    public static let maxAlpha: CGFloat = 0.85
-    public static let escalationDuration: TimeInterval = 3.0
     
     /// Starts the ambient escalation animation, ramping opacity to maxAlpha over escalationDuration.
     public func startEscalation() {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.escalationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            self.animator().alphaValue = Self.maxAlpha
+        if escalationDuration <= 0 {
+            self.alphaValue = maxAlpha
+        } else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = escalationDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.animator().alphaValue = maxAlpha
+            }
         }
     }
     

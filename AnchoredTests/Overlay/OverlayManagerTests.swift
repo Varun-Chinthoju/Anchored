@@ -131,6 +131,12 @@ final class OverlayManagerTests: XCTestCase {
         XCTAssertNil(overlayManager.countdownPillPanel)
         XCTAssertTrue(overlayManager.dimWindows.isEmpty)
     }
+    
+    func testDimOverlayWindowCloseDoesNotCrash() {
+        guard let screen = NSScreen.screens.first else { return }
+        let window = DimOverlayWindow(screen: screen)
+        window.close()
+    }
 }
 
 // MARK: - TestActivityMonitor

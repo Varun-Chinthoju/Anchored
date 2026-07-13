@@ -27,6 +27,7 @@ public class ExitTriggerPanel: NSPanel {
         }
         
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        self.isReleasedWhenClosed = false
     }
     
     public func show(

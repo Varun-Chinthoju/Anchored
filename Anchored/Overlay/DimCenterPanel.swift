@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-public class PermissionGatePanel: NSPanel {
+public class DimCenterPanel: NSPanel {
     private var isDismissing = false
+    private var hostingView: NSHostingView<DimCenterView>?
     
     public init() {
         super.init(
@@ -24,32 +25,45 @@ public class PermissionGatePanel: NSPanel {
         }
         
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        self.isReleasedWhenClosed = false
     }
     
     public func show(
-        onGrant: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
+        onBreak: @escaping () -> Void,
+        onCancel: @escaping () -> Void,
+        onReturnToWork: @escaping () -> Void,
+        onDeclareActivity: @escaping (String) -> Void
     ) {
         isDismissing = false
-        let themeAccent = PirateTheme.gold
         
-        let view = PermissionGateView(
-            onGrant: { [weak self] in
-                self?.handleGrant(callback: onGrant)
+        let view = DimCenterView(
+            onBreak: { [weak self] in
+                self?.slideUpAndHide {
+                    onBreak()
+                }
             },
-            onDismiss: { [weak self] in
-                self?.handleDismiss(callback: onDismiss)
+            onCancel: { [weak self] in
+                self?.slideUpAndHide {
+                    onCancel()
+                }
+            },
+            onReturnToWork: { [weak self] in
+                self?.slideUpAndHide {
+                    onReturnToWork()
+                }
+            },
+            onDeclareActivity: { [weak self] activity in
+                self?.slideUpAndHide {
+                    onDeclareActivity(activity)
+                }
             }
         )
-        .accentColor(themeAccent)
-        .tint(themeAccent)
         
-        let hostingView = NSHostingView(rootView: view)
-        self.contentView = hostingView
+        let host = NSHostingView(rootView: view)
+        self.contentView = host
+        self.hostingView = host
         
         guard let primaryScreen = NSScreen.screens.first else { return }
-        let viewSize = hostingView.fittingSize
+        let viewSize = host.fittingSize
         let screenFrame = primaryScreen.frame
         
         // Centered on the primary screen
@@ -61,10 +75,7 @@ public class PermissionGatePanel: NSPanel {
         self.alphaValue = 0.0
         self.orderFront(nil)
         
-        // Play Pop sound feedback when the panel appears
-        AudioEngine.shared.play(.pop)
-        
-        // Fade in animation (SwiftUI view handles the spring scale)
+        // Fade in animation matching macOS dialogs
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -72,21 +83,12 @@ public class PermissionGatePanel: NSPanel {
         }, completionHandler: nil)
     }
     
-    private func handleGrant(callback: @escaping () -> Void) {
+    public func closePanel() {
         guard !isDismissing else { return }
-        dismissPanel {
-            callback()
-        }
+        slideUpAndHide {}
     }
     
-    private func handleDismiss(callback: @escaping () -> Void) {
-        guard !isDismissing else { return }
-        dismissPanel {
-            callback()
-        }
-    }
-    
-    private func dismissPanel(completion: @escaping () -> Void) {
+    private func slideUpAndHide(completion: @escaping () -> Void) {
         isDismissing = true
         
         NSAnimationContext.runAnimationGroup({ context in

@@ -16,6 +16,9 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// The currently active permission gate panel, if any.
     var permissionGatePanel: PermissionGatePanel?
     
+    /// The currently active dim center panel, if any.
+    var dimCenterPanel: DimCenterPanel?
+    
     /// The active dim overlay windows (one per screen).
     var dimWindows: [DimOverlayWindow] = []
     private(set) var lastBreakReview: (intention: String, result: BreakReviewResult)?
@@ -88,8 +91,12 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             // On expiry (0 seconds), trigger escalation on the DimOverlayWindow instances
             self?.startEscalation()
         }, onBreak: { [weak self] in
-            self?.focusEngine?.requestBreak(intention: "Take a restorative break")
+            self?.focusEngine?.requestBreak(intention: "Take a restorative break", bypassMinimum: true)
         })
+    }
+    
+    func didRequestImmediateDim() {
+        startEscalation()
     }
     
     /// Callback from FocusEngine when the user returns to work.
@@ -120,6 +127,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             gate.close()
             permissionGatePanel = nil
         }
+        
+        dismissDimCenterPanel()
         
         // Close dim windows immediately
         for window in dimWindows {
@@ -188,6 +197,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             window.startEscalation()
             dimWindows.append(window)
         }
+        
+        showDimCenterPanel()
     }
     
     /// Lifts the dim overlays by fading them out and closing them.
@@ -197,6 +208,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             window.liftOverlay()
         }
         dimWindows.removeAll()
+        
+        dismissDimCenterPanel()
     }
     
     /// Closes and removes the current exit-trigger panel.
@@ -207,13 +220,38 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         }
     }
     
+    private func showDimCenterPanel() {
+        dismissDimCenterPanel()
+        
+        let panel = DimCenterPanel()
+        dimCenterPanel = panel
+        
+        panel.show(onBreak: { [weak self] in
+            self?.focusEngine?.requestBreak(intention: "Take a restorative break", bypassMinimum: true)
+        }, onCancel: { [weak self] in
+            self?.focusEngine?.resumeSessionFromUI()
+        }, onReturnToWork: { [weak self] in
+            self?.focusEngine?.resumeSessionFromUI()
+        }, onDeclareActivity: { [weak self] activity in
+            self?.focusEngine?.startDeclaredActivityBypass(activity: activity)
+        })
+    }
+    
+    private func dismissDimCenterPanel() {
+        if let panel = dimCenterPanel {
+            panel.closePanel()
+            dimCenterPanel = nil
+        }
+    }
+    
     /// Responds to changes in display configuration.
     @objc private func handleScreenParametersChanged(_ notification: Notification) {
         // If we are currently escalated/dimming, adjust overlay windows to cover the new screen configuration
         guard !dimWindows.isEmpty else { return }
         
         // We can capture the current state/alpha value from one of the active windows
-        let currentAlpha = dimWindows.first?.alphaValue ?? DimOverlayWindow.maxAlpha
+        let maxAlpha = CGFloat(PreferencesManager.shared.dimOpacity)
+        let currentAlpha = dimWindows.first?.alphaValue ?? maxAlpha
         
         // Close current windows
         for window in dimWindows {
@@ -228,7 +266,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             window.makeKeyAndOrderFront(nil)
             
             // If it wasn't fully dimmed yet, we can continue escalation animation
-            if currentAlpha < DimOverlayWindow.maxAlpha {
+            if currentAlpha < window.maxAlpha {
                 window.startEscalation()
             }
             dimWindows.append(window)

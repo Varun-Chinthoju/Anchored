@@ -23,6 +23,7 @@ public class CountdownPillPanel: NSPanel {
         self.ignoresMouseEvents = false
         self.level = .statusBar
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        self.isReleasedWhenClosed = false
     }
     
     public func show(seconds: Int, onComplete: @escaping () -> Void, onBreak: (() -> Void)? = nil) {
