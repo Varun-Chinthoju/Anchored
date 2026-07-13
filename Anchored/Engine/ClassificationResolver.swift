@@ -41,11 +41,7 @@ final class ClassificationResolver {
             return .neutral(reason: .lowConfidence, evidence: evidence)
         }
 
-        if first.source == .localModel || first.source == .cloudModel || first.source == .visualFallback {
-            guard first.label == .productive else {
-                return .neutral(reason: .optionalDistractionIsNonEnforcing, evidence: evidence)
-            }
-        }
+
 
         return ClassificationDecision(
             label: first.label,

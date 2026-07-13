@@ -35,7 +35,7 @@ final class LocalTextClassifierTests: XCTestCase {
         XCTAssertEqual(result.explanation, "local signals conflict")
     }
 
-    func testDistractingPredictionIsNonEnforcingThroughResolver() {
+    func testDistractingPredictionIsEnforcingThroughResolver() {
         let result = LocalTextClassifier().classify(snapshot: snapshot(
             bundleID: "com.spotify.client",
             url: nil,
@@ -53,8 +53,8 @@ final class LocalTextClassifierTests: XCTestCase {
             )
         ])
 
-        XCTAssertTrue(decision.isNeutral)
-        XCTAssertEqual(decision.reason, .optionalDistractionIsNonEnforcing)
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.reason, .modelEvidence)
     }
 
     func testEvaluationReportsSafetyMetricsAndGate() {

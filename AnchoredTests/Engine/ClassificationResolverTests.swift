@@ -112,7 +112,7 @@ final class ClassificationResolverTests: XCTestCase {
         XCTAssertEqual(decision.reason, .conflictingEvidence)
     }
 
-    func testOptionalDistractingModelEvidenceCannotTriggerDistraction() {
+    func testOptionalDistractingModelEvidenceCanTriggerDistraction() {
         let decision = ClassificationResolver().resolve([
             ClassificationEvidence(
                 label: .distracting,
@@ -122,8 +122,8 @@ final class ClassificationResolverTests: XCTestCase {
             )
         ])
 
-        XCTAssertEqual(decision.label, .neutral)
-        XCTAssertEqual(decision.reason, .optionalDistractionIsNonEnforcing)
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.reason, .modelEvidence)
     }
 
     func testInteractionCanPromoteAmbiguousProductiveEvidenceByAtMostFifteenPercent() {
