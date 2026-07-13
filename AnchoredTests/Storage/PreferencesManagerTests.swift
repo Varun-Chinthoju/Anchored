@@ -43,9 +43,13 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertTrue(manager.focusPromptExperimentEnabled)
         XCTAssertEqual(manager.selectedThemeID, ThemeCatalog.defaultThemeID)
         XCTAssertEqual(manager.selectedThemePalette, ThemePalette.baldr)
+        XCTAssertFalse(manager.classificationFeedbackEnabled)
+        XCTAssertFalse(manager.interactionSummaryEnabled)
+        XCTAssertFalse(manager.enableLocalTextClassification)
         
         // Cloud classification defaults
         XCTAssertFalse(manager.enableCloudClassification)
+        XCTAssertFalse(manager.enableImageClassification)
         XCTAssertEqual(manager.cloudProvider, 0)
         XCTAssertEqual(manager.cloudModel, "gemini-2.5-flash")
         XCTAssertEqual(manager.cloudEndpoint, "https://generativelanguage.googleapis.com/v1beta/models/")
@@ -80,6 +84,24 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.cloudProvider, 1)
         XCTAssertEqual(manager.cloudModel, "gpt-4-custom")
         XCTAssertEqual(manager.cloudEndpoint, "https://custom.openai.com/v1")
+    }
+
+    func testClassificationPrivacyPreferencesPersist() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.classificationFeedbackEnabled = true
+        manager.interactionSummaryEnabled = true
+
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.classificationFeedbackEnabled))
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.interactionSummaryEnabled))
+    }
+
+    func testLocalTextClassificationPreferencePersists() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.enableLocalTextClassification = true
+
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableLocalTextClassification))
     }
 
     func testRuntimeFocusThresholdOverrideWinsForEngineUse() {

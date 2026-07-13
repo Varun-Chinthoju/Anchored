@@ -232,6 +232,15 @@ struct MenuBarPopoverView: View {
                     }
                 }
             }
+
+            ClassificationExplanationCard(
+                decision: viewModel.currentClassification,
+                hasCurrentDomain: viewModel.focusEngine.currentURL?.host != nil,
+                hasActiveSession: viewModel.activeSession != nil,
+                onCorrection: { correction in
+                    viewModel.focusEngine.applyCorrection(correction)
+                }
+            )
             
             // Stats Row
             HStack(spacing: 8) {
@@ -324,6 +333,103 @@ struct MenuBarPopoverView: View {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+private struct ClassificationExplanationCard: View {
+    let decision: ClassificationDecision
+    let hasCurrentDomain: Bool
+    let hasActiveSession: Bool
+    let onCorrection: (ClassificationCorrection) -> Void
+
+    private var labelText: String {
+        switch decision.label {
+        case .productive: return "Productive"
+        case .distracting: return "Distracting"
+        case .neutral: return "Neutral"
+        }
+    }
+
+    private var reasonText: String {
+        switch decision.reason {
+        case .explicitAllowRule: return "An explicit allow rule matched."
+        case .explicitBlockRule: return "An explicit block rule matched."
+        case .deterministicRule: return "A deterministic rule matched."
+        case .deterministicHeuristic: return "A strong local pattern matched."
+        case .modelEvidence: return "Optional evidence supports this context."
+        case .conflictingEvidence: return "Signals conflict, so no action is taken."
+        case .lowConfidence: return "Trusted evidence is not strong enough yet."
+        case .optionalDistractionIsNonEnforcing: return "Optional distraction evidence is non-enforcing."
+        case .neutralFallback: return "No trusted rule matched this context."
+        }
+    }
+
+    private var sourceText: String {
+        switch decision.source {
+        case .explicitDomainRule: return "Domain rule"
+        case .explicitAppRule: return "App rule"
+        case .deterministicRule: return "Deterministic rule"
+        case .heuristic: return "Local heuristic"
+        case .localModel: return "Local model"
+        case .cloudModel: return "Cloud model"
+        case .visualFallback: return "Visual fallback"
+        case .neutralFallback: return "Neutral fallback"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Label("Current Classification", systemImage: "text.magnifyingglass")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Text(labelText)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(decision.label == .distracting ? .orange : .accentColor)
+            }
+
+            Text(reasonText)
+                .font(.system(size: 11))
+                .foregroundColor(PirateTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Text(sourceText)
+                Text("•")
+                Text("Confidence \(Int(decision.confidence * 100))%")
+            }
+            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .foregroundColor(PirateTheme.textSecondary)
+
+            HStack(spacing: 6) {
+                correctionButton("Allow App", .allowApp)
+                correctionButton("Block App", .blockApp)
+                if hasCurrentDomain {
+                    correctionButton("Allow Site", .allowDomain)
+                    correctionButton("Block Site", .blockDomain)
+                }
+                if hasActiveSession {
+                    correctionButton("Mark Session Productive", .markSessionProductive)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(11)
+        .background(ControlRoomTheme.footer.opacity(0.72))
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(PirateTheme.border.opacity(0.8), lineWidth: 1)
+        )
+    }
+
+    private func correctionButton(_ title: String, _ correction: ClassificationCorrection) -> some View {
+        Button(title) {
+            onCorrection(correction)
+        }
+        .buttonStyle(.borderless)
+        .font(.system(size: 9, weight: .semibold))
+        .foregroundColor(PirateTheme.gold)
     }
 }
 

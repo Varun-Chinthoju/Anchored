@@ -35,6 +35,9 @@ public final class PreferencesManager: ObservableObject {
         public static let cloudEndpoint = "com.varun.Anchored.cloudEndpoint"
         public static let contextHistoryEnabled = "com.varun.Anchored.contextHistoryEnabled"
         public static let contextHistoryRetentionDays = "com.varun.Anchored.contextHistoryRetentionDays"
+        public static let classificationFeedbackEnabled = "com.varun.Anchored.classificationFeedbackEnabled"
+        public static let interactionSummaryEnabled = "com.varun.Anchored.interactionSummaryEnabled"
+        public static let enableLocalTextClassification = "com.varun.Anchored.enableLocalTextClassification"
     }
     
     // Default values
@@ -52,6 +55,9 @@ public final class PreferencesManager: ObservableObject {
 
     public static let defaultContextHistoryEnabled = false
     public static let defaultContextHistoryRetentionDays = 30
+    public static let defaultClassificationFeedbackEnabled = false
+    public static let defaultInteractionSummaryEnabled = false
+    public static let defaultEnableLocalTextClassification = false
     
     /// The distraction countdown duration in seconds. Clamped to [5, 20].
     @Published public var countdownDuration: Int {
@@ -200,6 +206,21 @@ public final class PreferencesManager: ObservableObject {
             }
         }
     }
+
+    /// Whether sanitized correction examples may be stored locally.
+    @Published public var classificationFeedbackEnabled: Bool {
+        didSet { defaults.set(classificationFeedbackEnabled, forKey: Keys.classificationFeedbackEnabled) }
+    }
+
+    /// Whether the memory-only interaction summary may be collected.
+    @Published public var interactionSummaryEnabled: Bool {
+        didSet { defaults.set(interactionSummaryEnabled, forKey: Keys.interactionSummaryEnabled) }
+    }
+
+    /// Whether the experimental local text classifier may promote neutral contexts.
+    @Published public var enableLocalTextClassification: Bool {
+        didSet { defaults.set(enableLocalTextClassification, forKey: Keys.enableLocalTextClassification) }
+    }
     
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
@@ -228,7 +249,7 @@ public final class PreferencesManager: ObservableObject {
         }
         
         // Load image classification preferences
-        self.enableImageClassification = defaults.object(forKey: Keys.enableImageClassification) as? Bool ?? true
+        self.enableImageClassification = defaults.object(forKey: Keys.enableImageClassification) as? Bool ?? false
         self.useLocalGemma = defaults.object(forKey: Keys.useLocalGemma) as? Bool ?? false
         self.localModelEndpoint = defaults.string(forKey: Keys.localModelEndpoint) ?? "http://localhost:11434/api/generate"
         
@@ -263,6 +284,10 @@ public final class PreferencesManager: ObservableObject {
         if clampedRetention != storedRetention {
             defaults.set(clampedRetention, forKey: Keys.contextHistoryRetentionDays)
         }
+
+        self.classificationFeedbackEnabled = defaults.object(forKey: Keys.classificationFeedbackEnabled) as? Bool ?? Self.defaultClassificationFeedbackEnabled
+        self.interactionSummaryEnabled = defaults.object(forKey: Keys.interactionSummaryEnabled) as? Bool ?? Self.defaultInteractionSummaryEnabled
+        self.enableLocalTextClassification = defaults.object(forKey: Keys.enableLocalTextClassification) as? Bool ?? Self.defaultEnableLocalTextClassification
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status

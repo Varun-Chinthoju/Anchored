@@ -11,6 +11,7 @@ class MenuBarViewModel: ObservableObject {
     @Published var progress: Double = 0.0
     @Published var stats: SessionStats = SessionStats(focusedTimeToday: 0, sessionCountToday: 0, streakDays: 0)
     @Published var recentSessions: [SessionEvent] = []
+    @Published var currentClassification: ClassificationDecision = .neutral()
     
     init(focusEngine: FocusEngine, sessionStore: SessionStore = .shared) {
         self.focusEngine = focusEngine
@@ -32,6 +33,18 @@ class MenuBarViewModel: ObservableObject {
             name: .focusEngineStateDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleClassificationChange),
+            name: .focusEngineClassificationDidChange,
+            object: focusEngine
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleClassificationChange),
+            name: .focusEngineContextDidChange,
+            object: focusEngine
+        )
     }
     
     deinit {
@@ -43,11 +56,18 @@ class MenuBarViewModel: ObservableObject {
             self.refresh()
         }
     }
+
+    @objc private func handleClassificationChange() {
+        DispatchQueue.main.async {
+            self.currentClassification = self.focusEngine.currentClassification
+        }
+    }
     
     private var statsGeneration: Int = 0
 
     func refresh() {
         self.activeSession = focusEngine.activeSession
+        self.currentClassification = focusEngine.currentClassification
         let currentGen = statsGeneration &+ 1
         statsGeneration = currentGen
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

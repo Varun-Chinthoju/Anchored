@@ -11,7 +11,7 @@ assignees: ''
 A clear and concise description of what the problem is. (e.g., I'm frustrated when...)
 
 **Describe the Solution You'd Like**
-A clear and concise description of what you want to happen. Include any specific behaviors or visual UI adjustments (pirate theme hints are welcome!).
+A clear and concise description of what you want to happen. Include any specific behaviors or visual UI adjustments.
 
 **Describe Alternatives You've Considered**
 A clear and concise description of any alternative solutions or features you've considered.

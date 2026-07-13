@@ -650,8 +650,8 @@ struct GeneralSettingsPane: View {
                     }
 
                     SettingsRow(
-                        label: settingsCopy("AI Visual Productivity Check", pirate: "AI Spyglass (Visual Check)", isPirateMode: isPirateMode),
-                        description: settingsCopy("Use local image classification to prevent false alarms. 100% private.", pirate: "Check screens locally to protect your voyage. 100% private.", isPirateMode: isPirateMode),
+                        label: settingsCopy("Experimental Visual Fallback", pirate: "Experimental Visual Spyglass", isPirateMode: isPirateMode),
+                        description: settingsCopy("Optional local screen analysis used only after deterministic, local-text, and cloud classification remain neutral. It can only promote the current neutral context and is disabled by default.", pirate: "Optional local screen analysis used only after all structured checks stay neutral. It can only clear the current neutral sight and is off by default.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.enableImageClassification)
@@ -694,6 +694,14 @@ struct GeneralSettingsPane: View {
                             
                             Divider().padding(.leading, 16).overlay(SettingsTheme.border.opacity(0.55))
                         }
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Local Text Classification (Experimental)", pirate: "Local Text Classifier (Experimental)", isPirateMode: isPirateMode),
+                        description: settingsCopy("Runs a small on-device text classifier off the main thread. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a small local text classifier off the main deck. Only strong productive results may clear a neutral sight; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.enableLocalTextClassification)
                     }
 
                     SettingsRow(
@@ -781,6 +789,9 @@ struct PrivacySettingsPane: View {
     @State private var showDisableConfirmation = false
     @State private var showClearConfirmation = false
     @State private var isClearing = false
+    @State private var feedbackCount = 0
+    @State private var showClearFeedbackConfirmation = false
+    @State private var isClearingFeedback = false
 
     private let retentionOptions = [1, 7, 30, 90, 365]
 
@@ -940,6 +951,50 @@ struct PrivacySettingsPane: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Classification Feedback", pirate: "Classification Feedback", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Save Corrections Locally", pirate: "Save Corrections Locally", isPirateMode: isPirateMode),
+                        description: settingsCopy("Stores only app IDs, domains, labels, and correction types. Titles, full URLs, OCR, screenshots, and raw events are never stored.", pirate: "Stores only safe labels and routes. No titles, full URLs, sights, or raw events are kept.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.classificationFeedbackEnabled)
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Interaction Summary", pirate: "Interaction Summary", isPirateMode: isPirateMode),
+                        description: settingsCopy("Optional memory-only foreground and idle aggregates. Disabled by default; no typed content or event details are collected.", pirate: "Optional memory-only watch and idle tallies. Off by default; no words or raw events are collected.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        Toggle("", isOn: $prefs.interactionSummaryEnabled)
+                    }
+                }
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Saved Corrections", pirate: "Saved Corrections", isPirateMode: isPirateMode),
+                        description: settingsCopy("Correction examples are automatically pruned with the selected retention period.", pirate: "Correction examples follow the selected retention horizon.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        HStack(spacing: 8) {
+                            Text("\(feedbackCount)")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                            Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode)) {
+                                showClearFeedbackConfirmation = true
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(feedbackCount == 0 || isClearingFeedback)
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Cloud AI", pirate: "Cloud Winds", isPirateMode: isPirateMode))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(SettingsTheme.textSecondary)
@@ -958,9 +1013,14 @@ struct PrivacySettingsPane: View {
         }
         .onAppear {
             refreshStats()
+            refreshFeedbackCount()
         }
         .onReceive(prefs.$contextHistoryEnabled) { _ in
             refreshStats()
+        }
+        .onReceive(prefs.$classificationFeedbackEnabled) { enabled in
+            ClassificationFeedbackStore.shared.isEnabled = enabled
+            refreshFeedbackCount()
         }
         .alert(settingsCopy("Enable Context History?", pirate: "Enable Context History?", isPirateMode: isPirateMode), isPresented: $showEnableDisclosure) {
             Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
@@ -987,6 +1047,14 @@ struct PrivacySettingsPane: View {
             }
         } message: {
             Text(settingsCopy("This permanently deletes all stored context observations. This action cannot be undone. Session rows and dashboard aggregates will be preserved.", pirate: "This permanently deletes all charted sights. This cannot be undone. Voyage logs and aggregates remain safe.", isPirateMode: isPirateMode))
+        }
+        .alert(settingsCopy("Clear Saved Corrections?", pirate: "Clear Saved Corrections?", isPirateMode: isPirateMode), isPresented: $showClearFeedbackConfirmation) {
+            Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
+            Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode), role: .destructive) {
+                performClearFeedback()
+            }
+        } message: {
+            Text(settingsCopy("This permanently deletes locally stored correction examples. Context history and session analytics are unchanged.", pirate: "This clears stored correction examples. Context history and voyage analytics remain unchanged.", isPirateMode: isPirateMode))
         }
     }
 
@@ -1057,6 +1125,24 @@ struct PrivacySettingsPane: View {
             DispatchQueue.main.async {
                 self.isClearing = false
                 self.refreshStats()
+            }
+        }
+    }
+
+    private func refreshFeedbackCount() {
+        ClassificationFeedbackStore.shared.count { result in
+            if case .success(let count) = result {
+                feedbackCount = count
+            }
+        }
+    }
+
+    private func performClearFeedback() {
+        isClearingFeedback = true
+        ClassificationFeedbackStore.shared.clearAll { _ in
+            DispatchQueue.main.async {
+                isClearingFeedback = false
+                refreshFeedbackCount()
             }
         }
     }

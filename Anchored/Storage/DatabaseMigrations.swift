@@ -95,6 +95,22 @@ enum SQLiteDatabaseMigrations {
             }
         }
 
+        migrator.registerMigration("v5_create_classification_feedback") { db in
+            try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS classification_feedback (
+                id TEXT PRIMARY KEY,
+                createdAt DATETIME NOT NULL,
+                bundleID TEXT NOT NULL,
+                domain TEXT,
+                originalLabel TEXT NOT NULL,
+                correctedLabel TEXT NOT NULL,
+                correction TEXT NOT NULL,
+                source TEXT NOT NULL
+            );
+            """)
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_classification_feedback_createdAt ON classification_feedback(createdAt);")
+        }
+
         return migrator
     }
 }

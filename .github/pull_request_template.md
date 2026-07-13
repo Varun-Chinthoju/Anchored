@@ -21,4 +21,4 @@
 - [ ] I have added tests that prove my fix is effective or that my feature works (if applicable).
 - [ ] I have updated the documentation / README.md / CONTRIBUTING.md (if applicable).
 - [ ] I did not commit raw SQLite queries outside of `SQLiteSessionStore` or `DashboardQueries`.
-- [ ] **Pirate Nudge:** I have verified this change won't sink the ship 🏴‍☠️
+- [ ] I have verified the change does not introduce regressions.

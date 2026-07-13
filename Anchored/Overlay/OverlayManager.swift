@@ -49,6 +49,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// Callback from FocusEngine to request showing the exit-trigger capsule.
     func didRequestExitTrigger(duration: TimeInterval, appName: String) {
+        RuntimeTrace.event("overlay_exit_trigger_requested", fields: ["duration": String(duration)])
         // Ensure only one exit-trigger capsule is shown at a time (debounce rapid app switches)
         dismissExitTrigger()
         
@@ -74,6 +75,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// Callback from FocusEngine when distraction is detected during an active session.
     func didDetectDistraction(bundleID: String) {
+        RuntimeTrace.event("overlay_countdown_requested", fields: ["bundleID": bundleID, "seconds": String(countdownDuration)])
         // Only allow one countdown/escalation sequence at a time
         guard countdownPillPanel == nil && dimWindows.isEmpty else { return }
         
@@ -88,6 +90,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// Callback from FocusEngine when the user returns to work.
     func didReturnToWork() {
+        RuntimeTrace.event("overlay_return_to_work")
         // Cancel the countdown pill if active
         if let pill = countdownPillPanel {
             pill.cancel()
@@ -100,6 +103,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// Callback from FocusEngine when the active session ends.
     func sessionDidEnd() {
+        RuntimeTrace.event("overlay_session_ended")
         // Hide all panels and overlays
         dismissExitTrigger()
         
@@ -148,7 +152,12 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// Triggers escalation, showing a dim overlay on all screens.
     private func startEscalation() {
         // Ensure we don't start duplicate escalations
-        guard dimWindows.isEmpty else { return }
+        guard dimWindows.isEmpty else {
+            RuntimeTrace.event("overlay_escalation_ignored_duplicate")
+            return
+        }
+
+        RuntimeTrace.event("overlay_escalation_started", fields: ["screenCount": String(NSScreen.screens.count)])
         
         // The countdown pill panel is no longer needed since it has expired
         countdownPillPanel = nil
@@ -164,6 +173,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// Lifts the dim overlays by fading them out and closing them.
     private func liftDimOverlays() {
+        RuntimeTrace.event("overlay_escalation_lifted", fields: ["screenCount": String(dimWindows.count)])
         for window in dimWindows {
             window.liftOverlay()
         }
