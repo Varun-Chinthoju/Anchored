@@ -22,6 +22,7 @@ public final class PreferencesManager: ObservableObject {
         public static let countdownDuration = "com.varun.Anchored.countdownDuration"
         public static let focusThreshold = "com.varun.Anchored.focusThreshold"
         public static let focusThresholdOverride = "com.varun.Anchored.focusThresholdOverride"
+        public static let automaticSessionDuration = "com.varun.Anchored.automaticSessionDuration"
         public static let launchAtLogin = "com.varun.Anchored.launchAtLogin"
         public static let enableSmartNudges = "com.varun.Anchored.enableSmartNudges"
         public static let focusPromptExperimentEnabled = "com.varun.Anchored.focusPromptExperimentEnabled"
@@ -38,11 +39,14 @@ public final class PreferencesManager: ObservableObject {
         public static let classificationFeedbackEnabled = "com.varun.Anchored.classificationFeedbackEnabled"
         public static let interactionSummaryEnabled = "com.varun.Anchored.interactionSummaryEnabled"
         public static let enableLocalTextClassification = "com.varun.Anchored.enableLocalTextClassification"
+        public static let sessionSummaryPromptEnabled = "com.varun.Anchored.sessionSummaryPromptEnabled"
+        public static let weeklyReviewNotificationsEnabled = "com.varun.Anchored.weeklyReviewNotificationsEnabled"
     }
     
     // Default values
     public static let defaultCountdownDuration = 10
     public static let defaultFocusThreshold: TimeInterval = 600.0
+    public static let defaultAutomaticSessionDuration: TimeInterval = 25 * 60
     
     public static let defaultEnableCloudClassification = false
     public static let defaultCloudProvider = 0 // 0 = Gemini, 1 = OpenAI, 2 = Anthropic
@@ -58,6 +62,8 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultClassificationFeedbackEnabled = false
     public static let defaultInteractionSummaryEnabled = false
     public static let defaultEnableLocalTextClassification = false
+    public static let defaultSessionSummaryPromptEnabled = false
+    public static let defaultWeeklyReviewNotificationsEnabled = true
     
     /// The distraction countdown duration in seconds. Clamped to [5, 20].
     @Published public var countdownDuration: Int {
@@ -75,6 +81,19 @@ public final class PreferencesManager: ObservableObject {
     @Published public var focusThreshold: TimeInterval {
         didSet {
             defaults.set(focusThreshold, forKey: Keys.focusThreshold)
+        }
+    }
+
+    /// The duration used for sessions started automatically by shadow tracking.
+    /// This is deliberately separate from the focus threshold that starts tracking.
+    @Published public var automaticSessionDuration: TimeInterval {
+        didSet {
+            let clamped = max(60, min(24 * 60 * 60, automaticSessionDuration))
+            if clamped != automaticSessionDuration {
+                self.automaticSessionDuration = clamped
+            } else {
+                defaults.set(clamped, forKey: Keys.automaticSessionDuration)
+            }
         }
     }
     
@@ -221,6 +240,16 @@ public final class PreferencesManager: ObservableObject {
     @Published public var enableLocalTextClassification: Bool {
         didSet { defaults.set(enableLocalTextClassification, forKey: Keys.enableLocalTextClassification) }
     }
+
+    /// Whether Done should offer a local user-authored session summary prompt.
+    @Published public var sessionSummaryPromptEnabled: Bool {
+        didSet { defaults.set(sessionSummaryPromptEnabled, forKey: Keys.sessionSummaryPromptEnabled) }
+    }
+
+    /// Whether the weekly review notification feature is enabled. System permission is separate.
+    @Published public var weeklyReviewNotificationsEnabled: Bool {
+        didSet { defaults.set(weeklyReviewNotificationsEnabled, forKey: Keys.weeklyReviewNotificationsEnabled) }
+    }
     
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
@@ -236,6 +265,9 @@ public final class PreferencesManager: ObservableObject {
         
         // Load focus threshold
         self.focusThreshold = defaults.object(forKey: Keys.focusThreshold) as? TimeInterval ?? Self.defaultFocusThreshold
+
+        let storedAutomaticDuration = defaults.object(forKey: Keys.automaticSessionDuration) as? TimeInterval ?? Self.defaultAutomaticSessionDuration
+        self.automaticSessionDuration = max(60, min(24 * 60 * 60, storedAutomaticDuration))
         
         // Load smart nudges preference
         self.enableSmartNudges = defaults.object(forKey: Keys.enableSmartNudges) as? Bool ?? true
@@ -288,6 +320,8 @@ public final class PreferencesManager: ObservableObject {
         self.classificationFeedbackEnabled = defaults.object(forKey: Keys.classificationFeedbackEnabled) as? Bool ?? Self.defaultClassificationFeedbackEnabled
         self.interactionSummaryEnabled = defaults.object(forKey: Keys.interactionSummaryEnabled) as? Bool ?? Self.defaultInteractionSummaryEnabled
         self.enableLocalTextClassification = defaults.object(forKey: Keys.enableLocalTextClassification) as? Bool ?? Self.defaultEnableLocalTextClassification
+        self.sessionSummaryPromptEnabled = defaults.object(forKey: Keys.sessionSummaryPromptEnabled) as? Bool ?? Self.defaultSessionSummaryPromptEnabled
+        self.weeklyReviewNotificationsEnabled = defaults.object(forKey: Keys.weeklyReviewNotificationsEnabled) as? Bool ?? Self.defaultWeeklyReviewNotificationsEnabled
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status

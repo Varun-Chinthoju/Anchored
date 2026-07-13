@@ -111,6 +111,16 @@ enum SQLiteDatabaseMigrations {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_classification_feedback_createdAt ON classification_feedback(createdAt);")
         }
 
+        migrator.registerMigration("v6_add_session_commitment_fields") { db in
+            let columns = try db.columns(in: "sessions").map(\.name)
+            if !columns.contains("sessionSummary") {
+                try db.execute(sql: "ALTER TABLE sessions ADD COLUMN sessionSummary TEXT;")
+            }
+            if !columns.contains("completionOutcome") {
+                try db.execute(sql: "ALTER TABLE sessions ADD COLUMN completionOutcome TEXT;")
+            }
+        }
+
         return migrator
     }
 }

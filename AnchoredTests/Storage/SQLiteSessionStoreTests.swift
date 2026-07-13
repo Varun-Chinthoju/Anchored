@@ -72,6 +72,8 @@ final class SQLiteSessionStoreTests: XCTestCase {
                 XCTAssertTrue(columns.contains("distractionAppBundleID"))
                 XCTAssertTrue(columns.contains("distraction_domain"))
                 XCTAssertTrue(columns.contains("action"))
+                XCTAssertTrue(columns.contains("sessionSummary"))
+                XCTAssertTrue(columns.contains("completionOutcome"))
                 
                 // Verify indexes exist
                 let indexRows = try Row.fetchAll(db, sql: "PRAGMA index_list('sessions')")
@@ -176,6 +178,61 @@ final class SQLiteSessionStoreTests: XCTestCase {
         let all = store.allEvents()
         XCTAssertEqual(all.count, 1)
         XCTAssertEqual(all[0].url, "https://example.com/path")
+    }
+
+    func testSessionSummaryRoundTripSanitizesAndPreservesCompletionOutcome() {
+        let event = SessionEvent(
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            sessionDurationSeconds: 900,
+            sessionSummary: "  Shipped\n the feature.\u{0000}  ",
+            completionOutcome: .done
+        )
+
+        logAndWait(event)
+
+        let saved = store.recentSessions(limit: 1).first
+        XCTAssertEqual(saved?.sessionSummary, "Shipped the feature.")
+        XCTAssertEqual(saved?.completionOutcome, .done)
+    }
+
+    func testOversizedOrEmptySummaryIsNotPersisted() {
+        let oversized = String(repeating: "x", count: CommitmentPolicy.maximumSessionSummaryLength + 1)
+        let event = SessionEvent(
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            sessionSummary: oversized
+        )
+        logAndWait(event)
+        XCTAssertNil(store.recentSessions(limit: 1).first?.sessionSummary)
+
+        let emptyEvent = SessionEvent(
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            sessionSummary: "   \n\t"
+        )
+        logAndWait(emptyEvent)
+        XCTAssertNil(store.recentSessions(limit: 1).first?.sessionSummary)
+    }
+
+    func testSessionSummaryCanBeEditedAndClearedWithoutRemovingSession() throws {
+        let event = SessionEvent(
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            sessionSummary: "First draft"
+        )
+        logAndWait(event)
+
+        try store.updateSessionSummary(id: event.id, summary: "Revised")
+        XCTAssertEqual(store.recentSessions(limit: 1).first?.sessionSummary, "Revised")
+
+        try store.clearAllSessionSummaries()
+        XCTAssertEqual(store.recentSessions(limit: 1).count, 1)
+        XCTAssertNil(store.recentSessions(limit: 1).first?.sessionSummary)
     }
 
     func testMigrationFromJSON() throws {

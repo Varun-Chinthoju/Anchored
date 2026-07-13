@@ -14,6 +14,8 @@ struct SessionEvent: Codable, Equatable {
     let action: SessionAction?
     let category: String?
     let sessionGoal: String?
+    let sessionSummary: String?
+    let completionOutcome: SessionCompletionOutcome?
 
     init(
         id: UUID = UUID(),
@@ -28,7 +30,9 @@ struct SessionEvent: Codable, Equatable {
         distraction_domain: String? = nil,
         action: SessionAction? = nil,
         category: String? = nil,
-        sessionGoal: String? = nil
+        sessionGoal: String? = nil,
+        sessionSummary: String? = nil,
+        completionOutcome: SessionCompletionOutcome? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -43,6 +47,8 @@ struct SessionEvent: Codable, Equatable {
         self.action = action
         self.category = category
         self.sessionGoal = sessionGoal
+        self.sessionSummary = CommitmentPolicy.sanitizedSessionSummary(sessionSummary)
+        self.completionOutcome = completionOutcome
     }
 }
 
@@ -62,7 +68,9 @@ extension SessionEvent {
             distraction_domain: distraction_domain,
             action: action,
             category: category,
-            sessionGoal: sessionGoal
+            sessionGoal: sessionGoal,
+            sessionSummary: sessionSummary,
+            completionOutcome: completionOutcome
         )
     }
 }

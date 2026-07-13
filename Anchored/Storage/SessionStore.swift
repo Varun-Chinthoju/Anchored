@@ -90,6 +90,14 @@ class SessionStore {
             DispatchQueue.main.async { completion(events) }
         }
     }
+
+    func updateSessionSummary(id: UUID, summary: String?) throws {
+        try sqliteStore.updateSessionSummary(id: id, summary: summary)
+    }
+
+    func clearAllSessionSummaries() throws {
+        try sqliteStore.clearAllSessionSummaries()
+    }
     
     // Helper to load events synchronously on the current queue
     private func loadEventsSync() -> [SessionEvent] {

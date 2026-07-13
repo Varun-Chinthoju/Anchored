@@ -36,6 +36,7 @@ final class PreferencesManagerTests: XCTestCase {
         // Then it should have default values
         XCTAssertEqual(manager.countdownDuration, PreferencesManager.defaultCountdownDuration)
         XCTAssertEqual(manager.focusThreshold, PreferencesManager.defaultFocusThreshold)
+        XCTAssertEqual(manager.automaticSessionDuration, PreferencesManager.defaultAutomaticSessionDuration)
         XCTAssertNil(manager.runtimeFocusThresholdOverride)
         XCTAssertEqual(manager.effectiveFocusThreshold, PreferencesManager.defaultFocusThreshold)
         XCTAssertFalse(manager.launchAtLogin)
@@ -46,6 +47,8 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertFalse(manager.classificationFeedbackEnabled)
         XCTAssertFalse(manager.interactionSummaryEnabled)
         XCTAssertFalse(manager.enableLocalTextClassification)
+        XCTAssertFalse(manager.sessionSummaryPromptEnabled)
+        XCTAssertTrue(manager.weeklyReviewNotificationsEnabled)
         
         // Cloud classification defaults
         XCTAssertFalse(manager.enableCloudClassification)
@@ -59,6 +62,9 @@ final class PreferencesManagerTests: XCTestCase {
         // Given stored values in UserDefaults and enabled login item status
         testDefaults.set(15, forKey: PreferencesManager.Keys.countdownDuration)
         testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
+        testDefaults.set(2100.0, forKey: PreferencesManager.Keys.automaticSessionDuration)
+        testDefaults.set(true, forKey: PreferencesManager.Keys.sessionSummaryPromptEnabled)
+        testDefaults.set(false, forKey: PreferencesManager.Keys.weeklyReviewNotificationsEnabled)
         testDefaults.set(false, forKey: PreferencesManager.Keys.enableSmartNudges)
         testDefaults.set(false, forKey: PreferencesManager.Keys.focusPromptExperimentEnabled)
         testDefaults.set(true, forKey: PreferencesManager.Keys.enableCloudClassification)
@@ -73,11 +79,14 @@ final class PreferencesManagerTests: XCTestCase {
         // Then it should load the stored values and status
         XCTAssertEqual(manager.countdownDuration, 15)
         XCTAssertEqual(manager.focusThreshold, 300.0)
+        XCTAssertEqual(manager.automaticSessionDuration, 2100.0)
         XCTAssertNil(manager.runtimeFocusThresholdOverride)
         XCTAssertEqual(manager.effectiveFocusThreshold, 300.0)
         XCTAssertTrue(manager.launchAtLogin)
         XCTAssertFalse(manager.enableSmartNudges)
         XCTAssertFalse(manager.focusPromptExperimentEnabled)
+        XCTAssertTrue(manager.sessionSummaryPromptEnabled)
+        XCTAssertFalse(manager.weeklyReviewNotificationsEnabled)
         
         // Cloud classification loaded values
         XCTAssertTrue(manager.enableCloudClassification)
@@ -143,6 +152,34 @@ final class PreferencesManagerTests: XCTestCase {
         // Then it should update the property and persist to defaults
         XCTAssertEqual(manager.focusThreshold, 120.0)
         XCTAssertEqual(testDefaults.double(forKey: PreferencesManager.Keys.focusThreshold), 120.0)
+    }
+
+    func testAutomaticSessionDurationPersistsIndependentlyFromFocusThreshold() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.focusThreshold = 900
+        manager.automaticSessionDuration = 1500
+
+        XCTAssertEqual(manager.focusThreshold, 900)
+        XCTAssertEqual(manager.automaticSessionDuration, 1500)
+        XCTAssertEqual(testDefaults.double(forKey: PreferencesManager.Keys.focusThreshold), 900)
+        XCTAssertEqual(testDefaults.double(forKey: PreferencesManager.Keys.automaticSessionDuration), 1500)
+
+        let reloaded = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+        XCTAssertEqual(reloaded.focusThreshold, 900)
+        XCTAssertEqual(reloaded.automaticSessionDuration, 1500)
+    }
+
+    func testSummaryAndWeeklyReviewPreferencesAreIndependent() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.sessionSummaryPromptEnabled = true
+        manager.weeklyReviewNotificationsEnabled = false
+
+        XCTAssertTrue(manager.sessionSummaryPromptEnabled)
+        XCTAssertFalse(manager.weeklyReviewNotificationsEnabled)
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.sessionSummaryPromptEnabled))
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.weeklyReviewNotificationsEnabled))
     }
 
     func testThemeSelectionPersistence() {

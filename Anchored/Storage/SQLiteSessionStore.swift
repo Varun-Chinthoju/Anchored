@@ -218,6 +218,24 @@ class SQLiteSessionStore {
             )
         }
     }
+
+    /// Updates only the local user-authored summary for a completed session.
+    /// Empty or oversized input clears the summary rather than persisting invalid text.
+    func updateSessionSummary(id: UUID, summary: String?) throws {
+        let sanitizedSummary = CommitmentPolicy.sanitizedSessionSummary(summary)
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE sessions SET sessionSummary = ? WHERE id = ? AND type = ?",
+                arguments: [sanitizedSummary, id, SessionEventType.sessionEnd.rawValue]
+            )
+        }
+    }
+
+    func clearAllSessionSummaries() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE sessions SET sessionSummary = NULL")
+        }
+    }
     
     func migrateFromJSONIfNeeded(jsonURL: URL) {
         queue.sync {

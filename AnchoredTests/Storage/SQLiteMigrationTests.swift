@@ -47,12 +47,24 @@ final class SQLiteMigrationTests: XCTestCase {
             let columns = try db.columns(in: "sessions").map(\.name)
             XCTAssertTrue(columns.contains("category"))
             XCTAssertTrue(columns.contains("sessionGoal"))
+            XCTAssertTrue(columns.contains("sessionSummary"))
+            XCTAssertTrue(columns.contains("completionOutcome"))
         }
 
         let secondStore = SQLiteSessionStore(databaseURL: dbURL)
         XCTAssertNil(secondStore.migrationError)
         XCTAssertEqual(secondStore.allEvents().count, 1)
         XCTAssertEqual(secondStore.allEvents()[0].url, "https://example.com/path")
+    }
+
+    func testNewDatabaseHasNullableCommitmentFields() throws {
+        let store = SQLiteSessionStore(databaseURL: dbURL)
+
+        try store.dbQueue.read { db in
+            let columns = try db.columns(in: "sessions").map(\.name)
+            XCTAssertTrue(columns.contains("sessionSummary"))
+            XCTAssertTrue(columns.contains("completionOutcome"))
+        }
     }
 
     private func createLegacyDatabase() throws {
