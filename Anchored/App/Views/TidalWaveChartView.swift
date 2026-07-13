@@ -180,7 +180,7 @@ struct TidalWaveChartView: View {
     }
 
     private func readableForeground(for color: Color) -> Color {
-        let resolved = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.white
+        let resolved = color.nsColor.usingColorSpace(.deviceRGB) ?? NSColor.white
         let luminance = 0.2126 * resolved.redComponent + 0.7152 * resolved.greenComponent + 0.0722 * resolved.blueComponent
         return luminance > 0.66 ? .black : .white
     }
@@ -696,7 +696,7 @@ struct PirateSegmentButton: View {
     }
 
     private func readableForeground(for color: Color) -> Color {
-        let resolved = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.white
+        let resolved = color.nsColor.usingColorSpace(.deviceRGB) ?? NSColor.white
         let luminance = 0.2126 * resolved.redComponent + 0.7152 * resolved.greenComponent + 0.0722 * resolved.blueComponent
         return luminance > 0.66 ? .black : .white
     }

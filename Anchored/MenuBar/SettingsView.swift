@@ -396,7 +396,7 @@ struct ColoredLabelStyle: LabelStyle {
     }
 
     private func readableForeground(for color: Color) -> Color {
-        let resolved = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.white
+        let resolved = color.nsColor.usingColorSpace(.deviceRGB) ?? NSColor.white
         let luminance = 0.2126 * resolved.redComponent + 0.7152 * resolved.greenComponent + 0.0722 * resolved.blueComponent
         return luminance > 0.62 ? .black : .white
     }
@@ -586,7 +586,7 @@ struct GeneralSettingsPane: View {
                     SettingsRow(
                         label: settingsCopy("Distraction Warning Countdown", pirate: "Siren Warning Countdown", isPirateMode: isPirateMode),
                         description: settingsCopy("Seconds allowed on a distraction app before the screen dims.", pirate: "Seconds on a distraction app before the fog dims yer screen.", isPirateMode: isPirateMode),
-                        showDivider: false
+                        showDivider: true
                     ) {
                         HStack(spacing: 8) {
                             Slider(value: Binding(
@@ -598,6 +598,48 @@ struct GeneralSettingsPane: View {
                             ), in: 0...60)
                                 .frame(width: 250)
                             Text(formatDuration(Double(prefs.countdownDuration)))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .frame(width: 100, alignment: .trailing)
+                        }
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Screen Dim Level", pirate: "Siren Fog Density", isPirateMode: isPirateMode),
+                        description: settingsCopy("How dark the screen gets when distraction dimming is active.", pirate: "How thick the fog rolls in when distracted.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(
+                                get: { prefs.dimOpacity },
+                                set: { newValue in
+                                    let rounded = (newValue / 0.05).rounded() * 0.05
+                                    prefs.dimOpacity = max(0.1, min(0.95, rounded))
+                                }
+                            ), in: 0.1...0.95)
+                                .frame(width: 250)
+                            Text(String(format: "%.0f%%", prefs.dimOpacity * 100))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                                .frame(width: 100, alignment: .trailing)
+                        }
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Dim Transition Duration", pirate: "Fog Roll-in Duration", isPirateMode: isPirateMode),
+                        description: settingsCopy("The time it takes to reach full screen dimming.", pirate: "How fast the fog takes over yer screens.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(
+                                get: { prefs.dimTransitionDuration },
+                                set: { newValue in
+                                    let rounded = (newValue / 0.5).rounded() * 0.5
+                                    prefs.dimTransitionDuration = max(0.0, min(30.0, rounded))
+                                }
+                            ), in: 0.0...30.0)
+                                .frame(width: 250)
+                            Text(prefs.dimTransitionDuration == 0 ? settingsCopy("Instant", pirate: "Poff 💨", isPirateMode: isPirateMode) : String(format: "%.1fs", prefs.dimTransitionDuration))
                                 .font(.system(.body, design: .monospaced))
                                 .foregroundColor(SettingsTheme.textSecondary)
                                 .frame(width: 100, alignment: .trailing)

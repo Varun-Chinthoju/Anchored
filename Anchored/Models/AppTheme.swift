@@ -94,6 +94,10 @@ public struct ThemePalette: Equatable {
         canvasStop.color
     }
 
+    public var canvasNSColor: NSColor {
+        canvasStop.nsColor
+    }
+
     public var ambientGlowColor: Color {
         Self.mix(canvasStop, accent, amount: prefersLightCanvas ? 0.18 : 0.26).color.opacity(prefersLightCanvas ? 0.28 : 0.34)
     }
@@ -325,5 +329,15 @@ public extension Color {
         let green = Double((hex >> 8) & 0xFF) / 255.0
         let blue = Double(hex & 0xFF) / 255.0
         self.init(red: red, green: green, blue: blue, opacity: alpha)
+    }
+
+    var nsColor: NSColor {
+        if #available(macOS 14.0, *) {
+            return NSColor(self)
+        } else if let cgColor = self.cgColor {
+            return NSColor(cgColor: cgColor) ?? .white
+        } else {
+            return .white
+        }
     }
 }

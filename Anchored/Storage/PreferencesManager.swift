@@ -41,6 +41,8 @@ public final class PreferencesManager: ObservableObject {
         public static let enableLocalTextClassification = "com.varun.Anchored.enableLocalTextClassification"
         public static let sessionSummaryPromptEnabled = "com.varun.Anchored.sessionSummaryPromptEnabled"
         public static let weeklyReviewNotificationsEnabled = "com.varun.Anchored.weeklyReviewNotificationsEnabled"
+        public static let dimOpacity = "com.varun.Anchored.dimOpacity"
+        public static let dimTransitionDuration = "com.varun.Anchored.dimTransitionDuration"
     }
     
     // Default values
@@ -64,6 +66,8 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultEnableLocalTextClassification = false
     public static let defaultSessionSummaryPromptEnabled = false
     public static let defaultWeeklyReviewNotificationsEnabled = true
+    public static let defaultDimOpacity: Double = 0.85
+    public static let defaultDimTransitionDuration: Double = 3.0
     
     /// The distraction countdown duration in seconds. Clamped to [5, 20].
     @Published public var countdownDuration: Int {
@@ -251,6 +255,30 @@ public final class PreferencesManager: ObservableObject {
         didSet { defaults.set(weeklyReviewNotificationsEnabled, forKey: Keys.weeklyReviewNotificationsEnabled) }
     }
     
+    /// The screen dim level (opacity/density). Clamped to [0.1, 0.95].
+    @Published public var dimOpacity: Double {
+        didSet {
+            let clamped = max(0.1, min(0.95, dimOpacity))
+            if clamped != dimOpacity {
+                self.dimOpacity = clamped
+            } else {
+                defaults.set(clamped, forKey: Keys.dimOpacity)
+            }
+        }
+    }
+
+    /// The time over which dimming occurs (transition duration in seconds). Clamped to [0.0, 30.0].
+    @Published public var dimTransitionDuration: Double {
+        didSet {
+            let clamped = max(0.0, min(30.0, dimTransitionDuration))
+            if clamped != dimTransitionDuration {
+                self.dimTransitionDuration = clamped
+            } else {
+                defaults.set(clamped, forKey: Keys.dimTransitionDuration)
+            }
+        }
+    }
+    
     /// Initializes a new instance of `PreferencesManager`.
     /// - Parameters:
     ///   - defaults: The `UserDefaults` instance to use (defaults to `.standard`).
@@ -322,6 +350,8 @@ public final class PreferencesManager: ObservableObject {
         self.enableLocalTextClassification = defaults.object(forKey: Keys.enableLocalTextClassification) as? Bool ?? Self.defaultEnableLocalTextClassification
         self.sessionSummaryPromptEnabled = defaults.object(forKey: Keys.sessionSummaryPromptEnabled) as? Bool ?? Self.defaultSessionSummaryPromptEnabled
         self.weeklyReviewNotificationsEnabled = defaults.object(forKey: Keys.weeklyReviewNotificationsEnabled) as? Bool ?? Self.defaultWeeklyReviewNotificationsEnabled
+        self.dimOpacity = defaults.object(forKey: Keys.dimOpacity) as? Double ?? Self.defaultDimOpacity
+        self.dimTransitionDuration = defaults.object(forKey: Keys.dimTransitionDuration) as? Double ?? Self.defaultDimTransitionDuration
         
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status

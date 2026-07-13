@@ -56,6 +56,10 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.cloudProvider, 0)
         XCTAssertEqual(manager.cloudModel, "gemini-2.5-flash")
         XCTAssertEqual(manager.cloudEndpoint, "https://generativelanguage.googleapis.com/v1beta/models/")
+        
+        // Dim preferences defaults
+        XCTAssertEqual(manager.dimOpacity, PreferencesManager.defaultDimOpacity)
+        XCTAssertEqual(manager.dimTransitionDuration, PreferencesManager.defaultDimTransitionDuration)
     }
     
     func testInitializationWithStoredSettings() {
@@ -71,6 +75,8 @@ final class PreferencesManagerTests: XCTestCase {
         testDefaults.set(1, forKey: PreferencesManager.Keys.cloudProvider)
         testDefaults.set("gpt-4-custom", forKey: PreferencesManager.Keys.cloudModel)
         testDefaults.set("https://custom.openai.com/v1", forKey: PreferencesManager.Keys.cloudEndpoint)
+        testDefaults.set(0.5, forKey: PreferencesManager.Keys.dimOpacity)
+        testDefaults.set(10.0, forKey: PreferencesManager.Keys.dimTransitionDuration)
         mockService.status = .enabled
         
         // When initializing PreferencesManager
@@ -93,6 +99,10 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.cloudProvider, 1)
         XCTAssertEqual(manager.cloudModel, "gpt-4-custom")
         XCTAssertEqual(manager.cloudEndpoint, "https://custom.openai.com/v1")
+        
+        // Dim preferences loaded values
+        XCTAssertEqual(manager.dimOpacity, 0.5)
+        XCTAssertEqual(manager.dimTransitionDuration, 10.0)
     }
 
     func testClassificationPrivacyPreferencesPersist() {
@@ -297,6 +307,32 @@ final class PreferencesManagerTests: XCTestCase {
         // Mutate cloudEndpoint
         manager.cloudEndpoint = "https://custom.openai.com/v1"
         XCTAssertEqual(testDefaults.string(forKey: PreferencesManager.Keys.cloudEndpoint), "https://custom.openai.com/v1")
+    }
+    
+    func testDimPreferencesClamping() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+        
+        // Test clamping of dimOpacity
+        manager.dimOpacity = 0.05 // Under limit (min 0.1)
+        XCTAssertEqual(manager.dimOpacity, 0.1)
+        
+        manager.dimOpacity = 0.99 // Over limit (max 0.95)
+        XCTAssertEqual(manager.dimOpacity, 0.95)
+        
+        manager.dimOpacity = 0.5 // Valid
+        XCTAssertEqual(manager.dimOpacity, 0.5)
+        XCTAssertEqual(testDefaults.double(forKey: PreferencesManager.Keys.dimOpacity), 0.5)
+        
+        // Test clamping of dimTransitionDuration
+        manager.dimTransitionDuration = -5.0 // Under limit (min 0.0)
+        XCTAssertEqual(manager.dimTransitionDuration, 0.0)
+        
+        manager.dimTransitionDuration = 45.0 // Over limit (max 30.0)
+        XCTAssertEqual(manager.dimTransitionDuration, 30.0)
+        
+        manager.dimTransitionDuration = 15.0 // Valid
+        XCTAssertEqual(manager.dimTransitionDuration, 15.0)
+        XCTAssertEqual(testDefaults.double(forKey: PreferencesManager.Keys.dimTransitionDuration), 15.0)
     }
 }
 

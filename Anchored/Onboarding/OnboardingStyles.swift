@@ -144,6 +144,10 @@ struct PirateTheme {
         palette.canvasColor
     }
 
+    static var canvasNSColor: NSColor {
+        palette.canvasNSColor
+    }
+
     static var ambientGlow: Color {
         palette.ambientGlowColor
     }
