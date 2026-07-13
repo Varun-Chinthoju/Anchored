@@ -533,7 +533,11 @@ final class FocusEngine {
     
     /// Handles context changes from the activity monitor.
     private func handleContextChange(bundleID: String, url: URL?, title: String, snapshot: ContextSnapshot? = nil) {
-        guard bundleID != "com.varun.Anchored" else { return }
+        guard bundleID != "com.varun.Anchored",
+              !SystemContextPolicy.shouldIgnore(bundleID: bundleID) else {
+            RuntimeTrace.event("system_context_ignored", fields: ["bundleID": bundleID])
+            return
+        }
         
         currentApp = bundleID
         currentURL = url

@@ -220,6 +220,37 @@ final class DashboardQueriesTests: XCTestCase {
         XCTAssertEqual(ranks[1].count, 1)
         XCTAssertEqual(ranks[1].totalDurationSeconds, 300)
     }
+
+    func testTopDistractionsExcludesSystemLoginWindowArtifacts() {
+        let referenceDate = Date()
+        let start = referenceDate.addingTimeInterval(-3_600)
+        let sessionStart = SessionEvent(
+            timestamp: start,
+            type: .sessionStart,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode"
+        )
+        let loginWindow = SessionEvent(
+            timestamp: start.addingTimeInterval(60),
+            type: .distractionDetected,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            distractionAppBundleID: "com.apple.loginwindow"
+        )
+        let sessionEnd = SessionEvent(
+            timestamp: start.addingTimeInterval(1_800),
+            type: .sessionEnd,
+            appBundleID: "com.apple.dt.Xcode",
+            appName: "Xcode",
+            sessionDurationSeconds: 1_800
+        )
+
+        logSync(sessionStart)
+        logSync(loginWindow)
+        logSync(sessionEnd)
+
+        XCTAssertTrue(store.topDistractions(since: start, to: referenceDate).isEmpty)
+    }
     
     func testWeeklyStreakCalculation() {
         let referenceDate = Date()

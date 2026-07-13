@@ -67,6 +67,14 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNil(engine.activeSession)
         XCTAssertFalse(engine.isDimming)
     }
+
+    func testSystemLoginWindowContextDoesNotBecomeFocusOrDistractionEvidence() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.loginwindow")
+
+        XCTAssertNil(engine.currentApp)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertTrue(sessionStore.allEvents().isEmpty)
+    }
     
     // MARK: - Non-Distraction Transitions
     

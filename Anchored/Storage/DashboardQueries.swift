@@ -410,6 +410,10 @@ extension SQLiteSessionStore {
         let distractionBlocks = blocks.filter { $0.type == .distraction }
         var groupings: [String: (bundleID: String?, domain: String?, name: String, count: Int, totalDuration: TimeInterval)] = [:]
         for block in distractionBlocks {
+            if let bundleID = block.distractionAppBundleID,
+               SystemContextPolicy.shouldIgnore(bundleID: bundleID) {
+                continue
+            }
             let key: String
             let name: String
             let bundleID: String?
