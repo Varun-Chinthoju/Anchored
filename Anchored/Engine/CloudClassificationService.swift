@@ -1,14 +1,7 @@
 import Foundation
 
-struct CloudClassificationInput {
-    let appName: String
-    let windowTitle: String
-    let url: URL?
-    let ocrText: String
-}
-
 protocol CloudClassificationServing: AnyObject {
-    func classify(_ input: CloudClassificationInput, completion: @escaping (Result<Bool, Error>) -> Void)
+    func classify(_ input: CloudClassificationInput, completion: @escaping (Result<ClassificationResult, Error>) -> Void)
 }
 
 final class LiveCloudClassificationService: CloudClassificationServing {
@@ -18,13 +11,7 @@ final class LiveCloudClassificationService: CloudClassificationServing {
         self.preferences = preferences
     }
 
-    func classify(_ input: CloudClassificationInput, completion: @escaping (Result<Bool, Error>) -> Void) {
-        CloudClassifier(preferences: preferences).classify(
-            appName: input.appName,
-            windowTitle: input.windowTitle,
-            url: input.url,
-            ocrText: input.ocrText,
-            completion: completion
-        )
+    func classify(_ input: CloudClassificationInput, completion: @escaping (Result<ClassificationResult, Error>) -> Void) {
+        CloudClassifier(preferences: preferences).classify(input: input, completion: completion)
     }
 }

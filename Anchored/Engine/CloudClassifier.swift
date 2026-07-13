@@ -46,11 +46,8 @@ public final class CloudClassifier {
     }
     
     public func classify(
-        appName: String,
-        windowTitle: String,
-        url: URL?,
-        ocrText: String,
-        completion: @escaping (Result<Bool, Error>) -> Void
+        input: CloudClassificationInput,
+        completion: @escaping (Result<ClassificationResult, Error>) -> Void
     ) {
         let providerIndex = preferences.cloudProvider
         let model = preferences.cloudModel
@@ -69,12 +66,14 @@ public final class CloudClassifier {
             return
         }
         
-        let profileName = ProfileManager.shared.activeProfile.name
-        let urlString = url?.absoluteString ?? "N/A"
-        let truncatedOcr = String(ocrText.prefix(2000))
-        let prompt = "Is the application '\(appName)' with window title '\(windowTitle)', URL '\(urlString)', and screen text '\(truncatedOcr)' productive for '\(profileName)'? Answer only 'yes' or 'no'."
-        
-        guard var urlComponents = URLComponents(string: endpoint) else {
+        guard let structuredInputData = try? JSONEncoder().encode(input),
+              let structuredInput = String(data: structuredInputData, encoding: .utf8) else {
+            completion(.failure(CloudClassifierError.invalidResponse("Unable to encode structured input")))
+            return
+        }
+        let structuredRequest = "{\"task\":\"productivity_classification\",\"input\":\(structuredInput),\"outputSchema\":{\"label\":\"productive|distracting|neutral\",\"confidence\":\"0..1\"}}"
+
+        guard let urlComponents = URLComponents(string: endpoint) else {
             completion(.failure(CloudClassifierError.invalidEndpoint))
             return
         }
@@ -109,7 +108,7 @@ public final class CloudClassifier {
             
             let payload = GeminiRequest(contents: [
                 GeminiContent(parts: [
-                    GeminiPart(text: prompt)
+                    GeminiPart(text: structuredRequest)
                 ])
             ])
             
@@ -134,7 +133,7 @@ public final class CloudClassifier {
             let payload = OpenAIRequest(
                 model: model,
                 messages: [
-                    OpenAIMessage(role: "user", content: prompt)
+                    OpenAIMessage(role: "user", content: structuredRequest)
                 ]
             )
             
@@ -161,7 +160,7 @@ public final class CloudClassifier {
                 model: model,
                 max_tokens: 10,
                 messages: [
-                    AnthropicMessage(role: "user", content: prompt)
+                    AnthropicMessage(role: "user", content: structuredRequest)
                 ]
             )
             
@@ -177,6 +176,7 @@ public final class CloudClassifier {
             return
         }
         
+        let requestStartedAt = Date()
         let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(CloudClassifierError.networkError(error)))
@@ -232,13 +232,37 @@ public final class CloudClassifier {
                     throw CloudClassifierError.invalidResponse("Unknown provider index")
                 }
                 
-                let cleaned = responseText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if cleaned.contains("yes") {
-                    completion(.success(true))
-                } else if cleaned.contains("no") {
-                    completion(.success(false))
+                let cleaned = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let latency = Date().timeIntervalSince(requestStartedAt)
+                if let structuredResponse = Self.decodeStructuredResponse(cleaned) {
+                    let confidence = min(max(structuredResponse.confidence, 0), 1)
+                    let label = confidence >= ClassificationPolicy.highConfidenceThreshold
+                        ? structuredResponse.label
+                        : .neutral
+                    completion(.success(ClassificationResult(
+                        label: label,
+                        confidence: confidence,
+                        modelVersion: "cloud-\(providerName)-\(model)",
+                        latency: latency,
+                        explanation: label == .neutral ? "cloud result below confidence gate" : "cloud structured evidence"
+                    )))
                 } else {
-                    completion(.failure(CloudClassifierError.invalidResponse("Response did not contain yes/no: \(responseText)")))
+                    let legacyLabel: ClassificationLabel?
+                    switch cleaned.lowercased() {
+                    case "yes": legacyLabel = .productive
+                    case "no": legacyLabel = .distracting
+                    default: legacyLabel = nil
+                    }
+                    guard let legacyLabel else {
+                        throw CloudClassifierError.invalidResponse("Response was not structured evidence")
+                    }
+                    completion(.success(ClassificationResult(
+                        label: legacyLabel,
+                        confidence: 0.85,
+                        modelVersion: "cloud-\(providerName)-\(model)",
+                        latency: latency,
+                        explanation: "cloud legacy response"
+                    )))
                 }
                 
             } catch {
@@ -246,6 +270,44 @@ public final class CloudClassifier {
             }
         }
         task.resume()
+    }
+
+    /// Compatibility adapter for existing callers. The OCR, title, URL, and
+    /// app-name values are reduced to categorical features before transmission.
+    @available(*, deprecated, message: "Use classify(input:completion:) with CloudClassificationInput.")
+    public func classify(
+        appName: String,
+        windowTitle: String,
+        url: URL?,
+        ocrText _: String,
+        completion: @escaping (Result<Bool, Error>) -> Void
+    ) {
+        let input = CloudClassificationFeatureExtractor.make(
+            appName: appName,
+            url: url,
+            title: windowTitle,
+            source: .application
+        )
+        classify(input: input) { result in
+            switch result {
+            case .success(let evidence):
+                completion(.success(evidence.label == .productive))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private static func decodeStructuredResponse(_ text: String) -> CloudStructuredResponse? {
+        var candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate.hasPrefix("```") {
+            candidate = candidate
+                .replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let data = candidate.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(CloudStructuredResponse.self, from: data)
     }
 }
 

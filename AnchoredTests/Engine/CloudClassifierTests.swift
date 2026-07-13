@@ -37,6 +37,85 @@ final class CloudClassifierTests: XCTestCase {
         KeychainHelper.useMockOnly = false
         super.tearDown()
     }
+
+    func testStructuredClassificationRedactsRawContextAndReturnsEvidence() {
+        preferences.cloudProvider = 0
+        preferences.cloudModel = "gemini-2.5-flash"
+        preferences.cloudEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
+        KeychainHelper.mockKeys["gemini"] = "gemini-test-key"
+
+        let expectation = XCTestExpectation(description: "structured cloud evidence")
+        MockURLProtocol.requestHandler = { request in
+            let body = String(data: request.httpBodyData ?? Data(), encoding: .utf8) ?? ""
+            XCTAssertTrue(body.contains("editor"))
+            XCTAssertTrue(body.contains("documentation"))
+            XCTAssertFalse(body.contains("CloudClassifier.swift"))
+            XCTAssertFalse(body.contains("typed secret"))
+            XCTAssertFalse(body.contains("youtube.com"))
+            XCTAssertFalse(body.lowercased().contains("ocr"))
+
+            let responseBody = """
+            {
+                "candidates": [{
+                    "content": {"parts": [{"text": "{\\"label\\":\\"productive\\",\\"confidence\\":0.92,\\"explanation\\":\\"structured evidence\\"}"}]}
+                }]
+            }
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, responseBody.data(using: .utf8))
+        }
+
+        let input = CloudClassificationInput(
+            appCategory: .editor,
+            domainCategory: .documentation,
+            titleFeatures: [.code, .documentation],
+            source: .chromium
+        )
+        classifier.classify(input: input) { result in
+            switch result {
+            case .success(let evidence):
+                XCTAssertEqual(evidence.label, .productive)
+                XCTAssertEqual(evidence.confidence, 0.92, accuracy: 0.001)
+            case .failure(let error):
+                XCTFail("Expected structured evidence, but got error: \(error)")
+            }
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testLowConfidenceStructuredCloudResultStaysNeutral() {
+        preferences.cloudProvider = 1
+        preferences.cloudModel = "gpt-4o-mini"
+        preferences.cloudEndpoint = "https://api.openai.com/v1/chat/completions"
+        KeychainHelper.mockKeys["openai"] = "openai-test-key"
+
+        MockURLProtocol.requestHandler = { request in
+            let responseBody = """
+            {"choices":[{"message":{"role":"assistant","content":"{\\"label\\":\\"productive\\",\\"confidence\\":0.55}"}}]}
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, responseBody.data(using: .utf8))
+        }
+
+        let expectation = XCTestExpectation(description: "low confidence neutral")
+        classifier.classify(input: CloudClassificationInput(
+            appCategory: .unknown,
+            domainCategory: .general,
+            titleFeatures: [.unknown],
+            source: .application
+        )) { result in
+            switch result {
+            case .success(let evidence):
+                XCTAssertEqual(evidence.label, .neutral)
+            case .failure(let error):
+                XCTFail("Expected neutral evidence, but got error: \(error)")
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
     
     func testGeminiClassifyYes() {
         preferences.cloudProvider = 0
