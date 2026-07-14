@@ -91,6 +91,7 @@ final class ShadowTrackingEngine {
 
         let shouldTrack = (focusEngine.state != .anchored) &&
                           !isSleeping &&
+                          focusEngine.isFocusScheduleActive &&
                           isFocusContextActive
         
         print("🕵️ [Shadow] updateTracking shouldTrack=\(shouldTrack) state=\(focusEngine.state) sleeping=\(isSleeping) isFocusCtx=\(isFocusContextActive) elapsed=\(continuousWorkTime)s")

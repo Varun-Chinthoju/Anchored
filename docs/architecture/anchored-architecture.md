@@ -25,14 +25,17 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Focus classification runs through `DistractionEvaluator` evidence and the central `ClassificationResolver`: explicit domains outrank explicit apps, explicit apps outrank heuristics, and unknown contexts remain neutral. FocusEngine consumes one final `ClassificationDecision`; optional local/cloud/visual evidence may only promote a still-neutral context to focus after generation checks. The menu bar exposes a safe explanation and immediate app/domain corrections, while optional interaction summaries only adjust ambiguous productive evidence within a bounded cap.
 - Intent-aware tracking now compares a sanitized `FocusIntent` baseline against the current `ContextSnapshot`. During active sessions, high-confidence entertainment/unrelated intent can start the existing countdown grace period, but it still cannot dim immediately. Committed breaks auto-resume only after the user has left work and returned to a related context for 15 seconds.
 - Session-start and dim-return surfaces now auto-suggest a session goal plus profile/category from the current context, so a user can start or resume without typing a summary when the current window/title is clear enough.
-- Wave 3 adds `LocalTextClassifier` behind `PreferencesManager.enableLocalTextClassification` (off by default). It receives a sanitized `ContextSnapshot` off-main; high-confidence productive results may promote the current neutral context, while local distracting results remain non-enforcing suggestions.
-- Wave 4 constrains cloud classification to categorical `CloudClassificationInput` values and structured `ClassificationResult` responses; it never sends OCR, screenshots, raw titles, full URLs, browsing history, typed content, or raw interaction data. Visual analysis is an experimental, disabled-by-default final fallback after local text and cloud resolution. All neutral contexts (except sensitive banking/login ones) are dynamically evaluated via the visual checker and promoted to focus if productive; distracting visual results remain advisory and non-enforcing.
-- The application includes privacy controls to toggle the experimental visual fallback (`PreferencesManager.enableImageClassification`) and choose/download the local MLX VLM model (`useLocalGemma` and `downloadGemmaModel()`) during onboarding and in settings.
+- A persisted focus schedule gate now controls automatic focus behavior by time of day. It supports a work window plus optional lunch break, keeps manual sessions available at any time, and exposes outside-hours status in the menu bar so the app can stay quiet during lunch or after hours.
+- Wave 3 adds `LocalTextClassifier` behind `PreferencesManager.enableLocalTextClassification` (off by default). It receives a sanitized `ContextSnapshot` off-main; when enabled, high-confidence productive results may promote the current neutral context. If disabled, local text classification is skipped.
+- Wave 4 constrains cloud classification to categorical `CloudClassificationInput` values and structured `ClassificationResult` responses; it never sends OCR, screenshots, raw titles, full URLs, browsing history, typed content, or raw interaction data. Visual analysis is an experimental, disabled-by-default final fallback after local text and cloud resolution, running entirely via macOS native Vision APIs (OCR and Image Classification) and completely free of expensive external python/SmolVLM subprocesses.
+- The application includes privacy controls to toggle the experimental visual fallback (`PreferencesManager.enableImageClassification`) and choose/download the local model (`useLocalGemma` and `downloadGemmaModel()`) during onboarding and in settings; `downloadGemmaModel()` behaves as a mock local-only completion helper to preserve bindings while eliminating external shell process downloads.
+- A private in-memory classification cache (`classificationCache`) in `FocusEngine.swift` stores and reuses classification decisions for the duration of the context (active profile/allowed rule changes clear the cache), preventing redundant executions of local text, cloud, and visual fallbacks on the same context snapshot.
 - The application dynamically updates its `NSApplication` activation policy: it runs as a background-only accessory app (no Dock or Cmd+Tab app switcher icon) by default, but elevates to a regular application (showing the Dock/Cmd+Tab icon) when onboarding, settings, or focus session windows are open.
 - The onboarding focus threshold and distraction countdown remain separate: focus threshold controls session establishment, countdown duration controls the warning countdown, and the user can customize the screen dim level (opacity) and dim transition duration (including support for instant/poff transitions) in PreferencesManager, dynamically loaded and applied to DimOverlayWindow instances.
 - Automatic focus tracking now runs continuously in the normal runtime: `ShadowTrackingEngine` watches focus context on device, `FocusEngine` auto-anchors a session once the focus threshold is reached, and `SmartNudgeManager` only adds an optional local notification when auto-focus starts
 - Context history now persists sanitized observations into a dedicated `context_observations` table through `ContextHistoryPipeline` and `ContextHistoryStore`
 - `PreferencesManager.selectedThemeID` drives the active palette, with the default `baldr` theme now presented as the warm walnut, brass, and parchment `Heritage` palette
+- `PreferencesManager.focusSchedule` persists the scheduled focus window and optional lunch break as JSON in `UserDefaults`, and `focusScheduleDidChange` tells the engine when the active window flips.
 - `ThemePalette` is the shared chrome layer for appearance, with semantic canvas/surface/border/text roles now derived from each theme's own colors and contrast-aware text colors, so accents, backgrounds, layout surfaces, onboarding, overlays, custom windows, popovers, and dashboard chrome inherit the active theme
 - The entire user-facing app is now unified under the dark warm control-room aesthetic with glowing background overlays, matching the dashboard, and the user-facing Appearance chooser has been removed from Settings
 - Major architectural pressure in V2.6 resolved: context collection reliable/async, privacy-aware, test seams injection-based — `NSClassFromString` removed from production, replaced by `WindowTextExtracting`/`VisualProductivityChecking` providers in FocusEngine, `FreshInstallChecking` in AppDelegate, `useMockOnly` flag in KeychainHelper, session injection in CloudClassifier.
@@ -212,6 +215,7 @@ Responsibilities:
 - auto-suggests the next session goal plus profile/category from the current context so the menu-bar start sheet and dim-return sheet can prefill the user-facing labels
 - auto-anchors the current focus run once the focus threshold is met, using the configured automatic session duration, instead of showing the old start prompt
 - builds a sanitized `FocusIntent` baseline from the session goal plus starting context, then runs an intent-relative local classifier that can keep distractions in the countdown grace path without letting them dim immediately
+- honors the persisted focus schedule gate: outside the configured window it suppresses automatic prompts, countdowns, doomscroll escalation, and shadow tracking, then restores those timers when the schedule opens again
 - owns the committed-break return grace timer: after the user leaves work and comes back, a stable related context for 15 seconds resumes the paused session through the existing break-review resume path
 - creates `sessionStart`, `distractionDetected`, `escalationTriggered`, `sessionEnd`
 - drives distraction countdown and dimming
@@ -228,7 +232,7 @@ Important inputs:
 
 - `ActivityMonitor` (AppSwitchMonitor → ContextCollector → AppleEventExecutor)
 - `ProfileManager.activeProfile` (allowedApps/distractionApps/domains)
-- `SessionStore`, `PreferencesManager` (effective thresholds, cloud enable)
+- `SessionStore`, `PreferencesManager` (effective thresholds, focus schedule, cloud enable)
 - `ShadowTrackingEngine`
 
 Important outputs:
@@ -424,6 +428,7 @@ Owns:
 - smart nudges enablement
 - legacy focus-start rollout state
 - selected settings theme
+- persisted focus schedule gate with work-window and lunch-break settings
 - AI Visual Productivity Check (`enableImageClassification`)
 - SmolVLM 256M VLM model toggle (`useLocalGemma`) and download status (`gemmaDownloadStatus`)
 - Cloud AI Productivity Check (`enableCloudClassification`), provider, model, and endpoint settings
@@ -435,6 +440,7 @@ Architecture notes:
 - theme selection persists through `UserDefaults` and resolves through `ThemeCatalog`
 - a hidden `focusThresholdOverride` defaults key can temporarily shorten the live engine threshold without changing the persisted picker value
 - `focusPromptExperimentEnabled` is retained as a legacy rollout preference, but the shipped runtime no longer branches on it
+- `focusScheduleDidChange` tells the live engine when the configured schedule moves between active and inactive windows
 
 #### `Anchored/Models/AppTheme.swift`
 
@@ -537,6 +543,7 @@ Responsibilities:
 - routes General, Focus Apps, Analytics, About, and profile configuration
 - injects the live `FocusEngine` into the Analytics view
 - applies the warm wood/brass theme colors to settings chrome, cards, and pane backgrounds
+- exposes focus schedule controls in General for enabled/disabled, start/end time, and optional lunch break windows
 - keeps profile configuration in direct language rather than former themed terminology
 - uses one Analytics destination instead of separate Stats/Hourglass and legacy reporting panes
 - keeps Analytics inside the settings window rather than opening a separate analytics window
@@ -572,6 +579,7 @@ Other appearance surfaces now reuse the shared theme palette directly:
 Tracks continuous focus-context time outside anchored sessions and pauses for sleep/non-focus states. `FocusEngine` applies the same sleep/lock treatment to anchored-session and automatic-start accounting, so inactive wall time cannot be counted as focused work.
 
 Its threshold initializes from `PreferencesManager.effectiveFocusThreshold`; it no longer owns a hard-coded five-minute runtime threshold.
+It also stops shadow accumulation when the focus schedule is outside its active window.
 
 #### `Anchored/Engine/SmartNudgeManager.swift`
 
@@ -592,6 +600,7 @@ Current cross-cutting notifications:
 - `profilesDidChange`
 - `focusListDidChange`
 - `distractionListDidChange`
+- `focusScheduleDidChange`
 
 Current coupling style:
 
@@ -609,6 +618,7 @@ These come from both the code and repo rules. Future changes should preserve the
 
 - `FocusEngine` state transitions are architectural invariants; no `NSClassFromString` in production, no semaphore blocking main, no SQLite on main.
 - Auto-focus and shadow tracking stay on device; `ShadowTrackingEngine` and the threshold timer can start sessions, while `SmartNudgeManager` only adds notification side effects.
+- The persisted focus schedule gate only controls automatic behavior; it should quiet the app outside the configured window without removing manual session affordances.
 - Browser support registered through `BrowserStrategyFactory`; AppleEventExecutor serial queue 750ms discard-late.
 - SQL belongs in `SQLiteSessionStore.swift` or `DashboardQueries.swift` only.
 - `PersistedContextObservation` and `SessionEvent.persistedCopy()` sanitize URLs (creds/queries/fragments stripped, titles collapsed/capped) before persistence.
@@ -620,8 +630,9 @@ These come from both the code and repo rules. Future changes should preserve the
 - Profile `allowedApps`/allowedDomains are explicit positive focus signals; domain rules outrank app rules, and unknown native/browser contexts remain neutral rather than starting focus tracking.
 - Classification corrections add an explicit app/domain rule immediately and remove the opposite rule for the same target; invalid domain corrections are rejected.
 - Classification feedback is disabled by default and never stores titles, full URLs, OCR, screenshots, typed text, coordinates, or raw interaction events. Interaction summaries are disabled by default, use only bounded in-memory aggregates, and are never persisted.
-- Local text classification is disabled by default, runs off-main, reads only the sanitized snapshot identity, and cannot enforce distraction. Low-confidence/conflicting results remain neutral; only a high-confidence productive result can enter the existing neutral-only promotion path.
+- Local text classification is disabled by default, runs off-main, reads only the sanitized snapshot identity, and cannot enforce distraction. If disabled via `PreferencesManager.enableLocalTextClassification`, it is skipped entirely. Low-confidence/conflicting results remain neutral; only a high-confidence productive result can enter the existing neutral-only promotion path.
 - Cloud classification sends only categorical app/domain/title features and browser source; structured low-confidence, distracting, failed, or timed-out results remain neutral/non-enforcing. Visual classification is disabled by default, runs only after local/cloud resolution remains neutral, and promotes to focus if productive; distracting results remain non-enforcing. Sensitive contexts (keychain/password managers or containing keywords like bank, finance, login, security, etc.) skip visual classification entirely to protect user privacy and avoid false positives.
+- The `classificationCache` in `FocusEngine.swift` is an in-memory dictionary that caches classification decisions by context identity. It is invalidated on active profile change and rules changes, preventing duplicate async evaluations.
 - Fog/dimming uses `distractionCountdownThreshold`; automatic focus start and shadow tracking use `focusThreshold`; not conflated.
 - The automatic focus start gate uses `PreferencesManager.effectiveFocusThreshold`, while automatic sessions use `PreferencesManager.automaticSessionDuration` (default 25 minutes). `focusThresholdOverride` affects only the gate and never the anchored session duration.
 - User-authored session summaries are local-only, normalized for control characters, capped at `CommitmentPolicy.maximumSessionSummaryLength`, and stored only in `sessions.sessionSummary`; empty or oversized values are omitted. Summary edit/clear helpers live at the SQLite boundary.
@@ -630,6 +641,8 @@ These come from both the code and repo rules. Future changes should preserve the
 - Keychain service `com.varun.Anchored.cloud-ai`, `kSecClassGenericPassword`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, mockKeys only when `useMockOnly`, no UserDefaults leak.
 - No production code probes `XCTestCase` or `MockURLProtocol` via `NSClassFromString`; dependency injection via protocols/closures/URLSession param.
 - Polling cadence 2.5s, ContextIdentity dedup (bundleID+sanitizedURL+normalizedTitle), one collection at a time, stale generation rejection.
+- `SmartImageClassifier` runs entirely via local Vision APIs (OCR and Image Classification) and does not spawn any python subprocesses or load external local Gemma/SmolVLM model files.
+- `InstalledAppSuggestionProvider`, `DistractionListManager`, and `SmartAppClassifier` cache filesystem and plist operations thread-safely to prevent blocking the main thread.
 
 ## Current Weak Spots
 
@@ -638,7 +651,7 @@ These come from both the code and repo rules. Future changes should preserve the
 - `AppDelegate` is composition root with many singletons; now wired with `FreshInstallChecking`, `ContextHistoryStore.shared`, prefs publishers for history enable/retention, but `DistractionListManager.shared` and `ProfileManager.shared` still global.
 - `DashboardWindow.swift` still compiles for compat but not opened by `MenuBarController`.
 - `PreferencesManager.focusPromptExperimentEnabled` legacy rollout pref.
-- `InstalledAppSuggestionProvider` still calls `NSWorkspace` + file scan synchronously.
+- `InstalledAppSuggestionProvider` and `DistractionListManager` cache application scans to avoid synchronous filesystem traversal on opening Settings.
 - Remaining singleton mutation in tests: `KeychainHelper.mockKeys` global, `UserDefaults` suite isolated but `NSWorkspace.shared` still real in visual checker unless mocked.
 - Dashboard `TopDistractionsView`/`WeeklyHistoryView` stateless; parent panels now handle Loadable but could still use direct `SessionStore.shared` in some previews.
 - `FocusEngine` remains responsible for timers, session logging, break-return grace, and overlay delegate calls; `SessionTimerCoordinator` and `SessionEventRecorder` are still future extractions. The `ContextClassifying`/`ClassificationResult` on-device ML seam remains separate from the active visual provider.

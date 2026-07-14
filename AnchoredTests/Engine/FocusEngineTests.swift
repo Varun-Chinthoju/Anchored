@@ -3,6 +3,8 @@ import XCTest
 
 final class FocusEngineTests: XCTestCase {
     
+    private var suiteName: String!
+    private var testDefaults: UserDefaults!
     private var mockActivityMonitor: MockActivityMonitor!
     private var distractionListManager: DistractionListManager!
     private var profileManager: ProfileManager!
@@ -15,9 +17,9 @@ final class FocusEngineTests: XCTestCase {
     override func setUp() {
         super.setUp()
         
-        // Setup isolated UserDefaults
-        let testDefaults = UserDefaults(suiteName: "com.varun.Anchored.tests")!
-        testDefaults.removePersistentDomain(forName: "com.varun.Anchored.tests")
+        suiteName = "com.varun.Anchored.FocusEngineTests.\(UUID().uuidString)"
+        testDefaults = UserDefaults(suiteName: suiteName)!
+        testDefaults.removePersistentDomain(forName: suiteName)
         distractionListManager = DistractionListManager(defaults: testDefaults)
         profileManager = ProfileManager(defaults: testDefaults)
         testPreferences = PreferencesManager(defaults: testDefaults)
@@ -51,6 +53,13 @@ final class FocusEngineTests: XCTestCase {
         engine.stop()
         engine = nil
         sessionStore = nil
+        testPreferences = nil
+        profileManager = nil
+        distractionListManager = nil
+        if let suiteName {
+            testDefaults.removePersistentDomain(forName: suiteName)
+        }
+        testDefaults = nil
         let directoryURL = tempStoreURL.deletingLastPathComponent()
         if FileManager.default.fileExists(atPath: directoryURL.path) {
             try? FileManager.default.removeItem(at: directoryURL)
@@ -149,6 +158,21 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNotNil(engine.activeSession)
         XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
         XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
+    }
+
+    func testScheduleChangeSuppressesAutomaticFocusTrackingOutsideWindow() {
+        let now = Date()
+        testPreferences.focusSchedule = scheduleAllowingCurrentMinute(now: now)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        XCTAssertNotNil(engine.workSessionStart)
+        XCTAssertTrue(engine.isFocusScheduleActive)
+
+        testPreferences.focusSchedule = scheduleExcludingCurrentMinute(now: now)
+
+        XCTAssertFalse(engine.isFocusScheduleActive)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertNil(engine.activeSession)
     }
 
     func testAnchorSessionUsesSuggestedCategoryAndGoalWhenMissing() {
@@ -1495,6 +1519,335 @@ final class FocusEngineTests: XCTestCase {
         _ = sessionStore.recentSessions(limit: 1)
         return sessionStore.allEvents()
     }
+
+    private func scheduleAllowingCurrentMinute(now: Date) -> FocusSchedule {
+        let minute = currentMinute(of: now)
+        let start = max(0, minute - 30)
+        let end = min(23 * 60 + 59, minute + 30)
+        return FocusSchedule(
+            enabled: true,
+            startMinute: start,
+            endMinute: max(start + 1, end),
+            lunchBreakEnabled: false
+        )
+    }
+
+    private func scheduleExcludingCurrentMinute(now: Date) -> FocusSchedule {
+        let minute = currentMinute(of: now)
+        let start: Int
+        let end: Int
+        if minute <= 1320 {
+            start = minute + 60
+            end = min(23 * 60 + 59, start + 30)
+        } else {
+            end = max(1, minute - 60)
+            start = max(0, end - 30)
+        }
+
+        return FocusSchedule(
+            enabled: true,
+            startMinute: start,
+            endMinute: max(start + 1, end),
+            lunchBreakEnabled: false
+        )
+    }
+
+    private func currentMinute(of date: Date) -> Int {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        return (components.hour ?? 0) * 60 + (components.minute ?? 0)
+    }
+
+    func testClassificationCacheAvoidsDuplicateEvaluations() {
+        let countingClassifier = CountingClassifier()
+        testPreferences.enableLocalTextClassification = true
+        
+        self.engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: countingClassifier
+        )
+        self.engine.delegate = mockDelegate
+        
+        // Ensure local text classifier is enabled
+        XCTAssertTrue(testPreferences.enableLocalTextClassification)
+        
+        // 1. Switch to a neutral context
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.neutralapp", url: nil, title: "Neutral Title")
+        
+        // Wait for async classification to run
+        let expectation = XCTestExpectation(description: "First classification complete")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+        
+        let initialCount = countingClassifier.classificationCount
+        XCTAssertEqual(initialCount, 1)
+        
+        // 2. Switch to the exact same context (identity matches)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.neutralapp", url: nil, title: "Neutral Title")
+        
+        let expectation2 = XCTestExpectation(description: "Second context switch processed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation2.fulfill()
+        }
+        wait(for: [expectation2], timeout: 1.0)
+        
+        // Classification count should still be 1 (cache hit!)
+        XCTAssertEqual(countingClassifier.classificationCount, 1)
+        
+        // 3. Trigger profile change or rules change to clear cache, then switch again
+        NotificationCenter.default.post(name: .profilesDidChange, object: nil)
+        
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.neutralapp", url: nil, title: "Neutral Title")
+        
+        let expectation3 = XCTestExpectation(description: "Third context switch processed after cache invalidation")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation3.fulfill()
+        }
+        wait(for: [expectation3], timeout: 1.0)
+        
+        // Classification count should now be 2!
+        XCTAssertEqual(countingClassifier.classificationCount, 2)
+        
+        self.engine.stop()
+    }
+
+    func testQuickSwitchReturnUsesCachedClassification() {
+        testPreferences.enableLocalTextClassification = true
+        testPreferences.enableCloudClassification = false
+        testPreferences.enableImageClassification = false
+        
+        let countingClassifier = CountingClassifier()
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: countingClassifier,
+            intentClassifier: NeutralIntentClassifier()
+        )
+        engine.delegate = mockDelegate
+        
+        // Switch to A
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        
+        let exp1 = expectation(description: "A classified")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            exp1.fulfill()
+        }
+        wait(for: [exp1], timeout: 1.0)
+        XCTAssertEqual(countingClassifier.classificationCount, 1)
+        
+        // Switch to B
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appB")
+        let exp2 = expectation(description: "B switched")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            exp2.fulfill()
+        }
+        wait(for: [exp2], timeout: 1.0)
+        XCTAssertEqual(countingClassifier.classificationCount, 2)
+        
+        // Switch back to A
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        let exp3 = expectation(description: "Back to A")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            exp3.fulfill()
+        }
+        wait(for: [exp3], timeout: 1.0)
+        
+        // It should hit the cache for A, so call count should still be 2!
+        XCTAssertEqual(countingClassifier.classificationCount, 2)
+        XCTAssertTrue(engine.currentClassification.isFocus)
+        engine.stop()
+    }
+
+    func testCompletedBackgroundClassificationSavedToCacheWhenSwitchedAway() {
+        testPreferences.enableLocalTextClassification = true
+        testPreferences.enableCloudClassification = false
+        testPreferences.enableImageClassification = false
+        
+        let classifier = ConcurrentDeferredClassifier()
+        let countingClassifier = PassThroughCountingClassifier(wrapped: classifier)
+        
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: countingClassifier,
+            intentClassifier: NeutralIntentClassifier()
+        )
+        engine.delegate = mockDelegate
+        
+        let requestExp = expectation(description: "Classifier requested for A")
+        classifier.onRequest = { identity in
+            if identity.bundleID == "com.example.appA" {
+                requestExp.fulfill()
+            } else {
+                classifier.complete(identity: identity, .neutral)
+            }
+        }
+        
+        // Switch to A
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        wait(for: [requestExp], timeout: 1.0)
+        
+        // Update onRequest to complete immediately for any subsequent context switch
+        classifier.onRequest = { identity in
+            classifier.complete(identity: identity, .neutral)
+        }
+        
+        // Now switch away to B before A completes
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appB")
+        
+        let switchExp = expectation(description: "Switched to B")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            switchExp.fulfill()
+        }
+        wait(for: [switchExp], timeout: 1.0)
+        
+        // Complete the classification of A as productive
+        let identityA = ContextIdentity(bundleID: "com.example.appA", sanitizedURL: nil, normalizedTitle: "")
+        classifier.complete(identity: identityA, .productive)
+        
+        let completeExp = expectation(description: "A complete")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            completeExp.fulfill()
+        }
+        wait(for: [completeExp], timeout: 1.0)
+        
+        // Now switch back to A
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        
+        let returnExp = expectation(description: "Returned to A")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            returnExp.fulfill()
+        }
+        wait(for: [returnExp], timeout: 1.0)
+        
+        // It should retrieve from cache, so no new classification request was sent
+        XCTAssertEqual(countingClassifier.classificationCount, 2) // 1 for A (first), 1 for B (second), 0 for A (returned)
+        XCTAssertTrue(engine.currentClassification.isFocus)
+        engine.stop()
+    }
+
+    func testDeduplicationOfConcurrentAsyncRequests() {
+        testPreferences.enableLocalTextClassification = true
+        testPreferences.enableCloudClassification = false
+        testPreferences.enableImageClassification = false
+        
+        let classifier = ConcurrentDeferredClassifier()
+        let countingClassifier = PassThroughCountingClassifier(wrapped: classifier)
+        
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: countingClassifier,
+            intentClassifier: NeutralIntentClassifier()
+        )
+        engine.delegate = mockDelegate
+        
+        let requestExp = expectation(description: "Classifier requested for A first time")
+        classifier.onRequest = { identity in
+            if identity.bundleID == "com.example.appA" {
+                requestExp.fulfill()
+            } else {
+                classifier.complete(identity: identity, .neutral)
+            }
+        }
+        
+        // Switch to A
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        wait(for: [requestExp], timeout: 1.0)
+        
+        // Update onRequest to complete immediately for any subsequent context switch
+        classifier.onRequest = { identity in
+            classifier.complete(identity: identity, .neutral)
+        }
+        
+        // Switch away to B, then switch back to A immediately before completing
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appB")
+        
+        // Wait briefly for B switch to process
+        let switchBExp = expectation(description: "Processed B switch")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            switchBExp.fulfill()
+        }
+        wait(for: [switchBExp], timeout: 1.0)
+        
+        // Switch back to A
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        
+        let switchAExp = expectation(description: "Processed return to A")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            switchAExp.fulfill()
+        }
+        wait(for: [switchAExp], timeout: 1.0)
+        
+        // Complete the pending classification for A
+        let identityA = ContextIdentity(bundleID: "com.example.appA", sanitizedURL: nil, normalizedTitle: "")
+        classifier.complete(identity: identityA, .productive)
+        
+        let completeExp = expectation(description: "A complete")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            completeExp.fulfill()
+        }
+        wait(for: [completeExp], timeout: 1.0)
+        
+        // The classification count should be 2 (1 for A, 1 for B), NOT 3!
+        XCTAssertEqual(countingClassifier.classificationCount, 2)
+        XCTAssertTrue(engine.currentClassification.isFocus)
+        engine.stop()
+    }
+}
+
+private final class CountingClassifier: ContextClassifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    
+    var classificationCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+    
+    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+        lock.lock()
+        count += 1
+        lock.unlock()
+        return ClassificationResult(
+            label: .productive,
+            confidence: 0.95,
+            modelVersion: "test-counting",
+            latency: 0,
+            explanation: "test counting result"
+        )
+    }
 }
 
 private final class ProductiveTestClassifier: ContextClassifying, Sendable {
@@ -1683,5 +2036,74 @@ final class DeferredCloudClassificationService: CloudClassificationServing {
                 explanation: "test cloud result"
             )
         })
+    }
+}
+
+private final class PassThroughCountingClassifier: ContextClassifying, @unchecked Sendable {
+    private let wrapped: ContextClassifying
+    private let lock = NSLock()
+    private var count = 0
+    
+    var classificationCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+    
+    init(wrapped: ContextClassifying) {
+        self.wrapped = wrapped
+    }
+    
+    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+        lock.lock()
+        count += 1
+        lock.unlock()
+        return wrapped.classify(snapshot: snapshot)
+    }
+}
+
+private final class ConcurrentDeferredClassifier: ContextClassifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pendingSignals: [ContextIdentity: DispatchSemaphore] = [:]
+    private var pendingResults: [ContextIdentity: ClassificationResult] = [:]
+    var onRequest: ((ContextIdentity) -> Void)?
+
+    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+        let identity = snapshot.identity
+        let semaphore = DispatchSemaphore(value: 0)
+        
+        lock.lock()
+        pendingSignals[identity] = semaphore
+        lock.unlock()
+        
+        onRequest?(identity)
+        semaphore.wait()
+
+        lock.lock()
+        let result = pendingResults[identity] ?? ClassificationResult(
+            label: .neutral,
+            confidence: 0.0,
+            modelVersion: "test-local-deferred",
+            latency: 0,
+            explanation: "default deferred result"
+        )
+        pendingSignals.removeValue(forKey: identity)
+        pendingResults.removeValue(forKey: identity)
+        lock.unlock()
+        return result
+    }
+
+    func complete(identity: ContextIdentity, _ label: ClassificationLabel) {
+        lock.lock()
+        pendingResults[identity] = ClassificationResult(
+            label: label,
+            confidence: 0.95,
+            modelVersion: "test-local-deferred",
+            latency: 0,
+            explanation: "completed deferred result"
+        )
+        let signal = pendingSignals[identity]
+        lock.unlock()
+        signal?.signal()
     }
 }

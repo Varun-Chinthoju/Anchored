@@ -553,6 +553,41 @@ struct GeneralSettingsPane: View {
         }
     }
 
+    private var scheduleReferenceDate: Date {
+        var components = DateComponents()
+        components.year = 2001
+        components.month = 1
+        components.day = 1
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+        return Calendar.current.date(from: components) ?? Date(timeIntervalSince1970: 978_307_200)
+    }
+
+    private func date(for minute: Int) -> Date {
+        let clamped = max(0, min(23 * 60 + 59, minute))
+        let calendar = Calendar.current
+        return calendar.date(
+            bySettingHour: clamped / 60,
+            minute: clamped % 60,
+            second: 0,
+            of: scheduleReferenceDate
+        ) ?? scheduleReferenceDate
+    }
+
+    private func minute(for date: Date) -> Int {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        return (components.hour ?? 0) * 60 + (components.minute ?? 0)
+    }
+
+    private func timePickerBinding(_ minuteBinding: Binding<Int>) -> Binding<Date> {
+        Binding<Date>(
+            get: { date(for: minuteBinding.wrappedValue) },
+            set: { minuteBinding.wrappedValue = minute(for: $0) }
+        )
+    }
+
     var body: some View {
         SettingsPane(title: settingsCopy("General", pirate: "Rigging", isPirateMode: isPirateMode)) {
             VStack(alignment: .leading, spacing: 6) {
@@ -646,6 +681,115 @@ struct GeneralSettingsPane: View {
                         }
                     }
                 }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Focus Schedule", pirate: "Voyage Schedule", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Enable Schedule", pirate: "Enable Schedule", isPirateMode: isPirateMode),
+                        description: settingsCopy("Automatic focus, nudges, and loop-breaking only run during these hours.", pirate: "Automatic focus, nudges, and loop-breaking only run during these hours.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.focusScheduleEnabled)
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Start Time", pirate: "Start Time", isPirateMode: isPirateMode),
+                        description: settingsCopy("Focus automation can begin after this time each day.", pirate: "Focus automation can begin after this time each day.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        DatePicker(
+                            "",
+                            selection: timePickerBinding(Binding(
+                                get: { prefs.focusScheduleStartMinute },
+                                set: { prefs.focusScheduleStartMinute = $0 }
+                            )),
+                            displayedComponents: [.hourAndMinute]
+                        )
+                        .labelsHidden()
+                        .frame(width: 140)
+                        .disabled(!prefs.focusScheduleEnabled)
+                        .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("End Time", pirate: "End Time", isPirateMode: isPirateMode),
+                        description: settingsCopy("Anchored stops automatic enforcement after this time.", pirate: "Anchored stops automatic enforcement after this time.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        DatePicker(
+                            "",
+                            selection: timePickerBinding(Binding(
+                                get: { prefs.focusScheduleEndMinute },
+                                set: { prefs.focusScheduleEndMinute = $0 }
+                            )),
+                            displayedComponents: [.hourAndMinute]
+                        )
+                        .labelsHidden()
+                        .frame(width: 140)
+                        .disabled(!prefs.focusScheduleEnabled)
+                        .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                    }
+
+                    SettingsRow(
+                        label: settingsCopy("Lunch Break", pirate: "Lunch Break", isPirateMode: isPirateMode),
+                        description: settingsCopy("Pause automatic enforcement during lunch so the app stays out of the way.", pirate: "Pause automatic enforcement during lunch so the app stays out of the way.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.focusScheduleLunchBreakEnabled)
+                            .disabled(!prefs.focusScheduleEnabled)
+                    }
+
+                    if prefs.focusScheduleLunchBreakEnabled {
+                        SettingsRow(
+                            label: settingsCopy("Lunch Start", pirate: "Lunch Start", isPirateMode: isPirateMode),
+                            description: settingsCopy("When the lunch pause begins.", pirate: "When the lunch pause begins.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            DatePicker(
+                                "",
+                                selection: timePickerBinding(Binding(
+                                    get: { prefs.focusScheduleLunchStartMinute },
+                                    set: { prefs.focusScheduleLunchStartMinute = $0 }
+                                )),
+                                displayedComponents: [.hourAndMinute]
+                            )
+                            .labelsHidden()
+                            .frame(width: 140)
+                            .disabled(!prefs.focusScheduleEnabled)
+                            .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                        }
+
+                        SettingsRow(
+                            label: settingsCopy("Lunch End", pirate: "Lunch End", isPirateMode: isPirateMode),
+                            description: settingsCopy("When automatic enforcement can resume.", pirate: "When automatic enforcement can resume.", isPirateMode: isPirateMode),
+                            showDivider: false
+                        ) {
+                            DatePicker(
+                                "",
+                                selection: timePickerBinding(Binding(
+                                    get: { prefs.focusScheduleLunchEndMinute },
+                                    set: { prefs.focusScheduleLunchEndMinute = $0 }
+                                )),
+                                displayedComponents: [.hourAndMinute]
+                            )
+                            .labelsHidden()
+                            .frame(width: 140)
+                            .disabled(!prefs.focusScheduleEnabled)
+                            .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                        }
+                    }
+                }
+
+                Text(settingsCopy("Manual sessions still work any time. The schedule only controls automatic behavior.", pirate: "Manual voyages still work any time. The schedule only controls automatic behavior.", isPirateMode: isPirateMode))
+                    .font(.system(size: 11))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.horizontal, 4)
             }
 
             VStack(alignment: .leading, spacing: 6) {

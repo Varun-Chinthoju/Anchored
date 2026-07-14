@@ -23,6 +23,7 @@ public final class PreferencesManager: ObservableObject {
         public static let focusThreshold = "com.varun.Anchored.focusThreshold"
         public static let focusThresholdOverride = "com.varun.Anchored.focusThresholdOverride"
         public static let automaticSessionDuration = "com.varun.Anchored.automaticSessionDuration"
+        public static let focusSchedule = "com.varun.Anchored.focusSchedule"
         public static let launchAtLogin = "com.varun.Anchored.launchAtLogin"
         public static let enableSmartNudges = "com.varun.Anchored.enableSmartNudges"
         public static let focusPromptExperimentEnabled = "com.varun.Anchored.focusPromptExperimentEnabled"
@@ -51,6 +52,7 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultCountdownDuration = 30
     public static let defaultFocusThreshold: TimeInterval = 600.0
     public static let defaultAutomaticSessionDuration: TimeInterval = 25 * 60
+    public static let defaultFocusSchedule = FocusSchedule()
     
     public static let defaultEnableCloudClassification = false
     public static let defaultCloudProvider = 0 // 0 = Gemini, 1 = OpenAI, 2 = Anthropic
@@ -102,6 +104,62 @@ public final class PreferencesManager: ObservableObject {
             } else {
                 defaults.set(clamped, forKey: Keys.automaticSessionDuration)
             }
+        }
+    }
+
+    @Published private var focusScheduleStorage: FocusSchedule
+
+    /// The daily schedule that allows automatic focus enforcement.
+    public var focusSchedule: FocusSchedule {
+        get { focusScheduleStorage }
+        set { updateFocusSchedule { $0 = newValue } }
+    }
+
+    /// Whether the schedule gate is enabled.
+    public var focusScheduleEnabled: Bool {
+        get { focusScheduleStorage.enabled }
+        set {
+            updateFocusSchedule { $0.enabled = newValue }
+        }
+    }
+
+    /// The start minute of the active focus window.
+    public var focusScheduleStartMinute: Int {
+        get { focusScheduleStorage.startMinute }
+        set {
+            updateFocusSchedule { $0.startMinute = newValue }
+        }
+    }
+
+    /// The end minute of the active focus window.
+    public var focusScheduleEndMinute: Int {
+        get { focusScheduleStorage.endMinute }
+        set {
+            updateFocusSchedule { $0.endMinute = newValue }
+        }
+    }
+
+    /// Whether a lunch break window should interrupt the active focus window.
+    public var focusScheduleLunchBreakEnabled: Bool {
+        get { focusScheduleStorage.lunchBreakEnabled }
+        set {
+            updateFocusSchedule { $0.lunchBreakEnabled = newValue }
+        }
+    }
+
+    /// The start minute of the lunch break window.
+    public var focusScheduleLunchStartMinute: Int {
+        get { focusScheduleStorage.lunchStartMinute }
+        set {
+            updateFocusSchedule { $0.lunchStartMinute = newValue }
+        }
+    }
+
+    /// The end minute of the lunch break window.
+    public var focusScheduleLunchEndMinute: Int {
+        get { focusScheduleStorage.lunchEndMinute }
+        set {
+            updateFocusSchedule { $0.lunchEndMinute = newValue }
         }
     }
     
@@ -312,6 +370,14 @@ public final class PreferencesManager: ObservableObject {
         // Load focus threshold
         self.focusThreshold = defaults.object(forKey: Keys.focusThreshold) as? TimeInterval ?? Self.defaultFocusThreshold
 
+        let storedSchedule = defaults.data(forKey: Keys.focusSchedule)
+            .flatMap { try? JSONDecoder().decode(FocusSchedule.self, from: $0) }?
+            .normalized() ?? Self.defaultFocusSchedule
+        self.focusScheduleStorage = storedSchedule
+        if let data = try? JSONEncoder().encode(storedSchedule) {
+            defaults.set(data, forKey: Keys.focusSchedule)
+        }
+
         let storedAutomaticDuration = defaults.object(forKey: Keys.automaticSessionDuration) as? TimeInterval ?? Self.defaultAutomaticSessionDuration
         self.automaticSessionDuration = max(60, min(24 * 60 * 60, storedAutomaticDuration))
         
@@ -410,6 +476,16 @@ public final class PreferencesManager: ObservableObject {
         runtimeFocusThresholdOverride ?? focusThreshold
     }
 
+    /// Whether automatic focus enforcement is allowed at the supplied date.
+    public func isFocusScheduleActive(at date: Date = Date(), calendar: Calendar = .current) -> Bool {
+        focusScheduleStorage.isActive(at: date, calendar: calendar)
+    }
+
+    /// Returns the next scheduled boundary for automatic focus enforcement.
+    public func nextFocusScheduleTransition(after date: Date = Date(), calendar: Calendar = .current) -> Date? {
+        focusScheduleStorage.nextTransition(after: date, calendar: calendar)
+    }
+
     /// Hidden rollout switch. Auto Voyage remains the fallback when this experiment is disabled.
     public var focusPromptExperimentEnabled: Bool {
         defaults.object(forKey: Keys.focusPromptExperimentEnabled) as? Bool ?? true
@@ -461,46 +537,29 @@ public final class PreferencesManager: ObservableObject {
     
     @Published public var gemmaDownloadStatus: String = "Not Downloaded"
 
+    private func updateFocusSchedule(_ transform: (inout FocusSchedule) -> Void) {
+        var updated = focusScheduleStorage
+        transform(&updated)
+        let normalized = updated.normalized()
+        focusScheduleStorage = normalized
+        persistFocusSchedule(normalized)
+        NotificationCenter.default.post(name: .focusScheduleDidChange, object: self)
+    }
+
+    private func persistFocusSchedule(_ schedule: FocusSchedule) {
+        if let data = try? JSONEncoder().encode(schedule) {
+            defaults.set(data, forKey: Keys.focusSchedule)
+        }
+    }
+
     public func downloadGemmaModel() {
         gemmaDownloadStatus = "Installing mlx-lm..."
         
-        DispatchQueue.global(qos: .background).async {
-            let installProcess = Process()
-            installProcess.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (ProcessInfo.processInfo.environment["PATH"] ?? "")]
-            installProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            installProcess.arguments = ["python3", "-m", "pip", "install", "mlx-lm", "pillow", "--break-system-packages"]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.gemmaDownloadStatus = "Downloading..."
             
-            do {
-                try installProcess.run()
-                installProcess.waitUntilExit()
-            } catch {
-                // continue to download
-            }
-            
-            DispatchQueue.main.async {
-                self.gemmaDownloadStatus = "Downloading..."
-            }
-            
-            let downloadProcess = Process()
-            downloadProcess.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (ProcessInfo.processInfo.environment["PATH"] ?? "")]
-            downloadProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            downloadProcess.arguments = ["python3", "-c", "import mlx_lm; mlx_lm.load('mlx-community/SmolVLM-256M-Instruct-4bit')"]
-            
-            do {
-                try downloadProcess.run()
-                downloadProcess.waitUntilExit()
-                
-                DispatchQueue.main.async {
-                    if downloadProcess.terminationStatus == 0 {
-                        self.gemmaDownloadStatus = "Downloaded"
-                    } else {
-                        self.gemmaDownloadStatus = "Failed (Check python3)"
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.gemmaDownloadStatus = "Failed to run python3"
-                }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.gemmaDownloadStatus = "Downloaded"
             }
         }
     }

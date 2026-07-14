@@ -155,6 +155,21 @@ class ShadowTrackingEngineTests: XCTestCase {
         }
         wait(for: [resumeExpectation], timeout: 3.5)
     }
+
+    func testShadowTrackingDoesNotAccumulateOutsideSchedule() {
+        preferencesManager.focusSchedule = scheduleExcludingCurrentMinute(now: Date())
+
+        mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        shadowEngine.forceUpdateTrackingState()
+        shadowEngine.setContinuousWorkTime(2.0)
+
+        let expectation = XCTestExpectation(description: "schedule-off tracking stays paused")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            XCTAssertEqual(self.shadowEngine.getContinuousWorkTime(), 2.0)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.5)
+    }
     
     func testSmartNudgeFiresOnThreshold() {
         preferencesManager.enableSmartNudges = false
@@ -184,5 +199,27 @@ class ShadowTrackingEngineTests: XCTestCase {
 
         XCTAssertEqual(overriddenPreferences.effectiveFocusThreshold, 5.0)
         XCTAssertEqual(overriddenPreferences.automaticSessionDuration, PreferencesManager.defaultAutomaticSessionDuration)
+    }
+
+    private func scheduleExcludingCurrentMinute(now: Date) -> FocusSchedule {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: now)
+        let minute = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        let start: Int
+        let end: Int
+        if minute <= 1320 {
+            start = minute + 60
+            end = min(23 * 60 + 59, start + 30)
+        } else {
+            end = max(1, minute - 60)
+            start = max(0, end - 30)
+        }
+
+        return FocusSchedule(
+            enabled: true,
+            startMinute: start,
+            endMinute: max(start + 1, end),
+            lunchBreakEnabled: false
+        )
     }
 }

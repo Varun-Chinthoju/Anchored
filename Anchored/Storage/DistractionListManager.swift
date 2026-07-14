@@ -20,6 +20,9 @@ public final class DistractionListManager: ObservableObject {
     
     /// The list of all distraction bundle IDs, exposed for UI display and observation.
     @Published public private(set) var allDistractions: [String] = []
+
+    private var cachedInstalledSuggestions: [(bundleID: String, name: String)]?
+    private let suggestionLock = NSLock()
     
     /// The default list of distraction application bundle IDs.
     public static let defaultDistractions: [String] = [
@@ -71,7 +74,21 @@ public final class DistractionListManager: ObservableObject {
     /// Scans installed apps and returns ones that look like distractions
     /// (social, entertainment, gaming, messaging) not already in the distraction list.
     public var installedSuggestions: [(bundleID: String, name: String)] {
-        scanInstalledApplications(in: applicationSearchRoots)
+        suggestionLock.lock()
+        if let cached = cachedInstalledSuggestions {
+            let filtered = cached.filter { !distractionSet.contains($0.bundleID) }
+            suggestionLock.unlock()
+            return filtered
+        }
+        suggestionLock.unlock()
+
+        let scanned = scanInstalledApplications(in: applicationSearchRoots)
+
+        suggestionLock.lock()
+        cachedInstalledSuggestions = scanned
+        suggestionLock.unlock()
+
+        return scanned.filter { !distractionSet.contains($0.bundleID) }
     }
 
     private static func defaultApplicationSearchRoots() -> [URL] {

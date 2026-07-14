@@ -50,6 +50,12 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertFalse(manager.enableLocalTextClassification)
         XCTAssertFalse(manager.sessionSummaryPromptEnabled)
         XCTAssertTrue(manager.weeklyReviewNotificationsEnabled)
+        XCTAssertFalse(manager.focusScheduleEnabled)
+        XCTAssertEqual(manager.focusScheduleStartMinute, 9 * 60)
+        XCTAssertEqual(manager.focusScheduleEndMinute, 17 * 60)
+        XCTAssertFalse(manager.focusScheduleLunchBreakEnabled)
+        XCTAssertEqual(manager.focusScheduleLunchStartMinute, 12 * 60)
+        XCTAssertEqual(manager.focusScheduleLunchEndMinute, 13 * 60)
         
         // Cloud classification defaults
         XCTAssertFalse(manager.enableCloudClassification)
@@ -104,6 +110,26 @@ final class PreferencesManagerTests: XCTestCase {
         // Dim preferences loaded values
         XCTAssertEqual(manager.dimOpacity, 0.5)
         XCTAssertEqual(manager.dimTransitionDuration, 10.0)
+    }
+
+    func testFocusSchedulePreferencesPersist() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.focusScheduleEnabled = true
+        manager.focusScheduleStartMinute = 8 * 60 + 30
+        manager.focusScheduleEndMinute = 17 * 60 + 15
+        manager.focusScheduleLunchBreakEnabled = true
+        manager.focusScheduleLunchStartMinute = 12 * 60
+        manager.focusScheduleLunchEndMinute = 13 * 60
+
+        let reloaded = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        XCTAssertTrue(reloaded.focusScheduleEnabled)
+        XCTAssertEqual(reloaded.focusScheduleStartMinute, 8 * 60 + 30)
+        XCTAssertEqual(reloaded.focusScheduleEndMinute, 17 * 60 + 15)
+        XCTAssertTrue(reloaded.focusScheduleLunchBreakEnabled)
+        XCTAssertEqual(reloaded.focusScheduleLunchStartMinute, 12 * 60)
+        XCTAssertEqual(reloaded.focusScheduleLunchEndMinute, 13 * 60)
     }
 
     func testClassificationPrivacyPreferencesPersist() {

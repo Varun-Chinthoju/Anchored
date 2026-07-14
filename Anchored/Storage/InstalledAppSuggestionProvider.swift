@@ -11,16 +11,49 @@ struct CategorizedApps {
 final class InstalledAppSuggestionProvider {
     static let shared = InstalledAppSuggestionProvider()
 
+    private let cacheLock = NSLock()
+    private var cachedDiscovered: [(bundleID: String, name: String, category: String)]?
+    private var cachedCategorized: CategorizedApps?
+
     private init() {}
     
     // Returns installed apps that may be useful when configuring a profile.
     var installedSuggestions: [(bundleID: String, name: String)] {
-        scanInstalledApplications()
-            .map { (bundleID: $0.bundleID, name: $0.name) }
+        cacheLock.lock()
+        if let cached = cachedDiscovered {
+            cacheLock.unlock()
+            return cached.map { (bundleID: $0.bundleID, name: $0.name) }
+        }
+        cacheLock.unlock()
+
+        let scanned = scanInstalledApplications()
+
+        cacheLock.lock()
+        cachedDiscovered = scanned
+        cacheLock.unlock()
+
+        return scanned.map { (bundleID: $0.bundleID, name: $0.name) }
     }
     
     // Scans all installed apps and groups them by category
     func categorizeAllInstalledApps() -> CategorizedApps {
+        cacheLock.lock()
+        if let cached = cachedCategorized {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+
+        let categorized = computeCategorizeAllInstalledApps()
+
+        cacheLock.lock()
+        cachedCategorized = categorized
+        cacheLock.unlock()
+
+        return categorized
+    }
+
+    private func computeCategorizeAllInstalledApps() -> CategorizedApps {
         let fileManager = FileManager.default
         var coding: [String] = []
         var video: [String] = []
