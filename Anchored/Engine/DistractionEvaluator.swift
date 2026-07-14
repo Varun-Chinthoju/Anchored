@@ -55,7 +55,10 @@ final class DistractionEvaluator {
         }
 
         if BrowserStrategyFactory.isSupportedBrowser(bundleID), url != nil {
-            if BrowserContentHeuristic.isEntertainment(url: url) {
+            if BrowserContentHeuristic.isEducationalContent(url: url, title: title) {
+                // Educational video content should stay neutral unless another
+                // explicit rule or stronger intent signal says otherwise.
+            } else if BrowserContentHeuristic.isEntertainment(url: url) {
                 evidence.append(ClassificationEvidence(
                     label: .distracting,
                     source: .heuristic,
@@ -86,6 +89,24 @@ final class DistractionEvaluator {
 }
 
 private enum BrowserContentHeuristic {
+    private static let educationalTerms = [
+        "computer science",
+        "programming",
+        "coding",
+        "software engineering",
+        "tutorial",
+        "course",
+        "lecture",
+        "lesson",
+        "documentation",
+        "learn",
+        "how to",
+        "explain",
+        "cs50",
+        "stanford",
+        "mit"
+    ]
+
     private static let entertainmentHosts = [
         "youtube.com",
         "netflix.com",
@@ -118,5 +139,22 @@ private enum BrowserContentHeuristic {
 
         let searchableURL = url.absoluteString.lowercased()
         return entertainmentTerms.contains(where: searchableURL.contains)
+    }
+
+    static func isEducationalContent(url: URL?, title: String) -> Bool {
+        guard let url else { return false }
+        let host = url.host?.lowercased() ?? ""
+        guard host.contains("youtube.com") || host.contains("youtu.be") || host.contains("vimeo.com") else {
+            return false
+        }
+
+        let searchable = [
+            host,
+            url.absoluteString.lowercased(),
+            ContextSanitizer.sanitizeTitle(title).lowercased()
+        ]
+        .joined(separator: " ")
+
+        return educationalTerms.contains(where: searchable.contains)
     }
 }

@@ -640,6 +640,14 @@ struct GeneralSettingsPane: View {
                     }
 
                     SettingsRow(
+                        label: settingsCopy("Warning Pill", pirate: "Warning Pill", isPirateMode: isPirateMode),
+                        description: settingsCopy("Show the floating warning pill before dimming begins.", pirate: "Show the floating warning pill before the fog rolls in.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.showCountdownPill)
+                    }
+
+                    SettingsRow(
                         label: settingsCopy("Screen Dim Level", pirate: "Siren Fog Density", isPirateMode: isPirateMode),
                         description: settingsCopy("How dark the screen gets when distraction dimming is active.", pirate: "How thick the fog rolls in when distracted.", isPirateMode: isPirateMode),
                         showDivider: true

@@ -81,7 +81,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &preferencesCancellables)
 
-        let overlay = OverlayManager(focusEngine: engine)
+        let overlay = OverlayManager(focusEngine: engine, preferencesManager: prefs)
         overlayManager = overlay
         engine.delegate = overlay
 

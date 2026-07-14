@@ -27,6 +27,7 @@ public final class PreferencesManager: ObservableObject {
         public static let launchAtLogin = "com.varun.Anchored.launchAtLogin"
         public static let enableSmartNudges = "com.varun.Anchored.enableSmartNudges"
         public static let focusPromptExperimentEnabled = "com.varun.Anchored.focusPromptExperimentEnabled"
+        public static let showCountdownPill = "com.varun.Anchored.showCountdownPill"
         public static let selectedThemeID = "com.varun.Anchored.selectedThemeID"
         public static let enableImageClassification = "com.varun.Anchored.enableImageClassification"
         public static let useLocalGemma = "com.varun.Anchored.useLocalGemma"
@@ -70,6 +71,7 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultEnableLocalTextClassification = false
     public static let defaultSessionSummaryPromptEnabled = false
     public static let defaultWeeklyReviewNotificationsEnabled = true
+    public static let defaultShowCountdownPill = true
     public static let defaultDimOpacity: Double = 0.85
     public static let defaultDimTransitionDuration: Double = 3.0
     public static let defaultEnableDoomscrollLoopBreaker = true
@@ -174,6 +176,13 @@ public final class PreferencesManager: ObservableObject {
     @Published public var enableSmartNudges: Bool {
         didSet {
             defaults.set(enableSmartNudges, forKey: Keys.enableSmartNudges)
+        }
+    }
+
+    /// Whether the distraction countdown pill appears before dimming.
+    @Published public var showCountdownPill: Bool {
+        didSet {
+            defaults.set(showCountdownPill, forKey: Keys.showCountdownPill)
         }
     }
 
@@ -383,6 +392,7 @@ public final class PreferencesManager: ObservableObject {
         
         // Load smart nudges preference
         self.enableSmartNudges = defaults.object(forKey: Keys.enableSmartNudges) as? Bool ?? true
+        self.showCountdownPill = defaults.object(forKey: Keys.showCountdownPill) as? Bool ?? Self.defaultShowCountdownPill
 
         // Load theme selection
         let storedTheme = defaults.string(forKey: Keys.selectedThemeID) ?? ThemeCatalog.defaultThemeID

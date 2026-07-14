@@ -25,8 +25,10 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// The active dim overlay window for the display containing the distraction.
     var dimWindows: [DimOverlayWindow] = []
     private let distractionContextCloser: DistractionContextClosing
+    private let preferencesManager: PreferencesManager
     private var activeDistractionBundleID: String?
     private var dimmedDisplayID: NSNumber?
+    private var pendingDimCenterPanelReveal: DispatchWorkItem?
     private(set) var lastBreakReview: (intention: String, result: BreakReviewResult)?
     private(set) var refusedBreakCount = 0
     
@@ -41,10 +43,12 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// - Parameter focusEngine: The FocusEngine instance to wire callbacks to.
     init(
         focusEngine: FocusEngine? = nil,
-        distractionContextCloser: DistractionContextClosing = DistractionContextCloser()
+        distractionContextCloser: DistractionContextClosing = DistractionContextCloser(),
+        preferencesManager: PreferencesManager = .shared
     ) {
         self.focusEngine = focusEngine
         self.distractionContextCloser = distractionContextCloser
+        self.preferencesManager = preferencesManager
         super.init()
         
         // Listen to screen parameter changes to adapt overlays to display changes
@@ -100,6 +104,10 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             startEscalation()
             return
         }
+
+        guard preferencesManager.showCountdownPill else {
+            return
+        }
         
         let pill = CountdownPillPanel()
         countdownPillPanel = pill
@@ -122,6 +130,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         RuntimeTrace.event("overlay_return_to_work")
         // Dismiss any doomscroll breaker panel
         dismissDoomscrollBreakerPanel()
+        cancelPendingDimCenterPanelReveal()
         // Cancel the countdown pill if active
         if let pill = countdownPillPanel {
             pill.cancel()
@@ -139,6 +148,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         // Hide all panels and overlays
         dismissExitTrigger()
         dismissDoomscrollBreakerPanel()
+        cancelPendingDimCenterPanelReveal()
         
         if let pill = countdownPillPanel {
             pill.cancel()
@@ -217,7 +227,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             onStartFocus: { [weak self] in
                 self?.doomscrollBreakerPanel = nil
                 // Treat like a manual focus trigger from menu bar
-                self?.focusEngine?.anchorSession(duration: PreferencesManager.shared.automaticSessionDuration)
+                self?.focusEngine?.anchorSession(duration: self?.preferencesManager.automaticSessionDuration ?? PreferencesManager.shared.automaticSessionDuration)
             },
             onDismiss: { [weak self] in
                 self?.doomscrollBreakerPanel = nil
@@ -243,12 +253,14 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         countdownPillPanel?.showDimmedState()
         
         showDimOverlay(on: screen)
-        
-        showDimCenterPanel(on: screen)
+        scheduleDimCenterPanelReveal(delay: preferencesManager.dimTransitionDuration) { [weak self] in
+            self?.showDimCenterPanel(on: screen)
+        }
     }
     
     /// Lifts the dim overlays by fading them out and closing them.
     private func liftDimOverlays() {
+        cancelPendingDimCenterPanelReveal()
         RuntimeTrace.event("overlay_escalation_lifted", fields: ["screenCount": String(dimWindows.count)])
         for window in dimWindows {
             window.liftOverlay()
@@ -281,7 +293,9 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         RuntimeTrace.event("doomscroll_dim_started")
         showDimOverlay(on: screen)
         // Show a lightweight center panel for the doomscroll dim state
-        showDoomscrollDimCenterPanel(on: screen)
+        scheduleDimCenterPanelReveal(delay: preferencesManager.dimTransitionDuration) { [weak self] in
+            self?.showDoomscrollDimCenterPanel(on: screen)
+        }
     }
     
     private func showDoomscrollDimCenterPanel(on screen: NSScreen) {
@@ -347,6 +361,23 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         }
     }
 
+    private func cancelPendingDimCenterPanelReveal() {
+        pendingDimCenterPanelReveal?.cancel()
+        pendingDimCenterPanelReveal = nil
+    }
+
+    private func scheduleDimCenterPanelReveal(delay: TimeInterval, reveal: @escaping () -> Void) {
+        cancelPendingDimCenterPanelReveal()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, !self.dimWindows.isEmpty else { return }
+            reveal()
+            self.pendingDimCenterPanelReveal = nil
+        }
+        pendingDimCenterPanelReveal = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: workItem)
+    }
+
     private func closeActiveDistractionContext(completion: @escaping () -> Void) {
         guard let bundleID = activeDistractionBundleID else {
             completion()
@@ -388,7 +419,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         guard !dimWindows.isEmpty else { return }
         
         // We can capture the current state/alpha value from one of the active windows
-        let maxAlpha = CGFloat(PreferencesManager.shared.dimOpacity)
+        let maxAlpha = CGFloat(preferencesManager.dimOpacity)
         let currentAlpha = dimWindows.first?.alphaValue ?? maxAlpha
         
         // Close current windows

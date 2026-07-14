@@ -42,6 +42,7 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.effectiveFocusThreshold, PreferencesManager.defaultFocusThreshold)
         XCTAssertFalse(manager.launchAtLogin)
         XCTAssertTrue(manager.enableSmartNudges)
+        XCTAssertTrue(manager.showCountdownPill)
         XCTAssertTrue(manager.focusPromptExperimentEnabled)
         XCTAssertEqual(manager.selectedThemeID, ThemeCatalog.defaultThemeID)
         XCTAssertEqual(manager.selectedThemePalette, ThemePalette.baldr)
@@ -77,6 +78,7 @@ final class PreferencesManagerTests: XCTestCase {
         testDefaults.set(true, forKey: PreferencesManager.Keys.sessionSummaryPromptEnabled)
         testDefaults.set(false, forKey: PreferencesManager.Keys.weeklyReviewNotificationsEnabled)
         testDefaults.set(false, forKey: PreferencesManager.Keys.enableSmartNudges)
+        testDefaults.set(false, forKey: PreferencesManager.Keys.showCountdownPill)
         testDefaults.set(false, forKey: PreferencesManager.Keys.focusPromptExperimentEnabled)
         testDefaults.set(true, forKey: PreferencesManager.Keys.enableCloudClassification)
         testDefaults.set(1, forKey: PreferencesManager.Keys.cloudProvider)
@@ -97,6 +99,7 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.effectiveFocusThreshold, 300.0)
         XCTAssertTrue(manager.launchAtLogin)
         XCTAssertFalse(manager.enableSmartNudges)
+        XCTAssertFalse(manager.showCountdownPill)
         XCTAssertFalse(manager.focusPromptExperimentEnabled)
         XCTAssertTrue(manager.sessionSummaryPromptEnabled)
         XCTAssertFalse(manager.weeklyReviewNotificationsEnabled)
@@ -148,6 +151,16 @@ final class PreferencesManagerTests: XCTestCase {
         manager.enableLocalTextClassification = true
 
         XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableLocalTextClassification))
+    }
+
+    func testCountdownPillPreferencePersists() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.showCountdownPill = false
+
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.showCountdownPill))
+        let reloaded = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+        XCTAssertFalse(reloaded.showCountdownPill)
     }
 
     func testRuntimeFocusThresholdOverrideWinsForEngineUse() {

@@ -383,13 +383,14 @@ final class IntentAwareFocusEngineTests: XCTestCase {
             url: URL(string: "https://example.com/news"),
             title: "Old"
         )
+        wait(for: [firstCallStarted], timeout: 2)
 
         mockActivityMonitor.simulateContextChange(
             bundleID: "com.example.Editor",
             title: "Project Draft"
         )
 
-        wait(for: [firstCallStarted, secondCallStarted], timeout: 2)
+        wait(for: [secondCallStarted], timeout: 2)
         stagedClassifier.releaseSecondCall()
         stagedClassifier.releaseFirstCall()
         wait(for: [resultExpectation], timeout: 2)

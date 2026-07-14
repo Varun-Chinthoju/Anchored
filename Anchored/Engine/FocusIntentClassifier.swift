@@ -18,6 +18,7 @@ struct LocalIntentClassifier: IntentClassifying, Sendable {
 
         let entertainmentSignals = Self.entertainmentSignals
         let entertainmentMatch = Self.containsAny(entertainmentSignals, in: searchableText)
+        let educationalMatch = Self.isEducationalContent(searchableText: searchableText)
         let relatedMatch = Self.hasGoalMatch(
             goalFeatures,
             searchableText: searchableText,
@@ -43,7 +44,12 @@ struct LocalIntentClassifier: IntentClassifying, Sendable {
             )
         }
 
-        if entertainmentMatch && !relatedMatch {
+        if educationalMatch && !relatedMatch {
+            relation = .uncertain
+            confidence = 0.58
+            reason = .insufficientIntent
+            explanation = "Educational video signals were present, but the current task intent was too weak to treat it as work."
+        } else if entertainmentMatch && !relatedMatch {
             relation = .entertainment
             confidence = 0.92
             reason = .entertainmentMatched
@@ -112,6 +118,24 @@ private extension LocalIntentClassifier {
         "watch tv"
     ]
 
+    static let educationalSignals: [String] = [
+        "computer science",
+        "programming",
+        "coding",
+        "software engineering",
+        "tutorial",
+        "course",
+        "lecture",
+        "lesson",
+        "documentation",
+        "learn",
+        "how to",
+        "explain",
+        "cs50",
+        "stanford",
+        "mit"
+    ]
+
     static func searchableText(for snapshot: ContextSnapshot) -> String {
         let host = snapshot.url?.host ?? ""
         let path = snapshot.url?.path ?? ""
@@ -128,6 +152,14 @@ private extension LocalIntentClassifier {
 
     static func containsAny(_ signals: [String], in text: String) -> Bool {
         signals.contains { text.contains($0) }
+    }
+
+    static func isEducationalContent(searchableText: String) -> Bool {
+        guard searchableText.contains("youtube.com") || searchableText.contains("youtu.be") || searchableText.contains("vimeo.com") else {
+            return false
+        }
+
+        return containsAny(educationalSignals, in: searchableText)
     }
 
     static func hasGoalMatch(

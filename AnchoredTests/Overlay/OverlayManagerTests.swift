@@ -5,6 +5,7 @@ final class OverlayManagerTests: XCTestCase {
     
     private var mockActivityMonitor: TestActivityMonitor!
     private var distractionListManager: DistractionListManager!
+    private var preferencesManager: PreferencesManager!
     private var sessionStore: SessionStore!
     private var focusEngine: FocusEngine!
     private var overlayManager: OverlayManager!
@@ -23,19 +24,21 @@ final class OverlayManagerTests: XCTestCase {
         sessionStore = SessionStore(fileURL: tempStoreURL)
         
         mockActivityMonitor = TestActivityMonitor()
+        preferencesManager = PreferencesManager(defaults: testDefaults)
         
         focusEngine = FocusEngine(
             activityMonitor: mockActivityMonitor,
             distractionListManager: distractionListManager,
             sessionStore: sessionStore,
             focusThreshold: 600.0,
-            preferencesManager: PreferencesManager(defaults: testDefaults)
+            preferencesManager: preferencesManager
         )
         
         distractionContextCloser = MockDistractionContextCloser()
         overlayManager = OverlayManager(
             focusEngine: focusEngine,
-            distractionContextCloser: distractionContextCloser
+            distractionContextCloser: distractionContextCloser,
+            preferencesManager: preferencesManager
         )
         focusEngine.delegate = overlayManager
     }
@@ -47,6 +50,7 @@ final class OverlayManagerTests: XCTestCase {
         distractionContextCloser = nil
         focusEngine = nil
         mockActivityMonitor = nil
+        preferencesManager = nil
         sessionStore = nil
         
         let dbURL = tempStoreURL.deletingPathExtension().appendingPathExtension("db")
@@ -100,6 +104,16 @@ final class OverlayManagerTests: XCTestCase {
         overlayManager.didDetectDistraction(bundleID: "com.hnc.Discord")
         
         XCTAssertNotNil(overlayManager.countdownPillPanel)
+    }
+
+    func testDidDetectDistractionCanSkipCountdownPill() {
+        preferencesManager.showCountdownPill = false
+
+        XCTAssertNil(overlayManager.countdownPillPanel)
+
+        overlayManager.didDetectDistraction(bundleID: "com.hnc.Discord")
+
+        XCTAssertNil(overlayManager.countdownPillPanel)
     }
     
     func testOnlyOneCountdownPillPanelAtATime() {

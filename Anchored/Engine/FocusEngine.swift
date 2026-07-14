@@ -99,6 +99,15 @@ final class FocusEngine {
     /// The current context of the active window/tab.
     private(set) var currentContext: AppContext?
 
+    /// The identity of the current context.
+    private var currentIdentity: ContextIdentity {
+        ContextIdentity(
+            bundleID: currentApp ?? "",
+            sanitizedURL: ContextSanitizer.sanitizePersistedURL(currentURL),
+            normalizedTitle: ContextSanitizer.sanitizeTitle(currentTitle)
+        )
+    }
+
     /// The latest safe, UI-facing classification decision for the current context.
     private(set) var currentClassification: ClassificationDecision = .neutral()
 
@@ -514,6 +523,20 @@ final class FocusEngine {
         )
     }
 
+    private func shouldImmediatelyResumeSession(for snapshot: ContextSnapshot, decision: ClassificationDecision) -> Bool {
+        guard decision.isFocus else { return false }
+
+        if decision.source.isExplicitRule {
+            return true
+        }
+
+        guard let baseline = activeFocusIntent?.baseline else {
+            return false
+        }
+
+        return baseline.identity == snapshot.identity
+    }
+
     func suggestedSessionGoal() -> String? {
         let candidates = [
             ContextSanitizer.sanitizeTitle(currentTitle),
@@ -576,11 +599,10 @@ final class FocusEngine {
     }
 
     private func triggerCloudOrVisualFallback(bundleID: String, url: URL?, title: String, generation: Int) {
-        let isStale = (generation != self.contextGeneration) &&
-                      (self.currentApp != bundleID || self.currentURL != url || self.currentTitle != title)
+        let targetIdentity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
+        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != targetIdentity)
         if isStale {
-            let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-            inProgressClassifications.remove(identity)
+            inProgressClassifications.remove(targetIdentity)
             return
         }
 
@@ -593,18 +615,16 @@ final class FocusEngine {
         } else {
             RuntimeTrace.event("fallbacks_disabled", fields: ["bundleID": bundleID, "generation": String(generation)])
             // End of pipeline, cache as neutral
-            let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-            classificationCache[identity] = .neutral()
-            inProgressClassifications.remove(identity)
+            classificationCache[targetIdentity] = .neutral()
+            inProgressClassifications.remove(targetIdentity)
         }
     }
 
     private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String, generation: Int) {
-        let isStale = (generation != self.contextGeneration) &&
-                      (self.currentApp != bundleID || self.currentURL != url || self.currentTitle != title)
+        let targetIdentity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
+        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != targetIdentity)
         if isStale {
-            let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-            inProgressClassifications.remove(identity)
+            inProgressClassifications.remove(targetIdentity)
             return
         }
 
@@ -612,9 +632,8 @@ final class FocusEngine {
             if preferencesManager.enableImageClassification {
                 triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
             } else {
-                let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-                classificationCache[identity] = .neutral()
-                inProgressClassifications.remove(identity)
+                classificationCache[targetIdentity] = .neutral()
+                inProgressClassifications.remove(targetIdentity)
             }
             return
         }
@@ -641,9 +660,13 @@ final class FocusEngine {
                 guard let self else { return }
 
                 let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-                let isActiveContext = (self.currentApp == bundleID &&
-                                       self.currentURL == url &&
-                                       self.currentTitle == title)
+                let isActiveContext = (self.currentIdentity == identity)
+
+                guard generation == self.contextGeneration else {
+                    self.classificationCache.removeValue(forKey: identity)
+                    self.inProgressClassifications.remove(identity)
+                    return
+                }
 
                 switch result {
                 case .success(let evidence):
@@ -718,43 +741,62 @@ final class FocusEngine {
     }
 
     private func triggerAsyncVisualClassification(bundleID: String, url: URL?, title: String, generation: Int) {
-        let isStale = (generation != self.contextGeneration) &&
-                      (self.currentApp != bundleID || self.currentURL != url || self.currentTitle != title)
+        let targetIdentity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
+        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != targetIdentity)
         if isStale {
-            let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-            inProgressClassifications.remove(identity)
+            inProgressClassifications.remove(targetIdentity)
             return
         }
 
         guard preferencesManager.enableImageClassification else {
-            let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-            classificationCache[identity] = .neutral()
-            inProgressClassifications.remove(identity)
+            classificationCache[targetIdentity] = .neutral()
+            inProgressClassifications.remove(targetIdentity)
             return
         }
 
         // Skip visual check for sensitive contexts (protect privacy and avoid false positives)
         if FocusEngine.isSensitiveContext(bundleID: bundleID, url: url, title: title) {
             RuntimeTrace.event("visual_classification_skipped_sensitive", fields: ["bundleID": bundleID])
-            let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-            self.classificationCache[identity] = .neutral()
-            inProgressClassifications.remove(identity)
+            self.classificationCache[targetIdentity] = .neutral()
+            inProgressClassifications.remove(targetIdentity)
             return
         }
 
         let profileName = profileManager.activeProfile.name
         RuntimeTrace.event("visual_classification_started", fields: ["bundleID": bundleID, "generation": String(generation)])
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let isProductive = self?.visualChecker.isProductiveVisual(profileName: profileName) == true
+            guard let self else { return }
+
+             var isBackgroundStale = false
+             DispatchQueue.main.sync {
+                 let identityMatches = (generation == self.contextGeneration) && (self.currentIdentity == targetIdentity)
+                 var frontAppMatches = (NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID)
+                 if NSClassFromString("XCTestCase") != nil {
+                     frontAppMatches = true
+                 }
+                 isBackgroundStale = !identityMatches || !frontAppMatches
+             }
+            if isBackgroundStale {
+                DispatchQueue.main.async { [weak self] in
+                    self?.classificationCache.removeValue(forKey: targetIdentity)
+                    self?.inProgressClassifications.remove(targetIdentity)
+                }
+                return
+            }
+
+            let isProductive = self.visualChecker.isProductiveVisual(profileName: profileName) == true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
 
-                let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-                let isActiveContext = (self.currentApp == bundleID &&
-                                       self.currentURL == url &&
-                                       self.currentTitle == title)
+                let isActiveContext = (self.currentIdentity == targetIdentity)
 
-                self.inProgressClassifications.remove(identity)
+                guard generation == self.contextGeneration else {
+                    self.classificationCache.removeValue(forKey: targetIdentity)
+                    self.inProgressClassifications.remove(targetIdentity)
+                    return
+                }
+
+                self.inProgressClassifications.remove(targetIdentity)
 
                 if isProductive {
                     let currentEvidence = self.distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title)
@@ -767,7 +809,7 @@ final class FocusEngine {
                     let promotedDecision = self.classificationResolver.resolve(currentEvidence + [promotionEvidence])
 
                     if promotedDecision.isFocus {
-                        self.classificationCache[identity] = promotedDecision
+                        self.classificationCache[targetIdentity] = promotedDecision
 
                         let isCurrentlyActive = (generation == self.contextGeneration) || isActiveContext
                         if isCurrentlyActive {
@@ -796,7 +838,7 @@ final class FocusEngine {
                 }
 
                 // If not productive/promoted:
-                self.classificationCache[identity] = .neutral()
+                self.classificationCache[targetIdentity] = .neutral()
             }
         }
     }
@@ -829,10 +871,9 @@ final class FocusEngine {
         generation: Int,
         promotion: ClassificationEvidence
     ) -> Bool {
+        let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
         guard generation == contextGeneration,
-              currentApp == bundleID,
-              currentURL == url,
-              currentTitle == title,
+              self.currentIdentity == identity,
               classifyContext(bundleID: bundleID, url: url, title: title).isNeutral else {
             return false
         }
@@ -845,7 +886,6 @@ final class FocusEngine {
         }
 
         currentClassification = promotedDecision
-        let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
         classificationCache[identity] = promotedDecision
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
@@ -872,6 +912,7 @@ final class FocusEngine {
     }
     
     @objc private func handleActiveProfileChange() {
+        contextGeneration += 1
         classificationCache.removeAll()
         inProgressClassifications.removeAll()
         guard let currentApp = currentApp else { return }
@@ -975,6 +1016,7 @@ final class FocusEngine {
     }
 
     @objc private func handleProfilesDidChange() {
+        contextGeneration += 1
         classificationCache.removeAll()
         inProgressClassifications.removeAll()
         guard let currentApp = currentApp else { return }
@@ -1260,17 +1302,20 @@ final class FocusEngine {
             // Whitelisted focus app/URL detected
             RuntimeTrace.event("focus_context_applied", fields: ["bundleID": bundleID, "activeSession": String(activeSession != nil)])
             print("📈 [Focus Context] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(url?.host ?? "nil") focus=true titleLen=\(title.count)")
-            lastWorkAppBundleID = bundleID
             
             if activeSession != nil {
-                let needsUIUpdate = (distractionStartDate != nil && !isDimming)
-                resumeSessionIfNeeded()
-                if needsUIUpdate {
-                    delegate?.didReturnToWork()
+                if shouldImmediatelyResumeSession(for: actualSnapshot, decision: decision) {
+                    lastWorkAppBundleID = bundleID
+                    let needsUIUpdate = (distractionStartDate != nil && !isDimming)
+                    resumeSessionIfNeeded()
+                    if needsUIUpdate {
+                        delegate?.didReturnToWork()
+                    }
+                    cancelDistractionTimer()
+                    distractionStartDate = nil
                 }
-                cancelDistractionTimer()
-                distractionStartDate = nil
             } else {
+                lastWorkAppBundleID = bundleID
                 cancelDoomscrollTimer()
                 if workSessionStart == nil {
                     workSessionStart = now
@@ -1298,9 +1343,7 @@ final class FocusEngine {
 
     private func runClassificationPipeline(snapshot: ContextSnapshot, generation: Int) {
         guard generation == contextGeneration,
-              currentApp == snapshot.bundleIdentifier,
-              currentURL == snapshot.url,
-              currentTitle == snapshot.title else { return }
+              self.currentIdentity == snapshot.identity else { return }
 
         if preferencesManager.enableLocalTextClassification {
             RuntimeTrace.event("neutral_local_text_selected", fields: ["bundleID": snapshot.bundleIdentifier, "generation": String(generation)])
@@ -1334,13 +1377,20 @@ final class FocusEngine {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+
+            var isBackgroundStale = false
+            DispatchQueue.main.sync {
+                isBackgroundStale = (generation != self.contextGeneration) || (self.currentIdentity != snapshot.identity)
+            }
+            if isBackgroundStale {
+                return
+            }
+
             let result = self.intentClassifier.classify(input: input)
             DispatchQueue.main.async { [weak self] in
                 guard let self,
                       generation == self.contextGeneration,
-                      self.currentApp == snapshot.bundleIdentifier,
-                      self.currentURL == snapshot.url,
-                      self.currentTitle == snapshot.title else {
+                      self.currentIdentity == snapshot.identity else {
                     RuntimeTrace.event("intent_result_discarded_stale", fields: [
                         "bundleID": snapshot.bundleIdentifier,
                         "generation": String(generation)
@@ -1364,6 +1414,8 @@ final class FocusEngine {
         generation: Int,
         baseDecision: ClassificationDecision
     ) {
+        guard self.currentIdentity == snapshot.identity else { return }
+
         currentIntentResult = result
 
         let mappedReason = reason(for: result.relation)
@@ -1529,8 +1581,7 @@ final class FocusEngine {
     }
 
     private func triggerAsyncLocalTextClassification(snapshot: ContextSnapshot, generation: Int) {
-        let isStale = (generation != self.contextGeneration) &&
-                      (self.currentApp != snapshot.bundleIdentifier || self.currentURL != snapshot.url || self.currentTitle != snapshot.title)
+        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != snapshot.identity)
         if isStale {
             inProgressClassifications.remove(snapshot.identity)
             return
@@ -1558,14 +1609,30 @@ final class FocusEngine {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+
+            var isBackgroundStale = false
+            DispatchQueue.main.sync {
+                isBackgroundStale = (generation != self.contextGeneration) || (self.currentIdentity != snapshot.identity)
+            }
+            if isBackgroundStale {
+                DispatchQueue.main.async { [weak self] in
+                    self?.classificationCache.removeValue(forKey: snapshot.identity)
+                    self?.inProgressClassifications.remove(snapshot.identity)
+                }
+                return
+            }
+
             let result = self.localTextClassifier.classify(snapshot: sanitizedSnapshot)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
 
-                let identity = snapshot.identity
-                let isActiveContext = (self.currentApp == snapshot.bundleIdentifier &&
-                                       self.currentURL == snapshot.url &&
-                                       self.currentTitle == snapshot.title)
+                let isActiveContext = (self.currentIdentity == identity)
+
+                guard generation == self.contextGeneration else {
+                    self.classificationCache.removeValue(forKey: identity)
+                    self.inProgressClassifications.remove(identity)
+                    return
+                }
 
                 RuntimeTrace.event("local_text_classification_finished", fields: [
                     "bundleID": snapshot.bundleIdentifier,

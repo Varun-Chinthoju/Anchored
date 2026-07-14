@@ -264,6 +264,31 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNotNil(engine.workSessionStart)
     }
 
+    func testEducationalYouTubeVideoDoesNotTriggerDistraction() {
+        let profile = WorkProfile(name: "Neutral Browsing")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://www.youtube.com/watch?v=swift-concurrency"),
+            title: "Computer Science Lecture - Swift Concurrency"
+        )
+
+        let settled = expectation(description: "educational browser context settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
+
+        XCTAssertTrue(engine.currentClassification.isNeutral)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertFalse(engine.isDimming)
+    }
+
     func testCorrectionImmediatelyChangesCurrentClassification() {
         let profile = WorkProfile(name: "Correction")
         profileManager.addProfile(profile)
@@ -1171,6 +1196,25 @@ final class FocusEngineTests: XCTestCase {
         let resumedStartDate = try XCTUnwrap(engine.activeSession?.startDate)
         XCTAssertGreaterThan(resumedStartDate.timeIntervalSince(initialStartDate), 0.04)
     }
+
+    func testCmdTabToAnotherProductiveAppDoesNotBypassDimming() {
+        let profile = WorkProfile(name: "Neutral Apps")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
+        XCTAssertTrue(engine.isDimming)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.jetbrains.intellij")
+
+        XCTAssertTrue(engine.isDimming)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
+        XCTAssertEqual(mockDelegate.returnsToWork, 0)
+    }
     
     // MARK: - Cloud Classification Integration Tests
     
@@ -1472,7 +1516,7 @@ final class FocusEngineTests: XCTestCase {
     }
 
     func testDeclaredActivityBypassPreventsDimmingAndReDimsWhenNotMatching() {
-        let testPreferences = PreferencesManager.shared
+        let testPreferences = self.testPreferences!
         let engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
             distractionListManager: distractionListManager,
@@ -1562,6 +1606,7 @@ final class FocusEngineTests: XCTestCase {
         let countingClassifier = CountingClassifier()
         testPreferences.enableLocalTextClassification = true
         
+        engine.stop()
         self.engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
             distractionListManager: distractionListManager,
@@ -1735,16 +1780,27 @@ final class FocusEngineTests: XCTestCase {
         wait(for: [completeExp], timeout: 1.0)
         
         // Now switch back to A
-        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
-        
-        let returnExp = expectation(description: "Returned to A")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            returnExp.fulfill()
+        // Under the new "Cache Pollution Prevention" behavior, A was discarded and not written to the cache
+        // because the context switched to B before A's classification completed.
+        // So switching back to A will trigger a new classification request!
+        let requestExp2 = expectation(description: "Classifier requested for A again")
+        classifier.onRequest = { identity in
+            if identity.bundleID == "com.example.appA" {
+                classifier.complete(identity: identity, .productive)
+                requestExp2.fulfill()
+            }
         }
-        wait(for: [returnExp], timeout: 1.0)
-        
-        // It should retrieve from cache, so no new classification request was sent
-        XCTAssertEqual(countingClassifier.classificationCount, 2) // 1 for A (first), 1 for B (second), 0 for A (returned)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        wait(for: [requestExp2], timeout: 1.0)
+
+        let mainExp = expectation(description: "Wait for main queue block to execute")
+        DispatchQueue.main.async {
+            mainExp.fulfill()
+        }
+        wait(for: [mainExp], timeout: 1.0)
+
+        XCTAssertEqual(countingClassifier.classificationCount, 3)
         XCTAssertTrue(engine.currentClassification.isFocus)
         engine.stop()
     }
@@ -1800,7 +1856,8 @@ final class FocusEngineTests: XCTestCase {
         }
         wait(for: [switchBExp], timeout: 1.0)
         
-        // Switch back to A
+        // Switch back to A. Since A is still in inProgressClassifications,
+        // it deduplicates and does not start a new request.
         mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
         
         let switchAExp = expectation(description: "Processed return to A")
@@ -1809,7 +1866,11 @@ final class FocusEngineTests: XCTestCase {
         }
         wait(for: [switchAExp], timeout: 1.0)
         
-        // Complete the pending classification for A
+        // Complete the pending classification for A (which has generation 1).
+        // Since we are back to A, currentIdentity is A, but contextGeneration is 3.
+        // Under the new "Cache Pollution Prevention" behavior, we return early and discard the result
+        // because generation (1) != self.contextGeneration (3).
+        // This removes A from inProgressClassifications.
         let identityA = ContextIdentity(bundleID: "com.example.appA", sanitizedURL: nil, normalizedTitle: "")
         classifier.complete(identity: identityA, .productive)
         
@@ -1819,10 +1880,148 @@ final class FocusEngineTests: XCTestCase {
         }
         wait(for: [completeExp], timeout: 1.0)
         
-        // The classification count should be 2 (1 for A, 1 for B), NOT 3!
-        XCTAssertEqual(countingClassifier.classificationCount, 2)
+        // Since it was discarded, engine.currentClassification is still neutral.
+        // But A is now the current app and is no longer in progress, so a new switch/update to A
+        // (or runClassificationPipeline if triggered) will kick off a new request to verify it.
+        // Let's simulate a context update/re-trigger to A:
+        let requestExp2 = expectation(description: "Classifier requested for A again")
+        classifier.onRequest = { identity in
+            if identity.bundleID == "com.example.appA" {
+                classifier.complete(identity: identity, .productive)
+                requestExp2.fulfill()
+            }
+        }
+
+        // Re-simulate to trigger pipeline
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+        wait(for: [requestExp2], timeout: 1.0)
+
+        let mainExp = expectation(description: "Wait for main queue block to execute")
+        DispatchQueue.main.async {
+            mainExp.fulfill()
+        }
+        wait(for: [mainExp], timeout: 1.0)
+
+        XCTAssertEqual(countingClassifier.classificationCount, 3)
         XCTAssertTrue(engine.currentClassification.isFocus)
         engine.stop()
+    }
+
+    func testStaleVisualClassificationIsDiscardedEarly() {
+        let visualChecker = RecordingVisualChecker()
+        testPreferences.enableImageClassification = true
+        testPreferences.enableCloudClassification = false
+
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: visualChecker
+        )
+
+        // Switch to neutral context (initiates visual pipeline)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+
+        // Switch context away before visual classifier runs on background thread
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        let expectation = expectation(description: "Wait for background queue schedule")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 0.5)
+
+        // Visual classification should have been aborted as stale, so visualChecker is never called
+        XCTAssertFalse(visualChecker.didRequest)
+    }
+
+    func testScheduleChangeMidSessionDeactivatesDimmingAndCancelsAlerts() {
+        let now = Date()
+        testPreferences.focusSchedule = scheduleAllowingCurrentMinute(now: now)
+
+        engine.anchorSession(duration: 1500)
+
+        // Switch to distraction to start warning countdown
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.spotify.client"])
+
+        // Switch schedule to inactive
+        testPreferences.focusSchedule = scheduleExcludingCurrentMinute(now: now)
+
+        // It should immediately deactivate dimming and cancel distraction alerts
+        XCTAssertFalse(engine.isFocusScheduleActive)
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertNil(engine.currentDistractionGraceRemaining)
+    }
+
+    func testWorkspaceSleepReschedulesActiveBreakTimer() throws {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 3600)
+
+        // Retroactively advance session start so break is accepted
+        if let session = engine.activeSession {
+            engine.activeSession = ActiveSession(
+                startDate: session.startDate.addingTimeInterval(-1800),
+                anchoredDuration: session.anchoredDuration,
+                appName: session.appName,
+                category: session.category,
+                goal: session.goal
+            )
+        }
+
+        let decision = engine.requestBreak(intention: "Coffee")
+        XCTAssertEqual(engine.breakState, .breakActive)
+
+        let sleepStartedAt = Date()
+        engine.pauseFocusAccountingForWorkspaceLifecycle(now: sleepStartedAt)
+
+        // Simulate passing 1 minute of sleep
+        let wakeAt = sleepStartedAt.addingTimeInterval(60)
+        engine.resumeFocusAccountingForWorkspaceLifecycle(now: wakeAt)
+
+        // The break state should remain active, and the break timer should be rescheduled correctly
+        XCTAssertEqual(engine.breakState, .breakActive)
+    }
+
+    func testDisabledClassifiersAreNotCalled() {
+        let visualChecker = RecordingVisualChecker()
+        let cloudService = DeferredCloudClassificationService()
+
+        var cloudCalled = false
+        cloudService.onRequest = {
+            cloudCalled = true
+        }
+
+        testPreferences.enableImageClassification = false
+        testPreferences.enableCloudClassification = false
+        testPreferences.enableLocalTextClassification = false
+
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: visualChecker,
+            cloudClassificationService: cloudService
+        )
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+
+        let expectation = expectation(description: "Wait for pipeline check")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 0.5)
+
+        XCTAssertFalse(visualChecker.didRequest)
+        XCTAssertFalse(cloudCalled)
     }
 }
 
