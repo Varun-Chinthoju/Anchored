@@ -161,9 +161,17 @@ struct MenuBarPopoverView: View {
                         .padding(.horizontal, 8)
                         
                         if viewModel.breakState == .breakActive {
-                            Text("Break active • (viewModel.breakRemainingTimeFormatted)")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundColor(themeAccent)
+                            HStack {
+                                Text("Break active • \(viewModel.breakRemainingTimeFormatted)")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundColor(themeAccent)
+                                Spacer()
+                                Button("Return to Work") {
+                                    viewModel.resumeAfterBreakReview()
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                            .padding(.top, 4)
                         } else if viewModel.breakState == .breakReview {
                             Button("Return to Work") {
                                 viewModel.resumeAfterBreakReview()
@@ -486,9 +494,13 @@ private struct ClassificationExplanationCard: View {
         case .deterministicRule: return "A deterministic rule matched."
         case .deterministicHeuristic: return "A strong local pattern matched."
         case .modelEvidence: return "Optional evidence supports this context."
+        case .intentRelated: return "The current context matches the active task intent."
+        case .intentEntertainment: return "The current context looks like entertainment."
+        case .intentUnrelated: return "The current context does not match the task."
+        case .intentUncertain: return "The current intent signal is too weak to enforce."
         case .conflictingEvidence: return "Signals conflict, so no action is taken."
         case .lowConfidence: return "Trusted evidence is not strong enough yet."
-        case .optionalDistractionIsNonEnforcing: return "Optional distraction evidence is non-enforcing."
+        case .optionalDistractionIsNonEnforcing: return "Optional distraction evidence remains non-enforcing."
         case .neutralFallback: return "No trusted rule matched this context."
         }
     }
@@ -600,6 +612,7 @@ struct StartSessionFormView: View {
     @ObservedObject private var profileManager = ProfileManager.shared
     @ObservedObject private var prefs = PreferencesManager.shared
     @Binding var isPresented: Bool
+    private let suggestedGoal: String?
     
     @State private var minutes: Int = 25
     @State private var selectedProfileID: UUID
@@ -632,8 +645,10 @@ struct StartSessionFormView: View {
     init(viewModel: MenuBarViewModel, isPresented: Binding<Bool>) {
         self.viewModel = viewModel
         self._isPresented = isPresented
-        let activeProfile = ProfileManager.shared.activeProfile
-        self._selectedProfileID = State(initialValue: activeProfile.id)
+        self.suggestedGoal = viewModel.focusEngine.suggestedSessionGoal()
+        let suggestedProfile = viewModel.focusEngine.suggestedSessionProfile()
+        self._selectedProfileID = State(initialValue: suggestedProfile.id)
+        self._goal = State(initialValue: suggestedGoal ?? "")
     }
     
     var body: some View {
@@ -731,6 +746,8 @@ struct StartSessionFormView: View {
                 Button(action: {
                     let targetProfile = profileManager.profiles.first { $0.id == selectedProfileID }
                     let profileName = targetProfile?.name ?? profileManager.activeProfile.name
+                    let trimmedGoal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let explicitGoal = trimmedGoal.isEmpty || trimmedGoal == suggestedGoal ? nil : trimmedGoal
                     
                     // Switch profile if needed
                     if selectedProfileID != profileManager.activeProfile.id {
@@ -739,7 +756,7 @@ struct StartSessionFormView: View {
                     
                     // Start focus session
                     let durationSeconds = TimeInterval(minutes * 60)
-                    viewModel.focusEngine.anchorSession(duration: durationSeconds, category: profileName, goal: goal.isEmpty ? nil : goal)
+                    viewModel.focusEngine.anchorSession(duration: durationSeconds, category: profileName, goal: explicitGoal)
                     
                     isPresented = false
                 }) {

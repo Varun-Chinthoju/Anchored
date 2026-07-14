@@ -497,7 +497,7 @@ struct GeneralSettingsPane: View {
     private let thresholds: [(Double, String)] = [
         (300.0, "5 min"), (600.0, "10 min"), (900.0, "15 min"), (1800.0, "30 min")
     ]
-    private let countdowns = [5, 10, 15, 20]
+    private let countdowns = [5, 10, 15, 20, 30]
 
     private func formatDuration(_ seconds: Double) -> String {
         let totalSecs = Int(seconds)
@@ -795,7 +795,7 @@ struct GeneralSettingsPane: View {
 
                     SettingsRow(
                         label: settingsCopy("Experimental Visual Fallback", pirate: "Experimental Visual Spyglass", isPirateMode: isPirateMode),
-                        description: settingsCopy("Optional local screen analysis used only after deterministic, local-text, and cloud classification remain neutral. It can only promote the current neutral context and is disabled by default.", pirate: "Optional local screen analysis used only after all structured checks stay neutral. It can only clear the current neutral sight and is off by default.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Optional local screen analysis used only after deterministic, local-text, and cloud classification remain neutral. It can only promote a current neutral context to focus; distracting results stay advisory. Disabled by default.", pirate: "Optional local screen analysis used only after all structured checks stay neutral. It can only steer a current neutral sight to focus; distracting results stay advisory. Off by default.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.enableImageClassification)
@@ -1213,7 +1213,7 @@ struct PrivacySettingsPane: View {
                 performClear()
             }
         } message: {
-            Text(settingsCopy("This permanently deletes all stored context observations. This action cannot be undone. Session rows and dashboard aggregates will be preserved.", pirate: "This permanently deletes all charted sights. This cannot be undone. Voyage logs and aggregates remain safe.", isPirateMode: isPirateMode))
+            Text(settingsCopy("This permanently deletes all stored context observations and AI classification outcomes. This action cannot be undone. Session rows and dashboard aggregates will be preserved.", pirate: "This permanently deletes all charted sights and AI outcomes. This cannot be undone. Voyage logs and aggregates remain safe.", isPirateMode: isPirateMode))
         }
         .alert(settingsCopy("Clear Saved Corrections?", pirate: "Clear Saved Corrections?", isPirateMode: isPirateMode), isPresented: $showClearFeedbackConfirmation) {
             Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
@@ -1303,9 +1303,11 @@ struct PrivacySettingsPane: View {
     private func performClear() {
         isClearing = true
         ContextHistoryStore.shared.clearAll { _ in
-            DispatchQueue.main.async {
-                self.isClearing = false
-                self.refreshStats()
+            ClassificationOutcomeStore.shared.clearAll { _ in
+                DispatchQueue.main.async {
+                    self.isClearing = false
+                    self.refreshStats()
+                }
             }
         }
     }

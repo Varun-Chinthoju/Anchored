@@ -219,6 +219,135 @@ class SQLiteSessionStore {
         }
     }
 
+    func insertClassificationOutcome(_ outcome: ClassificationOutcome) throws {
+        let sanitizedOutcome = outcome.sanitizedForPersistence()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT OR REPLACE INTO classification_outcomes (
+                    identityKey,
+                    timestamp,
+                    id,
+                    contextGeneration,
+                    sessionID,
+                    bundleID,
+                    appName,
+                    url,
+                    title,
+                    intentSummary,
+                    relation,
+                    mappedLabel,
+                    confidence,
+                    source,
+                    modelVersion,
+                    latency,
+                    graceStarted,
+                    enforcementOccurred,
+                    correction,
+                    correctedAt
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                );
+                """,
+                arguments: [
+                    sanitizedOutcome.identity.key,
+                    sanitizedOutcome.observedAt,
+                    sanitizedOutcome.id,
+                    sanitizedOutcome.identity.contextGeneration,
+                    sanitizedOutcome.identity.sessionID,
+                    sanitizedOutcome.identity.contextIdentity.bundleID,
+                    sanitizedOutcome.appName,
+                    sanitizedOutcome.identity.contextIdentity.sanitizedURL,
+                    sanitizedOutcome.identity.contextIdentity.normalizedTitle,
+                    sanitizedOutcome.intentSummary,
+                    sanitizedOutcome.relation.rawValue,
+                    sanitizedOutcome.mappedLabel.rawValue,
+                    sanitizedOutcome.confidence,
+                    sanitizedOutcome.source.rawValue,
+                    sanitizedOutcome.modelVersion,
+                    sanitizedOutcome.latency,
+                    sanitizedOutcome.graceStarted,
+                    sanitizedOutcome.enforcementOccurred,
+                    sanitizedOutcome.correction?.rawValue,
+                    sanitizedOutcome.correctedAt
+                ]
+            )
+        }
+    }
+
+    func updateClassificationOutcomeCorrection(
+        identityKey: String,
+        correction: ClassificationCorrection,
+        correctedAt: Date
+    ) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE classification_outcomes
+                SET correction = ?, correctedAt = ?
+                WHERE identityKey = ?;
+                """,
+                arguments: [correction.rawValue, correctedAt, identityKey]
+            )
+        }
+    }
+
+    func deleteAllClassificationOutcomes() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM classification_outcomes;")
+        }
+    }
+
+    func deleteClassificationOutcomes(olderThan cutoffDate: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM classification_outcomes WHERE timestamp < ?;",
+                arguments: [cutoffDate]
+            )
+        }
+    }
+
+    func classificationOutcomeCount() throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM classification_outcomes;") ?? 0
+        }
+    }
+
+    func oldestClassificationOutcomeDate() throws -> Date? {
+        try dbQueue.read { db in
+            try Date.fetchOne(
+                db,
+                sql: "SELECT timestamp FROM classification_outcomes ORDER BY timestamp ASC, rowid ASC LIMIT 1;"
+            )
+        }
+    }
+
+    func latestClassificationOutcomeIdentity() throws -> ClassificationOutcome.Identity? {
+        try dbQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT contextGeneration, sessionID, bundleID, url AS sanitizedURL, title
+                FROM classification_outcomes
+                ORDER BY timestamp DESC, rowid DESC
+                LIMIT 1
+                """
+            ) else {
+                return nil
+            }
+
+            return ClassificationOutcome.Identity(
+                contextGeneration: row["contextGeneration"],
+                sessionID: row["sessionID"],
+                contextIdentity: ContextIdentity(
+                    bundleID: row["bundleID"],
+                    sanitizedURL: row["sanitizedURL"],
+                    normalizedTitle: row["title"]
+                )
+            )
+        }
+    }
+
     /// Updates only the local user-authored summary for a completed session.
     /// Empty or oversized input clears the summary rather than persisting invalid text.
     func updateSessionSummary(id: UUID, summary: String?) throws {

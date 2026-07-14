@@ -48,7 +48,7 @@ public final class PreferencesManager: ObservableObject {
     }
     
     // Default values
-    public static let defaultCountdownDuration = 10
+    public static let defaultCountdownDuration = 30
     public static let defaultFocusThreshold: TimeInterval = 600.0
     public static let defaultAutomaticSessionDuration: TimeInterval = 25 * 60
     
@@ -73,7 +73,7 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultEnableDoomscrollLoopBreaker = true
     public static let defaultDoomscrollThreshold: TimeInterval = 600.0
     
-    /// The distraction countdown duration in seconds. Clamped to [5, 20].
+    /// The distraction countdown duration in seconds. Clamped to [0, 3600].
     @Published public var countdownDuration: Int {
         didSet {
             let clamped = max(0, min(3600, countdownDuration))

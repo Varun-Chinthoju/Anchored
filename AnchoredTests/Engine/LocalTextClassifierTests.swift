@@ -53,8 +53,8 @@ final class LocalTextClassifierTests: XCTestCase {
             )
         ])
 
-        XCTAssertEqual(decision.label, .distracting)
-        XCTAssertEqual(decision.reason, .modelEvidence)
+        XCTAssertEqual(decision.label, .neutral)
+        XCTAssertEqual(decision.reason, .optionalDistractionIsNonEnforcing)
     }
 
     func testEvaluationReportsSafetyMetricsAndGate() {

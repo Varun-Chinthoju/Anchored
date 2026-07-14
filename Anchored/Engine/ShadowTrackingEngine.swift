@@ -8,7 +8,9 @@ final class ShadowTrackingEngine {
     private var timer: Timer?
     private var continuousWorkTime: TimeInterval = 0.0
     private var isSleeping = false
-    private var isFocusContextActive = false
+    private var isFocusContextActive: Bool {
+        focusEngine.currentClassification.isFocus
+    }
     
     var onThresholdCrossed: (() -> Void)?
     
@@ -38,11 +40,11 @@ final class ShadowTrackingEngine {
             object: focusEngine
         )
         
-        // Observe context changes
+        // Observe classification changes (covers both initial context switches and promotions)
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleContextChange(_:)),
-            name: .focusEngineContextDidChange,
+            selector: #selector(handleClassificationChange),
+            name: .focusEngineClassificationDidChange,
             object: focusEngine
         )
         
@@ -66,15 +68,8 @@ final class ShadowTrackingEngine {
         updateTrackingState()
     }
     
-    @objc private func handleContextChange(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let isFocus = userInfo["isFocus"] as? Bool else {
-            return
-        }
-        
-        let title = userInfo["title"] as? String
-        
-        isFocusContextActive = isFocus
+    @objc private func handleClassificationChange() {
+        print("🕵️ [Shadow] classificationChange isFocus=\(isFocusContextActive) state=\(focusEngine.state) threshold=\(nudgeThreshold)s")
         updateTrackingState()
     }
     
@@ -98,12 +93,13 @@ final class ShadowTrackingEngine {
                           !isSleeping &&
                           isFocusContextActive
         
+        print("🕵️ [Shadow] updateTracking shouldTrack=\(shouldTrack) state=\(focusEngine.state) sleeping=\(isSleeping) isFocusCtx=\(isFocusContextActive) elapsed=\(continuousWorkTime)s")
         if shouldTrack {
             startTimerIfNeeded()
         } else {
             stopTimer()
-            if !isFocusContextActive || focusEngine.state == .anchored {
-                // Reset continuous time if they switch away from a focus app or start a real session
+            if focusEngine.currentClassification.isDistraction || focusEngine.state == .anchored {
+                // Reset continuous time if they switch to a distraction app/domain or start a real session
                 continuousWorkTime = 0.0
             }
         }
@@ -124,7 +120,9 @@ final class ShadowTrackingEngine {
     
     private func tick() {
         continuousWorkTime += 1.0
+        print("🕵️ [Shadow] tick elapsed=\(continuousWorkTime)s threshold=\(nudgeThreshold)s")
         if continuousWorkTime >= nudgeThreshold {
+            print("🕵️ [Shadow] THRESHOLD CROSSED — firing onThresholdCrossed")
             onThresholdCrossed?()
             // Reset counter to avoid double nudging repeatedly
             continuousWorkTime = 0.0

@@ -14,6 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var smartNudgeManager: SmartNudgeManager?
     private var contextHistoryStore: ContextHistoryStore?
     private var contextHistoryPipeline: ContextHistoryPipeline?
+    private var classificationOutcomeStore: ClassificationOutcomeStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -51,7 +52,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             focusThreshold: prefs.effectiveFocusThreshold
         )
         engine.distractionCountdownThreshold = TimeInterval(prefs.countdownDuration)
-        engine.focusPromptsEnabled = false
         focusEngine = engine
 
         let shadowEngine = ShadowTrackingEngine(focusEngine: engine, preferencesManager: prefs)
@@ -91,6 +91,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         contextHistoryStore = historyStore
         contextHistoryPipeline = ContextHistoryPipeline(focusEngine: engine, historyStore: historyStore)
 
+        let outcomeStore = ClassificationOutcomeStore.shared
+        outcomeStore.isEnabled = prefs.contextHistoryEnabled || prefs.classificationFeedbackEnabled
+        outcomeStore.performLaunchMaintenance(retentionDays: prefs.contextHistoryRetentionDays)
+        classificationOutcomeStore = outcomeStore
+
         prefs.$contextHistoryEnabled
             .dropFirst()
             .sink { [weak historyStore] enabled in
@@ -116,13 +121,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &preferencesCancellables)
 
+        prefs.$contextHistoryEnabled
+            .dropFirst()
+            .sink { [weak outcomeStore] enabled in
+                outcomeStore?.isEnabled = enabled || prefs.classificationFeedbackEnabled
+            }
+            .store(in: &preferencesCancellables)
+
+        prefs.$classificationFeedbackEnabled
+            .dropFirst()
+            .sink { [weak outcomeStore] enabled in
+                outcomeStore?.isEnabled = enabled || prefs.contextHistoryEnabled
+            }
+            .store(in: &preferencesCancellables)
+
         prefs.$contextHistoryRetentionDays
             .dropFirst()
             .sink { [weak feedbackStore] days in
                 feedbackStore?.prune(retentionDays: days)
             }
             .store(in: &preferencesCancellables)
-        
+
+        prefs.$contextHistoryRetentionDays
+            .dropFirst()
+            .sink { [weak outcomeStore] days in
+                outcomeStore?.prune(retentionDays: days)
+            }
+            .store(in: &preferencesCancellables)
+
         menuBarController = MenuBarController(focusEngine: engine)
         
         engine.start()
@@ -232,5 +258,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         focusEngine?.stop()
         contextHistoryPipeline = nil
         contextHistoryStore = nil
+        classificationOutcomeStore = nil
     }
 }

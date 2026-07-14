@@ -29,9 +29,7 @@ public struct CountdownPillView: View {
                 .foregroundColor(PirateTheme.gold)
             }
 
-            if let onBreak {
-                DelayBreakButton(onBreak: onBreak)
-            }
+            // Removed break button as requested by user
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -52,41 +50,5 @@ public struct CountdownPillView: View {
                 )
         )
         .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4)
-    }
-}
-
-struct DelayBreakButton: View {
-    let onBreak: () -> Void
-    @State private var secondsRemaining = 3
-    @State private var timer: Timer? = nil
-
-    var body: some View {
-        Button(action: {
-            if secondsRemaining == 0 {
-                onBreak()
-            }
-        }) {
-            Text(secondsRemaining > 0 ? "Break (\(secondsRemaining))" : "Break")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
-        .tint(PirateTheme.gold)
-        .disabled(secondsRemaining > 0)
-        .onAppear {
-            secondsRemaining = 3
-            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-                if secondsRemaining > 0 {
-                    secondsRemaining -= 1
-                } else {
-                    timer?.invalidate()
-                    timer = nil
-                }
-            }
-        }
-        .onDisappear {
-            timer?.invalidate()
-            timer = nil
-        }
     }
 }

@@ -41,7 +41,7 @@ Anchored’s default configuration is local-only: focus rules, session events, a
 | App bundle ID and session events | On | Local SQLite database | Local history can be cleared in Privacy & Data |
 | Browser URL and window title | Only when browser context is available | Used locally; sanitized before optional history storage | macOS Accessibility permission and context-history toggle |
 | Screen capture / OCR / visual check | On-device feature may be enabled | Not persisted by Anchored | Disable **AI Visual Productivity Check** in Settings |
-| Cloud classification | **Off** | When enabled, app name, title, URL, and any OCR text used for the request are sent to the provider you select (Gemini, OpenAI, or Anthropic) | Disable **Cloud AI classification** in Settings |
+| Cloud classification | **Off** | When enabled, Anchored sends only locally derived structured app/domain/title features to the provider you select (Gemini, OpenAI, or Anthropic); raw OCR, screenshots, and browsing content stay on-device | Disable **Cloud AI classification** in Settings |
 | API keys | N/A | macOS Keychain, device-only while unlocked | Remove or replace them in Settings |
 
 Cloud analysis is opt-in. Turning it off prevents new cloud-classification requests; local deterministic rules continue to work. Screenshots are used only in memory for on-device OCR/visual analysis and are not persisted by Anchored. When detailed context history is enabled, its retention period is configurable in Privacy & Data (1–365 days); it is disabled by default.
@@ -54,11 +54,10 @@ Focus decisions are deterministic before they are “smart.” The first matchin
 2. Explicit blocked-domain rules
 3. Browser-content heuristics and local browser classifiers
 4. Profile app allow/block rules and local app classifiers
-5. Optional on-device visual result, only for an otherwise neutral context
-6. Optional cloud result, only for the same still-current neutral context
-7. Neutral fallback
+5. Optional local text, cloud, or visual evidence for the same still-current neutral context
+6. Neutral fallback
 
-An asynchronous visual or cloud result never overrides an explicit rule, never applies after the active context changes, and never starts dimming on its own. It can only promote a still-current neutral context to focus, preventing flicker and contradictory enforcement.
+An asynchronous optional result never overrides an explicit rule, never applies after the active context changes, and never starts dimming on its own. It can only promote a still-current neutral context to focus, preventing flicker and contradictory enforcement.
 
 ## V1 scope
 
@@ -70,7 +69,7 @@ The stable core is deliberately small:
 - local session history
 - profile switching
 
-AI-assisted app, browser, visual, OCR, and cloud classification are experimental aids around that core—not requirements for it.
+AI-assisted app, browser, local text, visual, OCR, and cloud classification are experimental aids around that core—not requirements for it.
 
 ## Known limitations
 

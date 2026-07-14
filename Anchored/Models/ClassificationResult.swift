@@ -39,6 +39,10 @@ public enum ClassificationReason: String, Codable, Equatable, CaseIterable, Send
     case deterministicRule
     case deterministicHeuristic
     case modelEvidence
+    case intentRelated
+    case intentEntertainment
+    case intentUnrelated
+    case intentUncertain
     case conflictingEvidence
     case lowConfidence
     case optionalDistractionIsNonEnforcing
@@ -142,8 +146,8 @@ public enum ClassificationPolicy {
     ///
     /// Within one explicit target, an allowed rule wins over a blocked rule to
     /// preserve the legacy duplicate-domain behavior. A domain rule always
-    /// outranks an app rule. Optional model evidence may promote only to
-    /// productive and never enforces distraction.
+    /// outranks an app rule. Optional model evidence can contribute to the
+    /// intent-aware grace period, but never dims the screen immediately.
     ///
     /// Privacy: classification input is sanitized ContextSnapshot only (bundleID, host/path, normalized title via ContextSanitizer).
     /// Safety: asynchronous classifiers cannot directly start dimming/blocking.

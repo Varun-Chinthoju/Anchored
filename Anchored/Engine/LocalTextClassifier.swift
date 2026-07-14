@@ -15,7 +15,7 @@ public final class LocalTextClassifier: ContextClassifying, Sendable {
     ]
 
     private static let distractingSignals = [
-        "spotify", "discord", "steam", "youtube", "netflix", "twitch", "tiktok", "instagram",
+        "spotify", "steam", "youtube", "netflix", "twitch", "tiktok", "instagram",
         "facebook", "reddit", "twitter", "gaming", "gameplay", "livestream", "entertainment",
         "music", "movie", "stream"
     ]

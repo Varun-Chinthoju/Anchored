@@ -26,16 +26,23 @@ public class DimCenterPanel: NSPanel {
         
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     }
+
+    public override var canBecomeKey: Bool { true }
+    public override var canBecomeMain: Bool { true }
     
     public func show(
+        on screen: NSScreen,
+        suggestedActivity: String? = nil,
         onBreak: @escaping () -> Void,
         onCancel: @escaping () -> Void,
         onReturnToWork: @escaping () -> Void,
-        onDeclareActivity: @escaping (String) -> Void
+        onDeclareActivity: @escaping (String) -> Void,
+        onExitSession: @escaping (String) -> Void
     ) {
         isDismissing = false
         
         let view = DimCenterView(
+            suggestedActivity: suggestedActivity,
             onBreak: { [weak self] in
                 self?.slideUpAndHide {
                     onBreak()
@@ -55,6 +62,11 @@ public class DimCenterPanel: NSPanel {
                 self?.slideUpAndHide {
                     onDeclareActivity(activity)
                 }
+            },
+            onExitSession: { [weak self] summary in
+                self?.slideUpAndHide {
+                    onExitSession(summary)
+                }
             }
         )
         
@@ -62,18 +74,18 @@ public class DimCenterPanel: NSPanel {
         self.contentView = host
         self.hostingView = host
         
-        guard let primaryScreen = NSScreen.screens.first else { return }
         let viewSize = host.fittingSize
-        let screenFrame = primaryScreen.frame
+        let screenFrame = screen.frame
         
-        // Centered on the primary screen
+        // Center the interactive panel over the display being dimmed.
         let targetX = screenFrame.origin.x + (screenFrame.size.width - viewSize.width) / 2.0
         let targetY = screenFrame.origin.y + (screenFrame.size.height - viewSize.height) / 2.0
         let targetFrame = NSRect(x: targetX, y: targetY, width: viewSize.width, height: viewSize.height)
         
         self.setFrame(targetFrame, display: true)
         self.alphaValue = 0.0
-        self.orderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        self.makeKeyAndOrderFront(nil)
         
         // Fade in animation matching macOS dialogs
         NSAnimationContext.runAnimationGroup({ context in

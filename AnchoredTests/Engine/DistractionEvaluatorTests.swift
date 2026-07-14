@@ -98,6 +98,19 @@ final class DistractionEvaluatorTests: XCTestCase {
         XCTAssertEqual(decision.source, .explicitAppRule)
     }
 
+    func testDiscordIsBlockedLikeOtherDefaultDistractions() {
+        let decision = ClassificationResolver().resolve(makeEvaluator(
+            WorkProfile(name: "Default", distractionApps: ["com.hnc.Discord"])
+        ).evidence(
+            bundleID: "com.hnc.Discord",
+            url: nil,
+            title: "Discord"
+        ))
+
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.source, .explicitAppRule)
+    }
+
     func testRulesExposeEvidenceForCentralResolver() {
         let evaluator = makeEvaluator(
             WorkProfile(

@@ -116,9 +116,9 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
     }
     
-    func testDistractionAppSwitchTriggersExitCapsuleIfOverThreshold() {
+    func testDistractionAppSwitchAutoStartsSessionIfOverThreshold() {
         engine.focusThreshold = 0.1 // Use very short focus threshold for testing
-        
+
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         XCTAssertNotNil(engine.workSessionStart)
         
@@ -127,27 +127,81 @@ final class FocusEngineTests: XCTestCase {
         
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
         
-        XCTAssertNil(engine.workSessionStart)
-        XCTAssertEqual(engine.state, .idle)
-        XCTAssertEqual(mockDelegate.exitTriggers.count, 1)
-        XCTAssertEqual(mockDelegate.exitTriggers.first?.appName, "Xcode")
-        XCTAssertGreaterThan(mockDelegate.exitTriggers.first?.duration ?? 0, 0.1)
+        XCTAssertNotNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .anchored)
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
+        XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
     }
 
-    func testFocusPromptUsesConfiguredThreshold() {
+    func testFocusPromptTimerAutoStartsSessionUsesConfiguredThreshold() {
         engine.focusThreshold = 120
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.workSessionStart = Date().addingTimeInterval(-119)
 
         engine.focusPromptTimerExpired()
 
-        XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
+        XCTAssertNil(engine.activeSession)
 
         engine.workSessionStart = Date().addingTimeInterval(-121)
         engine.focusPromptTimerExpired()
 
-        XCTAssertEqual(mockDelegate.exitTriggers.count, 1)
-        XCTAssertEqual(mockDelegate.exitTriggers.first?.appName, "Xcode")
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
+        XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
+    }
+
+    func testAnchorSessionUsesSuggestedCategoryAndGoalWhenMissing() {
+        profileManager.switchProfile(to: "Video")
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.apple.dt.Xcode",
+            title: "Write docs"
+        )
+
+        engine.anchorSession(duration: 300)
+
+        XCTAssertEqual(engine.activeSession?.category, "Coding")
+        XCTAssertEqual(engine.activeSession?.goal, "Write docs")
+    }
+
+    func testSleepDoesNotCountTowardFocusedSessionTime() throws {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        let focusedStart = Date().addingTimeInterval(-120)
+        engine.workSessionStart = focusedStart
+        engine.anchorSession(duration: 3_600)
+
+        let sleepStartedAt = Date()
+        let focusedBeforeSleep = engine.currentSessionFocusedTime(at: sleepStartedAt)
+        let originalSessionStart = try XCTUnwrap(engine.activeSession?.startDate)
+
+        engine.pauseFocusAccountingForWorkspaceLifecycle(now: sleepStartedAt)
+        let wakeAt = sleepStartedAt.addingTimeInterval(1_800)
+
+        XCTAssertEqual(
+            engine.currentSessionFocusedTime(at: wakeAt),
+            focusedBeforeSleep,
+            accuracy: 0.001
+        )
+
+        engine.resumeFocusAccountingForWorkspaceLifecycle(now: wakeAt)
+
+        let resumedWorkSessionStart = try XCTUnwrap(engine.workSessionStart)
+        let resumedSessionStart = try XCTUnwrap(engine.activeSession?.startDate)
+        XCTAssertEqual(
+            resumedWorkSessionStart.timeIntervalSince1970,
+            focusedStart.addingTimeInterval(1_800).timeIntervalSince1970,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            resumedSessionStart.timeIntervalSince1970,
+            originalSessionStart.addingTimeInterval(1_800).timeIntervalSince1970,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            engine.currentSessionFocusedTime(at: wakeAt),
+            focusedBeforeSleep,
+            accuracy: 0.001
+        )
     }
 
     func testAllowedBrowserAppOverridesEntertainmentHeuristic() {
@@ -275,6 +329,48 @@ final class FocusEngineTests: XCTestCase {
 
         wait(for: [unexpectedPromotion], timeout: 0.2)
         XCTAssertTrue(engine.currentClassification.isDistraction)
+    }
+
+    func testLocalClassifierDistractingResultDoesNotStartCountdownForNeutralContext() {
+        testPreferences.enableLocalTextClassification = true
+        testPreferences.enableCloudClassification = false
+        testPreferences.enableImageClassification = false
+        let classifier = DeferredContextClassifier()
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: classifier,
+            intentClassifier: NeutralIntentClassifier()
+        )
+        engine.delegate = mockDelegate
+        engine.distractionCountdownThreshold = 0.05
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", title: "Draft")
+        engine.anchorSession(duration: 1_500)
+
+        let request = expectation(description: "local classifier request received")
+        classifier.onRequest = { request.fulfill() }
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown", title: "Draft")
+        wait(for: [request], timeout: 1.0)
+        classifier.complete(.distracting)
+
+        let settled = expectation(description: "local distracting result settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 2.0)
+
+        XCTAssertTrue(engine.currentClassification.isNeutral)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertFalse(engine.isDimming)
     }
     
     // MARK: - Capsule Actions
@@ -432,6 +528,44 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNil(engine.activeBreakCommitment)
         XCTAssertEqual(engine.currentSessionFocusedTime(), focusedBeforeBreak, accuracy: 0.2)
         XCTAssertNotNil(engine.activeSession)
+    }
+
+    func testBreakAutoResumesAfterReturningToWorkForFifteenSeconds() throws {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 3600)
+        if let session = engine.activeSession {
+            engine.activeSession = ActiveSession(
+                startDate: session.startDate.addingTimeInterval(-1800),
+                anchoredDuration: session.anchoredDuration,
+                appName: session.appName,
+                category: session.category,
+                goal: session.goal
+            )
+        }
+
+        _ = engine.requestBreak(intention: "Take a short walk")
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertNil(engine.breakReturnGraceStartedAt)
+
+        // Staying on the work app should not start the auto-resume grace.
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        XCTAssertNil(engine.breakReturnGraceStartedAt)
+
+        // Leaving work and coming back should start the grace timer.
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        let graceStartedAt = try XCTUnwrap(engine.breakReturnGraceStartedAt)
+
+        engine.breakReturnGraceTimerExpired(now: graceStartedAt.addingTimeInterval(14.9))
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertNotNil(engine.activeBreakCommitment)
+
+        engine.breakReturnGraceTimerExpired(now: graceStartedAt.addingTimeInterval(15.1))
+
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertGreaterThan(mockDelegate.returnsToWork, 1)
     }
 
     func testEndingSessionClearsPendingBreakAndPersistsDoneOutcomeAndSummary() {
@@ -994,6 +1128,25 @@ final class FocusEngineTests: XCTestCase {
         let resumedStartDate = engine.activeSession?.startDate ?? Date()
         XCTAssertGreaterThan(resumedStartDate.timeIntervalSince(initialStartDate), 0.04)
     }
+
+    func testDeclaredActivityResumesDimmedSessionTime() throws {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1_500)
+        let initialStartDate = try XCTUnwrap(engine.activeSession?.startDate)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
+        XCTAssertTrue(engine.isDimming)
+
+        Thread.sleep(forTimeInterval: 0.05)
+        engine.startDeclaredActivityBypass(activity: "Write the release notes")
+
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertTrue(engine.isDeclaredActivityBypassActive)
+        XCTAssertNil(engine.pausedDate)
+        let resumedStartDate = try XCTUnwrap(engine.activeSession?.startDate)
+        XCTAssertGreaterThan(resumedStartDate.timeIntervalSince(initialStartDate), 0.04)
+    }
     
     // MARK: - Cloud Classification Integration Tests
     
@@ -1040,43 +1193,42 @@ final class FocusEngineTests: XCTestCase {
         MockURLProtocol.requestHandler = nil
     }
     
-    func testCloudClassificationIsDistractionUnproductive() {
+    func testCloudClassificationDistractingResultDoesNotStartCountdownForNeutralContext() {
+        let cloudService = DeferredCloudClassificationService()
+        let requestReceived = expectation(description: "cloud request received")
+        cloudService.onRequest = { requestReceived.fulfill() }
         testPreferences.enableCloudClassification = true
-        testPreferences.cloudProvider = 0 // Gemini
-        try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
-        URLProtocol.registerClass(MockURLProtocol.self)
+        let localEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            cloudClassificationService: cloudService
+        )
+        localEngine.delegate = mockDelegate
+        localEngine.distractionCountdownThreshold = 0.05
 
-        MockURLProtocol.requestHandler = { request in
-            let expectedJSON = """
-            {
-              "candidates": [
-                {
-                  "content": {
-                    "parts": [
-                      {
-                        "text": "no"
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-            """
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, expectedJSON.data(using: .utf8))
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", title: "Draft")
+        localEngine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Notepad", title: "Test Title")
+        wait(for: [requestReceived], timeout: 1)
+        cloudService.complete(.success(false))
+
+        let settled = expectation(description: "cloud distracting result settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            settled.fulfill()
         }
+        wait(for: [settled], timeout: 1)
 
-        // Set up active session to detect distraction countdown pill
-        engine.workSessionStart = Date()
-        engine.anchorSession(duration: 1500)
-
-        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Test Title")
-
-        // Productive is false, so it IS a distraction.
-        XCTAssertEqual(mockDelegate.detectedDistractions.count, 1)
-        XCTAssertEqual(mockDelegate.detectedDistractions.first, "com.spotify.client")
-        URLProtocol.unregisterClass(MockURLProtocol.self)
-        MockURLProtocol.requestHandler = nil
+        XCTAssertTrue(localEngine.currentClassification.isNeutral)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertFalse(localEngine.isDimming)
+        localEngine.stop()
     }
 
     func testCloudClassificationIsDistractionFallbackOnFailure() {
@@ -1200,6 +1352,101 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(visualChecker.didRequest)
     }
 
+    func testVisualClassificationDistractingResultDoesNotStartCountdownForNeutralContext() {
+        let visualChecker = RecordingVisualChecker()
+        visualChecker.returnValue = false
+        testPreferences.enableImageClassification = true
+
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: visualChecker,
+            cloudClassificationService: nil
+        )
+        engine.delegate = mockDelegate
+        engine.distractionCountdownThreshold = 0.05
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", title: "Draft")
+        engine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown", title: "Reading")
+
+        let settled = expectation(description: "visual distracting result settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1)
+
+        XCTAssertTrue(visualChecker.didRequest)
+        XCTAssertTrue(engine.currentClassification.isNeutral)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertFalse(engine.isDimming)
+    }
+
+    func testDiscordIsBlockedDuringAutoVoyageAndSkipsVisualFallback() {
+        let visualChecker = RecordingVisualChecker()
+        testPreferences.enableImageClassification = true
+
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: visualChecker,
+            cloudClassificationService: nil
+        )
+        engine.delegate = mockDelegate
+        engine.distractionCountdownThreshold = 0.05
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", url: nil, title: "Launch plan")
+        engine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.hnc.Discord", url: nil, title: "Programming Forum")
+
+        XCTAssertTrue(engine.currentClassification.isDistraction)
+        XCTAssertFalse(visualChecker.didRequest)
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.hnc.Discord"])
+    }
+
+    func testSensitiveContextsSkipVisualClassification() {
+        let visualChecker = RecordingVisualChecker()
+        testPreferences.enableImageClassification = true
+
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: visualChecker,
+            cloudClassificationService: nil
+        )
+
+        // Sensitive URL/title should skip visual classification and remain neutral
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown", url: URL(string: "https://chase.com/login"), title: "Chase Online Banking - Login")
+        
+        let expectation = expectation(description: "sensitive context check")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            XCTAssertFalse(visualChecker.didRequest)
+            XCTAssertTrue(self.engine.currentClassification.isNeutral)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+    }
+
     func testDeclaredActivityBypassPreventsDimmingAndReDimsWhenNotMatching() {
         let testPreferences = PreferencesManager.shared
         let engine = FocusEngine(
@@ -1299,6 +1546,20 @@ private final class DeferredContextClassifier: ContextClassifying, @unchecked Se
     }
 }
 
+private final class NeutralIntentClassifier: IntentClassifying, @unchecked Sendable {
+    func classify(input: IntentClassificationInput) -> IntentClassificationResult {
+        IntentClassificationResult(
+            relation: .uncertain,
+            confidence: 0.0,
+            source: .heuristic,
+            modelVersion: "test-intent",
+            latency: 0.0,
+            reason: .insufficientIntent,
+            explanation: "test neutral intent"
+        )
+    }
+}
+
 // MARK: - Mock Classes
 
 class MockActivityMonitor: ActivityMonitor {
@@ -1314,14 +1575,14 @@ class MockActivityMonitor: ActivityMonitor {
         isStopped = true
     }
     
-    func simulateContextChange(bundleID: String, url: URL? = nil, title: String = "") {
+    func simulateContextChange(bundleID: String, url: URL? = nil, title: String = "", observedAt: Date = Date()) {
         let snapshot = ContextSnapshot(
             bundleIdentifier: bundleID,
             localizedName: bundleID,
             url: url,
             title: title,
             source: .application,
-            observedAt: Date()
+            observedAt: observedAt
         )
         onContextChange?(snapshot)
     }
@@ -1368,6 +1629,11 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     func didRequestImmediateDim() {
         immediateDims += 1
     }
+
+    var doomscrollingDetections: [(bundleID: String, threshold: TimeInterval)] = []
+    func didDetectDoomscrolling(bundleID: String, threshold: TimeInterval) {
+        doomscrollingDetections.append((bundleID: bundleID, threshold: threshold))
+    }
 }
 
 struct MockOCRProvider: WindowTextExtracting {
@@ -1385,11 +1651,12 @@ struct MockVisualChecker: VisualProductivityChecking {
 private final class RecordingVisualChecker: VisualProductivityChecking {
     var didRequest = false
     var onRequest: (() -> Void)?
+    var returnValue = false
 
     func isProductiveVisual(profileName: String) -> Bool {
         didRequest = true
         onRequest?()
-        return false
+        return returnValue
     }
 }
 

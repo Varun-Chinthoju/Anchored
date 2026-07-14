@@ -19,7 +19,7 @@ struct PreferencesStepView: View {
         (1800.0, "30 min")
     ]
     
-    private let countdownOptions = [5, 10, 15, 20]
+    private let countdownOptions = [5, 10, 15, 20, 30]
     
     var body: some View {
         HStack(spacing: 64) {

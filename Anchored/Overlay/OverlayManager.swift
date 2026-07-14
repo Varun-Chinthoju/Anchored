@@ -22,13 +22,16 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// The doomscroll loop-breaker panel, if active.
     var doomscrollBreakerPanel: DoomscrollBreakerPanel?
     
-    /// The active dim overlay windows (one per screen).
+    /// The active dim overlay window for the display containing the distraction.
     var dimWindows: [DimOverlayWindow] = []
+    private let distractionContextCloser: DistractionContextClosing
+    private var activeDistractionBundleID: String?
+    private var dimmedDisplayID: NSNumber?
     private(set) var lastBreakReview: (intention: String, result: BreakReviewResult)?
     private(set) var refusedBreakCount = 0
     
-    /// Configurable countdown duration in seconds. Clamped to the range 5-20.
-    private var _countdownDuration: Int = 10
+    /// Configurable countdown duration in seconds. Clamped to the range 0-3600.
+    private var _countdownDuration: Int = 30
     var countdownDuration: Int {
         get { _countdownDuration }
         set { _countdownDuration = max(0, min(3600, newValue)) }
@@ -36,8 +39,12 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// Initializes the OverlayManager.
     /// - Parameter focusEngine: The FocusEngine instance to wire callbacks to.
-    init(focusEngine: FocusEngine? = nil) {
+    init(
+        focusEngine: FocusEngine? = nil,
+        distractionContextCloser: DistractionContextClosing = DistractionContextCloser()
+    ) {
         self.focusEngine = focusEngine
+        self.distractionContextCloser = distractionContextCloser
         super.init()
         
         // Listen to screen parameter changes to adapt overlays to display changes
@@ -83,14 +90,21 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     /// Callback from FocusEngine when distraction is detected during an active session.
     func didDetectDistraction(bundleID: String) {
-        RuntimeTrace.event("overlay_countdown_requested", fields: ["bundleID": bundleID, "seconds": String(countdownDuration)])
+        activeDistractionBundleID = bundleID
+        let graceSeconds = focusEngine?.currentDistractionGraceRemaining ?? TimeInterval(countdownDuration)
+        let seconds = max(0, Int(ceil(graceSeconds)))
+        RuntimeTrace.event("overlay_countdown_requested", fields: ["bundleID": bundleID, "seconds": String(seconds)])
         // Only allow one countdown/escalation sequence at a time
         guard countdownPillPanel == nil && dimWindows.isEmpty else { return }
+        guard seconds > 0 else {
+            startEscalation()
+            return
+        }
         
         let pill = CountdownPillPanel()
         countdownPillPanel = pill
         
-        pill.show(seconds: countdownDuration, onComplete: { [weak self] in
+        pill.show(seconds: seconds, onComplete: { [weak self] in
             // On expiry (0 seconds), trigger escalation on the DimOverlayWindow instances
             self?.startEscalation()
         }, onBreak: { [weak self] in
@@ -99,6 +113,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     }
     
     func didRequestImmediateDim() {
+        activeDistractionBundleID = focusEngine?.currentApp
         startEscalation()
     }
     
@@ -115,6 +130,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         
         // Lift the dim overlays if active (fades out and removes them)
         liftDimOverlays()
+        activeDistractionBundleID = nil
     }
     
     /// Callback from FocusEngine when the active session ends.
@@ -141,6 +157,8 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             window.close()
         }
         dimWindows.removeAll()
+        activeDistractionBundleID = nil
+        dimmedDisplayID = nil
         lastBreakReview = nil
     }
     
@@ -181,6 +199,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     }
     
     func didDetectDoomscrolling(bundleID: String, threshold: TimeInterval) {
+        activeDistractionBundleID = bundleID
         RuntimeTrace.event("overlay_doomscroll_breaker_requested", fields: ["bundleID": bundleID, "threshold": String(threshold)])
         guard doomscrollBreakerPanel == nil else { return }
         
@@ -208,7 +227,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     
     // MARK: - Helper Methods
     
-    /// Triggers escalation, showing a dim overlay on all screens.
+    /// Triggers escalation on the display containing the distracting window.
     private func startEscalation() {
         // Ensure we don't start duplicate escalations
         guard dimWindows.isEmpty else {
@@ -216,21 +235,16 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             return
         }
 
-        RuntimeTrace.event("overlay_escalation_started", fields: ["screenCount": String(NSScreen.screens.count)])
+        guard let screen = targetScreen() else { return }
+        RuntimeTrace.event("overlay_escalation_started", fields: ["screenCount": "1"])
         
         // Keep the status-level panel visible above the click-through dim layer so
         // the user can still choose a break or return through the menu bar.
         countdownPillPanel?.showDimmedState()
         
-        // Create and show one dim window per connected screen
-        for screen in NSScreen.screens {
-            let window = DimOverlayWindow(screen: screen)
-            window.makeKeyAndOrderFront(nil)
-            window.startEscalation()
-            dimWindows.append(window)
-        }
+        showDimOverlay(on: screen)
         
-        showDimCenterPanel()
+        showDimCenterPanel(on: screen)
     }
     
     /// Lifts the dim overlays by fading them out and closing them.
@@ -240,6 +254,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             window.liftOverlay()
         }
         dimWindows.removeAll()
+        dimmedDisplayID = nil
         
         dismissDimCenterPanel()
     }
@@ -262,23 +277,21 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     /// Starts a temporary dim for the doomscroll loop-breaker (no session enforcement).
     private func startDoomscrollDim() {
         guard dimWindows.isEmpty else { return }
+        guard let screen = targetScreen() else { return }
         RuntimeTrace.event("doomscroll_dim_started")
-        for screen in NSScreen.screens {
-            let window = DimOverlayWindow(screen: screen)
-            window.makeKeyAndOrderFront(nil)
-            window.startEscalation()
-            dimWindows.append(window)
-        }
+        showDimOverlay(on: screen)
         // Show a lightweight center panel for the doomscroll dim state
-        showDoomscrollDimCenterPanel()
+        showDoomscrollDimCenterPanel(on: screen)
     }
     
-    private func showDoomscrollDimCenterPanel() {
+    private func showDoomscrollDimCenterPanel(on screen: NSScreen) {
         dismissDimCenterPanel()
         let panel = DimCenterPanel()
         dimCenterPanel = panel
         // Re-use the existing DimCenterView; "Return to Work" and "Cancel" both lift the dim
         panel.show(
+            on: screen,
+            suggestedActivity: nil,
             onBreak: { [weak self] in
                 // Break requested from doomscroll dim: just lift the dim (no active session to pause)
                 self?.liftDimOverlays()
@@ -298,23 +311,33 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         )
     }
     
-    private func showDimCenterPanel() {
+    private func showDimCenterPanel(on screen: NSScreen) {
         dismissDimCenterPanel()
         
         let panel = DimCenterPanel()
         dimCenterPanel = panel
         
-        panel.show(onBreak: { [weak self] in
-            self?.focusEngine?.requestBreak(intention: "Take a restorative break", bypassMinimum: true)
-        }, onCancel: { [weak self] in
-            self?.focusEngine?.resumeSessionFromUI()
-        }, onReturnToWork: { [weak self] in
-            self?.focusEngine?.resumeSessionFromUI()
-        }, onDeclareActivity: { [weak self] activity in
-            self?.focusEngine?.startDeclaredActivityBypass(activity: activity)
-        }, onExitSession: { [weak self] summary in
-            self?.focusEngine?.endSession(action: .dismissed, completionOutcome: nil, summary: summary)
-        })
+        panel.show(
+            on: screen,
+            suggestedActivity: focusEngine?.suggestedSessionGoal(),
+            onBreak: { [weak self] in
+                self?.focusEngine?.requestBreak(intention: "Take a restorative break", bypassMinimum: true)
+            },
+            onCancel: { [weak self] in
+                self?.focusEngine?.resumeSessionFromUI()
+            },
+            onReturnToWork: { [weak self] in
+                self?.focusEngine?.resumeSessionFromUI()
+            },
+            onDeclareActivity: { [weak self] activity in
+                self?.closeActiveDistractionContext { [weak self] in
+                    self?.focusEngine?.startDeclaredActivityBypass(activity: activity)
+                }
+            },
+            onExitSession: { [weak self] summary in
+                self?.focusEngine?.endSession(action: .dismissed, completionOutcome: nil, summary: summary)
+            }
+        )
     }
     
     private func dismissDimCenterPanel() {
@@ -322,6 +345,41 @@ class OverlayManager: NSObject, FocusEngineDelegate {
             panel.closePanel()
             dimCenterPanel = nil
         }
+    }
+
+    private func closeActiveDistractionContext(completion: @escaping () -> Void) {
+        guard let bundleID = activeDistractionBundleID else {
+            completion()
+            return
+        }
+        activeDistractionBundleID = nil
+        distractionContextCloser.closeContext(bundleID: bundleID, completion: completion)
+    }
+
+    private func targetScreen() -> NSScreen? {
+        if let dimmedDisplayID,
+           let existingScreen = screen(for: dimmedDisplayID) {
+            return existingScreen
+        }
+
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        dimmedDisplayID = screen.flatMap(displayID(for:))
+        return screen
+    }
+
+    private func showDimOverlay(on screen: NSScreen) {
+        let window = DimOverlayWindow(screen: screen)
+        window.orderFront(nil)
+        window.startEscalation()
+        dimWindows.append(window)
+    }
+
+    private func displayID(for screen: NSScreen) -> NSNumber? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    }
+
+    private func screen(for targetDisplayID: NSNumber) -> NSScreen? {
+        NSScreen.screens.first { displayID(for: $0) == targetDisplayID }
     }
     
     /// Responds to changes in display configuration.
@@ -339,17 +397,13 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         }
         dimWindows.removeAll()
         
-        // Recreate overlay windows on all connected screens at the current alpha level
-        for screen in NSScreen.screens {
-            let window = DimOverlayWindow(screen: screen)
-            window.alphaValue = currentAlpha
-            window.makeKeyAndOrderFront(nil)
-            
-            // If it wasn't fully dimmed yet, we can continue escalation animation
-            if currentAlpha < window.maxAlpha {
-                window.startEscalation()
-            }
-            dimWindows.append(window)
+        guard let screen = targetScreen() else { return }
+        let window = DimOverlayWindow(screen: screen)
+        window.alphaValue = currentAlpha
+        window.orderFront(nil)
+        if currentAlpha < window.maxAlpha {
+            window.startEscalation()
         }
+        dimWindows.append(window)
     }
 }

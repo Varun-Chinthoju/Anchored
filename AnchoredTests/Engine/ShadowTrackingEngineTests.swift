@@ -86,7 +86,7 @@ class ShadowTrackingEngineTests: XCTestCase {
         wait(for: [expectation], timeout: 2.5)
     }
     
-    func testShadowTrackingResetsOnDistractionOrNeutral() {
+    func testShadowTrackingResetsOnDistraction() {
         // Start tracking
         mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         shadowEngine.forceUpdateTrackingState()
@@ -99,6 +99,29 @@ class ShadowTrackingEngineTests: XCTestCase {
         shadowEngine.forceUpdateTrackingState()
         
         XCTAssertEqual(shadowEngine.getContinuousWorkTime(), 0.0)
+    }
+    
+    func testShadowTrackingPausesOnNeutral() {
+        // Start tracking
+        mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        shadowEngine.forceUpdateTrackingState()
+        
+        shadowEngine.setContinuousWorkTime(2.0)
+        XCTAssertEqual(shadowEngine.getContinuousWorkTime(), 2.0)
+        
+        // Switch to neutral context
+        mockMonitor.simulateContextChange(bundleID: "com.apple.Finder")
+        shadowEngine.forceUpdateTrackingState()
+        
+        // Continuous work time should be paused but preserved (not reset to 0)
+        XCTAssertEqual(shadowEngine.getContinuousWorkTime(), 2.0)
+        
+        // Switch back to focus context
+        mockMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        shadowEngine.forceUpdateTrackingState()
+        
+        // Continuous work time should still be 2.0 and active
+        XCTAssertEqual(shadowEngine.getContinuousWorkTime(), 2.0)
     }
     
     func testShadowTrackingPausesOnSleep() {

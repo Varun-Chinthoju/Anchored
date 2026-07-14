@@ -20,35 +20,24 @@ final class ClassificationResolver {
         }
 
         let optionalEvidence = evidence.filter { !$0.source.isExplicitRule }
-        guard let highestRank = optionalEvidence.map({ ClassificationPolicy.rank(of: $0.source) }).min() else {
-            return .neutral(evidence: evidence)
+        let deterministicEvidence = optionalEvidence.filter {
+            $0.source == .deterministicRule || $0.source == .heuristic
+        }
+        if !deterministicEvidence.isEmpty {
+            return resolveOptionalEvidence(
+                deterministicEvidence,
+                interactionSummary: interactionSummary,
+                evidenceTrace: evidence
+            )
         }
 
-        let candidates = optionalEvidence.filter {
-            ClassificationPolicy.rank(of: $0.source) == highestRank
+        let modelEvidence = optionalEvidence.filter {
+            $0.source == .localModel || $0.source == .cloudModel || $0.source == .visualFallback
         }
-
-        guard let first = candidates.first else {
-            return .neutral(evidence: evidence)
-        }
-
-        if candidates.contains(where: { $0.label != first.label }) {
-            return .neutral(reason: .conflictingEvidence, evidence: evidence)
-        }
-
-        let adjustedConfidence = adjustedConfidence(for: first, interactionSummary: interactionSummary)
-        guard adjustedConfidence >= ClassificationPolicy.highConfidenceThreshold else {
-            return .neutral(reason: .lowConfidence, evidence: evidence)
-        }
-
-
-
-        return ClassificationDecision(
-            label: first.label,
-            confidence: adjustedConfidence,
-            source: first.source,
-            reason: first.reason,
-            evidence: evidence
+        return resolveModelEvidence(
+            modelEvidence,
+            interactionSummary: interactionSummary,
+            evidenceTrace: evidence
         )
     }
 
@@ -66,6 +55,91 @@ final class ClassificationResolver {
 
         let boundedBoost = min(0.15, max(0, interactionSummary.foregroundDuration / 600 * 0.15))
         return min(1.0, evidence.confidence + boundedBoost)
+    }
+
+    private func resolveOptionalEvidence(
+        _ evidence: [ClassificationEvidence],
+        interactionSummary: InteractionSummary?,
+        evidenceTrace: [ClassificationEvidence]
+    ) -> ClassificationDecision {
+        guard !evidence.isEmpty else {
+            return .neutral(evidence: evidenceTrace)
+        }
+
+        guard let highestRank = evidence.map({ ClassificationPolicy.rank(of: $0.source) }).min() else {
+            return .neutral(evidence: evidenceTrace)
+        }
+
+        let candidates = evidence.filter {
+            ClassificationPolicy.rank(of: $0.source) == highestRank
+        }
+
+        guard let first = candidates.first else {
+            return .neutral(evidence: evidenceTrace)
+        }
+
+        if candidates.contains(where: { $0.label != first.label }) {
+            return .neutral(reason: .conflictingEvidence, evidence: evidenceTrace)
+        }
+
+        let adjustedConfidence = adjustedConfidence(for: first, interactionSummary: interactionSummary)
+        guard adjustedConfidence >= ClassificationPolicy.highConfidenceThreshold else {
+            return .neutral(reason: .lowConfidence, evidence: evidenceTrace)
+        }
+
+        return ClassificationDecision(
+            label: first.label,
+            confidence: adjustedConfidence,
+            source: first.source,
+            reason: first.reason,
+            evidence: evidenceTrace
+        )
+    }
+
+    private func resolveModelEvidence(
+        _ evidence: [ClassificationEvidence],
+        interactionSummary: InteractionSummary?,
+        evidenceTrace: [ClassificationEvidence]
+    ) -> ClassificationDecision {
+        // Optional model output can still validate focus, but distracting
+        // model evidence stays advisory so it never starts enforcement.
+        guard !evidence.isEmpty else {
+            return .neutral(evidence: evidenceTrace)
+        }
+
+        let productiveCandidates = evidence.filter { $0.label == .productive }
+        let distractingCandidates = evidence.filter { $0.label == .distracting }
+
+        if !productiveCandidates.isEmpty {
+            guard distractingCandidates.isEmpty else {
+                return .neutral(reason: .conflictingEvidence, evidence: evidenceTrace)
+            }
+
+            guard let first = productiveCandidates.min(by: {
+                ClassificationPolicy.rank(of: $0.source) < ClassificationPolicy.rank(of: $1.source)
+            }) else {
+                return .neutral(evidence: evidenceTrace)
+            }
+
+            let adjustedConfidence = adjustedConfidence(for: first, interactionSummary: interactionSummary)
+            guard adjustedConfidence >= ClassificationPolicy.highConfidenceThreshold else {
+                return .neutral(reason: .lowConfidence, evidence: evidenceTrace)
+            }
+
+            return ClassificationDecision(
+                label: first.label,
+                confidence: adjustedConfidence,
+                source: first.source,
+                reason: first.reason,
+                evidence: evidenceTrace
+            )
+        }
+
+        if !distractingCandidates.isEmpty {
+            return .neutral(reason: .optionalDistractionIsNonEnforcing, evidence: evidenceTrace)
+        }
+
+        return .neutral(reason: .lowConfidence, evidence: evidenceTrace)
     }
 
     private func resolveExplicitRules(_ evidence: [ClassificationEvidence]) -> ClassificationDecision? {

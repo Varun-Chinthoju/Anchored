@@ -121,6 +121,34 @@ enum SQLiteDatabaseMigrations {
             }
         }
 
+        migrator.registerMigration("v7_create_classification_outcomes") { db in
+            try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS classification_outcomes (
+                identityKey TEXT PRIMARY KEY,
+                timestamp DATETIME NOT NULL,
+                id TEXT NOT NULL,
+                contextGeneration INTEGER NOT NULL,
+                sessionID TEXT,
+                bundleID TEXT NOT NULL,
+                appName TEXT NOT NULL,
+                url TEXT,
+                title TEXT NOT NULL,
+                intentSummary TEXT,
+                relation TEXT NOT NULL,
+                mappedLabel TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                source TEXT NOT NULL,
+                modelVersion TEXT NOT NULL,
+                latency REAL NOT NULL,
+                graceStarted INTEGER NOT NULL,
+                enforcementOccurred INTEGER NOT NULL,
+                correction TEXT,
+                correctedAt DATETIME
+            );
+            """)
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_classification_outcomes_timestamp ON classification_outcomes(timestamp);")
+        }
+
         return migrator
     }
 }

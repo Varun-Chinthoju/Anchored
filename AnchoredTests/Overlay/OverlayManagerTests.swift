@@ -8,6 +8,7 @@ final class OverlayManagerTests: XCTestCase {
     private var sessionStore: SessionStore!
     private var focusEngine: FocusEngine!
     private var overlayManager: OverlayManager!
+    private var distractionContextCloser: MockDistractionContextCloser!
     private var tempStoreURL: URL!
     
     override func setUp() {
@@ -31,7 +32,11 @@ final class OverlayManagerTests: XCTestCase {
             preferencesManager: PreferencesManager(defaults: testDefaults)
         )
         
-        overlayManager = OverlayManager(focusEngine: focusEngine)
+        distractionContextCloser = MockDistractionContextCloser()
+        overlayManager = OverlayManager(
+            focusEngine: focusEngine,
+            distractionContextCloser: distractionContextCloser
+        )
         focusEngine.delegate = overlayManager
     }
     
@@ -39,6 +44,7 @@ final class OverlayManagerTests: XCTestCase {
         overlayManager.sessionDidEnd()
         focusEngine.stop()
         overlayManager = nil
+        distractionContextCloser = nil
         focusEngine = nil
         mockActivityMonitor = nil
         sessionStore = nil
@@ -136,6 +142,22 @@ final class OverlayManagerTests: XCTestCase {
         guard let screen = NSScreen.screens.first else { return }
         let window = DimOverlayWindow(screen: screen)
         window.close()
+    }
+
+    func testEscalationDimsOnlyOneDisplay() {
+        overlayManager.didDetectDistraction(bundleID: "com.hnc.Discord")
+        overlayManager.didRequestImmediateDim()
+
+        XCTAssertEqual(overlayManager.dimWindows.count, 1)
+    }
+}
+
+private final class MockDistractionContextCloser: DistractionContextClosing {
+    private(set) var closedBundleIDs: [String] = []
+
+    func closeContext(bundleID: String, completion: @escaping () -> Void) {
+        closedBundleIDs.append(bundleID)
+        completion()
     }
 }
 

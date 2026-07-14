@@ -34,6 +34,7 @@ final class PreferencesManagerTests: XCTestCase {
         let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
         
         // Then it should have default values
+        XCTAssertEqual(PreferencesManager.defaultCountdownDuration, 30)
         XCTAssertEqual(manager.countdownDuration, PreferencesManager.defaultCountdownDuration)
         XCTAssertEqual(manager.focusThreshold, PreferencesManager.defaultFocusThreshold)
         XCTAssertEqual(manager.automaticSessionDuration, PreferencesManager.defaultAutomaticSessionDuration)

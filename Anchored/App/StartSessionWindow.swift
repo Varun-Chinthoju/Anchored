@@ -33,6 +33,7 @@ class StartSessionWindow: NSWindow {
 struct StartSessionWindowFormView: View {
     let focusEngine: FocusEngine
     weak var window: NSWindow?
+    private let suggestedGoal: String?
     
     @ObservedObject private var profileManager = ProfileManager.shared
     @ObservedObject private var prefs = PreferencesManager.shared
@@ -74,8 +75,10 @@ struct StartSessionWindowFormView: View {
     init(focusEngine: FocusEngine, window: NSWindow?) {
         self.focusEngine = focusEngine
         self.window = window
-        let activeProfile = ProfileManager.shared.activeProfile
-        self._selectedProfileID = State(initialValue: activeProfile.id)
+        self.suggestedGoal = focusEngine.suggestedSessionGoal()
+        let suggestedProfile = focusEngine.suggestedSessionProfile()
+        self._selectedProfileID = State(initialValue: suggestedProfile.id)
+        self._goal = State(initialValue: suggestedGoal ?? "")
     }
     
     var body: some View {
@@ -257,18 +260,20 @@ struct StartSessionWindowFormView: View {
                     
                     // Start
                     Button(action: {
-                        let targetProfile = profileManager.profiles.first { $0.id == selectedProfileID }
-                        let profileName = targetProfile?.name ?? profileManager.activeProfile.name
-                        
-                        if selectedProfileID != profileManager.activeProfile.id {
-                            profileManager.switchProfile(to: profileName)
-                        }
-                        
-                        let durationSeconds = TimeInterval(minutes * 60)
-                        focusEngine.anchorSession(duration: durationSeconds, category: profileName, goal: goal.isEmpty ? nil : goal)
-                        
-                        window?.close()
-                    }) {
+                    let targetProfile = profileManager.profiles.first { $0.id == selectedProfileID }
+                    let profileName = targetProfile?.name ?? profileManager.activeProfile.name
+                    let trimmedGoal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let explicitGoal = trimmedGoal.isEmpty || trimmedGoal == suggestedGoal ? nil : trimmedGoal
+                    
+                    if selectedProfileID != profileManager.activeProfile.id {
+                        profileManager.switchProfile(to: profileName)
+                    }
+                    
+                    let durationSeconds = TimeInterval(minutes * 60)
+                    focusEngine.anchorSession(duration: durationSeconds, category: profileName, goal: explicitGoal)
+                    
+                    window?.close()
+                }) {
                         HStack(spacing: 4) {
                             Text("↵")
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))

@@ -80,6 +80,8 @@ final class FocusEngine {
     private let visualChecker: VisualProductivityChecking
     private let interactionSummaryProvider: InteractionSummaryProviding
     private let localTextClassifier: ContextClassifying
+    private let intentClassifier: IntentClassifying
+    private let classificationOutcomeStore: ClassificationOutcomeRecording
     private let breakReviewChecker: BreakReviewChecking
     
     /// The delegate to receive state transition callbacks.
@@ -99,6 +101,9 @@ final class FocusEngine {
 
     /// The latest safe, UI-facing classification decision for the current context.
     private(set) var currentClassification: ClassificationDecision = .neutral()
+
+    /// The latest intent-relative result for the current context, if any.
+    private(set) var currentIntentResult: IntentClassificationResult?
     
     /// The start date of the current work session (focused time).
     var workSessionStart: Date?
@@ -119,14 +124,14 @@ final class FocusEngine {
     /// Timer checking the declared activity every 2 minutes.
     private var declaredActivityCheckTimer: Timer? = nil
     
-    /// Productive time selected in onboarding before a focus-session prompt appears.
+    /// Productive time selected in onboarding before a focus session auto-starts.
     var focusThreshold: TimeInterval {
         didSet {
             scheduleFocusPromptTimer()
         }
     }
 
-    /// Whether the onboarding Smart Nudges preference allows proactive prompts.
+    /// Whether the onboarding Smart Nudges preference allows proactive automatic starts.
     var focusPromptsEnabled = true {
         didSet {
             if focusPromptsEnabled {
@@ -137,8 +142,8 @@ final class FocusEngine {
         }
     }
     
-    /// The threshold for the distraction countdown pill (default 10 seconds).
-    var distractionCountdownThreshold: TimeInterval = 10.0
+    /// The threshold for the distraction countdown pill / grace period (default 30 seconds).
+    var distractionCountdownThreshold: TimeInterval = 30.0
     
     // Timers
     private var distractionTimer: Timer?
@@ -167,7 +172,20 @@ final class FocusEngine {
     private(set) var activeBreakCommitment: BreakCommitment?
     private var breakTimer: Timer?
     private var breakStartedAt: Date?
+    private var breakReturnGraceTimer: Timer?
+    private(set) var breakReturnGraceStartedAt: Date?
+    private var hasSeenNonFocusContextSinceBreakStarted = false
+    /// How long a returned work context must remain stable before a break resumes.
+    var breakReturnGraceThreshold: TimeInterval = 15.0
     private var excludedBreakDuration: TimeInterval = 0
+
+    /// The current task intent captured when the active session started.
+    private var activeFocusIntent: FocusIntent?
+
+    /// The point at which focus accounting was frozen for sleep or a locked session.
+    private var lifecyclePauseStartedAt: Date?
+    private var isSleeping = false
+    private var isSessionInactive = false
 
     /// Invalidates optional classifier results whenever the foreground context changes.
     private var contextGeneration = 0
@@ -196,6 +214,8 @@ final class FocusEngine {
         cloudClassificationService: CloudClassificationServing? = nil,
         interactionSummaryProvider: InteractionSummaryProviding? = nil,
         localTextClassifier: ContextClassifying? = nil,
+        intentClassifier: IntentClassifying? = nil,
+        classificationOutcomeStore: ClassificationOutcomeRecording? = nil,
         breakReviewChecker: BreakReviewChecking = ConservativeBreakReviewChecker()
     ) {
         self.activityMonitor = activityMonitor
@@ -214,6 +234,8 @@ final class FocusEngine {
         self.cloudClassificationService = cloudClassificationService ?? LiveCloudClassificationService(preferences: preferencesManager)
         self.interactionSummaryProvider = interactionSummaryProvider ?? LocalInteractionSummaryProvider()
         self.localTextClassifier = localTextClassifier ?? LocalTextClassifier()
+        self.intentClassifier = intentClassifier ?? LocalIntentClassifier()
+        self.classificationOutcomeStore = classificationOutcomeStore ?? ClassificationOutcomeStore.shared
         self.breakReviewChecker = breakReviewChecker
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
@@ -228,14 +250,26 @@ final class FocusEngine {
         )
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
-            selector: #selector(handleWorkspaceLifecyclePause),
+            selector: #selector(handleWorkspaceWillSleep),
             name: NSWorkspace.willSleepNotification,
             object: nil
         )
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
-            selector: #selector(handleWorkspaceLifecyclePause),
+            selector: #selector(handleWorkspaceDidWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWorkspaceSessionDidResignActive),
             name: NSWorkspace.sessionDidResignActiveNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWorkspaceSessionDidBecomeActive),
+            name: NSWorkspace.sessionDidBecomeActiveNotification,
             object: nil
         )
     }
@@ -267,9 +301,105 @@ final class FocusEngine {
         clearBreakState(at: Date())
     }
 
-    @objc private func handleWorkspaceLifecyclePause() {
-        guard activeBreakCommitment != nil else { return }
-        resumeAfterBreakReview()
+    @objc private func handleWorkspaceWillSleep() {
+        isSleeping = true
+        pauseFocusAccountingForWorkspaceLifecycle()
+    }
+
+    @objc private func handleWorkspaceDidWake() {
+        isSleeping = false
+        resumeFocusAccountingIfActive()
+    }
+
+    @objc private func handleWorkspaceSessionDidResignActive() {
+        isSessionInactive = true
+        pauseFocusAccountingForWorkspaceLifecycle()
+    }
+
+    @objc private func handleWorkspaceSessionDidBecomeActive() {
+        isSessionInactive = false
+        resumeFocusAccountingIfActive()
+    }
+
+    internal func pauseFocusAccountingForWorkspaceLifecycle(now: Date = Date()) {
+        guard lifecyclePauseStartedAt == nil else { return }
+        lifecyclePauseStartedAt = now
+
+        cancelSessionTimer()
+        cancelDistractionTimer()
+        cancelFocusPromptTimer()
+        cancelIdleTimer()
+        cancelBreakTimer()
+        cancelDeclaredActivityCheckTimer()
+        doomscrollTimer?.invalidate()
+        doomscrollTimer = nil
+
+        RuntimeTrace.event("focus_accounting_paused_for_workspace_lifecycle", fields: [
+            "activeSession": String(activeSession != nil),
+            "watching": String(workSessionStart != nil)
+        ])
+    }
+
+    internal func resumeFocusAccountingForWorkspaceLifecycle(now: Date = Date()) {
+        guard let pauseStartedAt = lifecyclePauseStartedAt else { return }
+        let pauseDuration = max(0, now.timeIntervalSince(pauseStartedAt))
+        lifecyclePauseStartedAt = nil
+
+        if let workSessionStart {
+            self.workSessionStart = workSessionStart.addingTimeInterval(pauseDuration)
+        }
+        if let activeSession {
+            self.activeSession = ActiveSession(
+                startDate: activeSession.startDate.addingTimeInterval(pauseDuration),
+                anchoredDuration: activeSession.anchoredDuration,
+                appName: activeSession.appName,
+                category: activeSession.category,
+                goal: activeSession.goal
+            )
+        }
+        if let distractionStartDate {
+            self.distractionStartDate = distractionStartDate.addingTimeInterval(pauseDuration)
+        }
+        if let pausedDate {
+            self.pausedDate = pausedDate.addingTimeInterval(pauseDuration)
+        }
+        if let breakStartedAt {
+            self.breakStartedAt = breakStartedAt.addingTimeInterval(pauseDuration)
+        }
+
+        if let session = activeSession {
+            if breakState == .breakActive, activeBreakCommitment != nil, let breakStartedAt {
+                scheduleBreakTimer(duration: max(0, CommitmentPolicy.breakDuration - now.timeIntervalSince(breakStartedAt)))
+            } else if !isDimming {
+                startIdleTimer()
+                scheduleSessionTimer(duration: max(0, session.anchoredDuration - currentSessionFocusedTime(at: now)))
+            }
+        } else if workSessionStart != nil {
+            scheduleFocusPromptTimer()
+        }
+
+        if let bundleID = currentApp,
+           distractionStartDate != nil,
+           activeSession != nil,
+           !isDimming,
+           activeBreakCommitment == nil {
+            scheduleDistractionTimer(distractionBundleID: bundleID)
+        }
+        if isDeclaredActivityBypassActive {
+            scheduleDeclaredActivityCheckTimer()
+        }
+        if let bundleID = doomscrollingBundleID, !hasFiredDoomscrollAlert {
+            scheduleDoomscrollTimer(bundleID: bundleID)
+        }
+
+        RuntimeTrace.event("focus_accounting_resumed_after_workspace_lifecycle", fields: [
+            "pauseSeconds": String(pauseDuration)
+        ])
+    }
+
+    private func resumeFocusAccountingIfActive() {
+        guard !isSleeping, !isSessionInactive else { return }
+        resumeFocusAccountingForWorkspaceLifecycle()
     }
     
     private func classifyContext(bundleID: String, url: URL?, title: String) -> ClassificationDecision {
@@ -281,12 +411,65 @@ final class FocusEngine {
         )
     }
 
+    func suggestedSessionGoal() -> String? {
+        let candidates = [
+            ContextSanitizer.sanitizeTitle(currentTitle),
+            currentContext?.localizedName,
+            currentURL?.host?.replacingOccurrences(of: "www.", with: "")
+        ]
+
+        for candidate in candidates {
+            guard let cleaned = Self.cleanedSuggestedLabel(candidate),
+                  !Self.isGenericSuggestedLabel(cleaned) else {
+                continue
+            }
+            return cleaned
+        }
+
+        return nil
+    }
+
+    func suggestedSessionProfile() -> WorkProfile {
+        Self.bestSuggestedProfile(
+            bundleID: currentApp ?? currentContext?.bundleIdentifier,
+            url: currentURL,
+            title: currentTitle,
+            profiles: profileManager.profiles,
+            fallback: profileManager.activeProfile
+        )
+    }
+
     private func isDistraction(bundleID: String, url: URL?, title: String) -> Bool {
         classifyContext(bundleID: bundleID, url: url, title: title).isDistraction
     }
 
     private func isFocusContext(bundleID: String, url: URL?, title: String) -> Bool {
         classifyContext(bundleID: bundleID, url: url, title: title).isFocus
+    }
+
+    private static func isSensitiveContext(bundleID: String, url: URL?, title: String) -> Bool {
+        let bundleLower = bundleID.lowercased()
+        let titleLower = title.lowercased()
+        let urlLower = url?.absoluteString.lowercased() ?? ""
+        
+        // Exclude system keychain / password managers
+        if bundleLower.contains("keychain") || bundleLower.contains("1password") || bundleLower.contains("bitwarden") || bundleLower.contains("keepass") {
+            return true
+        }
+        
+        let sensitiveKeywords = [
+            "bank", "finance", "checkout", "paypal", "stripe", "chase", "wellsfargo", "fidelity",
+            "login", "signin", "signup", "register", "verification", "security", "auth", "portal",
+            "password", "creditcard", "billing", "tax", "sensitive"
+        ]
+        
+        for keyword in sensitiveKeywords {
+            if titleLower.contains(keyword) || urlLower.contains(keyword) {
+                return true
+            }
+        }
+        
+        return false
     }
 
     private func triggerCloudOrVisualFallback(bundleID: String, url: URL?, title: String, generation: Int) {
@@ -382,6 +565,13 @@ final class FocusEngine {
 
     private func triggerAsyncVisualClassification(bundleID: String, url: URL?, title: String, generation: Int) {
         guard preferencesManager.enableImageClassification else { return }
+        
+        // Skip visual check for sensitive contexts (protect privacy and avoid false positives)
+        if FocusEngine.isSensitiveContext(bundleID: bundleID, url: url, title: title) {
+            RuntimeTrace.event("visual_classification_skipped_sensitive", fields: ["bundleID": bundleID])
+            return
+        }
+        
         let profileName = profileManager.activeProfile.name
         RuntimeTrace.event("visual_classification_started", fields: ["bundleID": bundleID, "generation": String(generation)])
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -391,14 +581,14 @@ final class FocusEngine {
                     "bundleID": bundleID,
                     "productive": String(isProductive)
                 ])
-                guard isProductive else { return }
+                let label: ClassificationLabel = isProductive ? .productive : .distracting
                 let promoted = self?.promoteNeutralContextIfCurrent(
                     bundleID: bundleID,
                     url: url,
                     title: title,
                     generation: generation,
                     promotion: ClassificationEvidence(
-                        label: .productive,
+                        label: label,
                         source: .visualFallback,
                         confidence: 0.85,
                         reason: .modelEvidence
@@ -469,14 +659,48 @@ final class FocusEngine {
                     sessionStore.log(event)
                     delegate?.didDetectDistraction(bundleID: bundleID)
                     scheduleDistractionTimer(distractionBundleID: bundleID)
+                    persistClassificationOutcome(
+                        snapshot: ContextSnapshot(
+                            bundleIdentifier: bundleID,
+                            localizedName: getAppName(for: bundleID),
+                            url: url,
+                            title: title,
+                            source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                                ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                                : .application,
+                            observedAt: Date()
+                        ),
+                        decision: promotedDecision,
+                        intentResult: nil,
+                        graceStarted: true,
+                        enforcementOccurred: isDimming
+                    )
                 }
-            } else {
-                requestFocusPromptIfEligible(now: Date())
-                resetFocusTracking()
+            } else if workSessionStart != nil {
+                if !requestFocusPromptIfEligible(now: Date()) {
+                    resetFocusTracking()
+                }
             }
         }
+
+        persistClassificationOutcome(
+            snapshot: ContextSnapshot(
+                bundleIdentifier: bundleID,
+                localizedName: getAppName(for: bundleID),
+                url: url,
+                title: title,
+                source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                    ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                    : .application,
+                observedAt: Date()
+            ),
+            decision: promotedDecision,
+            intentResult: nil,
+            graceStarted: promotedDecision.isDistraction && activeSession != nil && distractionStartDate != nil,
+            enforcementOccurred: isDimming
+        )
         
-        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
         return true
     }
     
@@ -484,6 +708,14 @@ final class FocusEngine {
         guard let currentApp = currentApp else { return }
         
         let now = Date()
+        let currentSnapshot = ContextSnapshot(
+            bundleIdentifier: currentApp,
+            localizedName: getAppName(for: currentApp),
+            url: currentURL,
+            title: currentTitle,
+            source: BrowserStrategyFactory.isSupportedBrowser(currentApp) ? (currentApp == "com.apple.Safari" ? .safari : .chromium) : .application,
+            observedAt: now
+        )
         let decision = classifyContext(
             bundleID: currentApp,
             url: currentURL,
@@ -491,6 +723,28 @@ final class FocusEngine {
         )
         currentClassification = decision
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+        persistClassificationOutcome(
+            snapshot: currentSnapshot,
+            decision: decision,
+            intentResult: nil,
+            graceStarted: false,
+            enforcementOccurred: isDimming
+        )
+        if activeBreakCommitment != nil {
+            updateBreakReturnGrace(for: decision, snapshot: currentSnapshot, observedAt: now)
+            return
+        }
+        if activeSession != nil,
+           activeFocusIntent?.hasIntentSignal == true,
+           !decision.source.isExplicitRule,
+           activeBreakCommitment == nil,
+           !isDeclaredActivityBypassActive {
+            triggerAsyncIntentClassification(
+                snapshot: currentSnapshot,
+                generation: contextGeneration,
+                baseDecision: decision
+            )
+        }
         let isCurrentlyDistraction = decision.isDistraction
         
         if isCurrentlyDistraction {
@@ -513,13 +767,19 @@ final class FocusEngine {
                     
                     delegate?.didDetectDistraction(bundleID: currentApp)
                     scheduleDistractionTimer(distractionBundleID: currentApp)
+                    persistClassificationOutcome(
+                        snapshot: currentSnapshot,
+                        decision: decision,
+                        intentResult: currentIntentResult,
+                        graceStarted: true,
+                        enforcementOccurred: isDimming
+                    )
                 }
-            } else {
-                // No active session
-                if workSessionStart != nil {
-                    requestFocusPromptIfEligible(now: now)
+            } else if workSessionStart != nil {
+                // No active session: automatically convert the completed focus run into a session.
+                if !requestFocusPromptIfEligible(now: now) {
+                    resetFocusTracking()
                 }
-                resetFocusTracking()
             }
         } else {
             // It is now allowed (NOT a distraction) under the new active profile
@@ -611,6 +871,30 @@ final class FocusEngine {
             ]
         )
 
+        persistClassificationOutcome(
+            snapshot: actualSnapshot,
+            decision: decision,
+            intentResult: nil,
+            graceStarted: false,
+            enforcementOccurred: false
+        )
+        if activeBreakCommitment != nil {
+            updateBreakReturnGrace(for: decision, snapshot: actualSnapshot, observedAt: now)
+            return
+        }
+
+        if activeSession != nil,
+           activeFocusIntent?.hasIntentSignal == true,
+           !decision.source.isExplicitRule,
+           activeBreakCommitment == nil,
+           !isDeclaredActivityBypassActive {
+            triggerAsyncIntentClassification(
+                snapshot: actualSnapshot,
+                generation: contextGeneration,
+                baseDecision: decision
+            )
+        }
+
         if decision.isNeutral {
             let generation = contextGeneration
             if preferencesManager.enableLocalTextClassification {
@@ -656,12 +940,20 @@ final class FocusEngine {
                     
                     // Start countdown timer
                     scheduleDistractionTimer(distractionBundleID: bundleID)
+                    persistClassificationOutcome(
+                        snapshot: actualSnapshot,
+                        decision: decision,
+                        intentResult: currentIntentResult,
+                        graceStarted: true,
+                        enforcementOccurred: isDimming
+                    )
                 }
             } else {
                 // Distraction app detected + no session → start doomscroll timer
                 scheduleDoomscrollTimer(bundleID: bundleID)
-                requestFocusPromptIfEligible(now: now)
-                resetFocusTracking()
+                if !requestFocusPromptIfEligible(now: now) {
+                    resetFocusTracking()
+                }
             }
         } else if decision.isFocus {
             // Whitelisted focus app/URL detected
@@ -689,21 +981,231 @@ final class FocusEngine {
             // Neutral app/URL detected
             RuntimeTrace.event("neutral_context_applied", fields: ["bundleID": bundleID, "activeSession": String(activeSession != nil)])
             if activeSession != nil {
-                let needsUIUpdate = (distractionStartDate != nil && !isDimming)
-                resumeSessionIfNeeded()
-                if needsUIUpdate {
-                    delegate?.didReturnToWork()
-                }
-                cancelDistractionTimer()
-                distractionStartDate = nil
+                // Keep an active grace period running until a related or
+                // explicitly allowed context clears it. Neutral contexts may
+                // be transitory while the intent classifier is still settling.
             } else {
                 // Neutral context: cancel any doomscroll tracking
                 cancelDoomscrollTimer()
                 // Check if the user accumulated enough focus time on the previous focus app before switching away
-                requestFocusPromptIfEligible(now: now)
-                resetFocusTracking()
+                if !requestFocusPromptIfEligible(now: now) {
+                    resetFocusTracking()
+                }
             }
         }
+    }
+
+    private func triggerAsyncIntentClassification(
+        snapshot: ContextSnapshot,
+        generation: Int,
+        baseDecision: ClassificationDecision
+    ) {
+        guard let focusIntent = activeFocusIntent, focusIntent.hasIntentSignal else {
+            return
+        }
+        guard activeBreakCommitment == nil, !isDeclaredActivityBypassActive else {
+            return
+        }
+
+        let input = focusIntent.makeInput(
+            snapshot: snapshot,
+            activeProfileName: profileManager.activeProfile.name
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.intentClassifier.classify(input: input)
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      generation == self.contextGeneration,
+                      self.currentApp == snapshot.bundleIdentifier,
+                      self.currentURL == snapshot.url,
+                      self.currentTitle == snapshot.title else {
+                    RuntimeTrace.event("intent_result_discarded_stale", fields: [
+                        "bundleID": snapshot.bundleIdentifier,
+                        "generation": String(generation)
+                    ])
+                    return
+                }
+
+                self.applyIntentClassificationResult(
+                    result,
+                    snapshot: snapshot,
+                    generation: generation,
+                    baseDecision: baseDecision
+                )
+            }
+        }
+    }
+
+    private func applyIntentClassificationResult(
+        _ result: IntentClassificationResult,
+        snapshot: ContextSnapshot,
+        generation: Int,
+        baseDecision: ClassificationDecision
+    ) {
+        currentIntentResult = result
+
+        let mappedReason = reason(for: result.relation)
+        let mappedDecision = ClassificationDecision(
+            label: result.mappedLabel,
+            confidence: result.confidence,
+            source: result.source,
+            reason: mappedReason,
+            evidence: [
+                ClassificationEvidence(
+                    label: result.mappedLabel,
+                    source: result.source,
+                    confidence: result.confidence,
+                    reason: mappedReason
+                )
+            ]
+        )
+
+        currentClassification = mappedDecision
+        NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+
+        switch result.relation {
+        case .related:
+            lastWorkAppBundleID = snapshot.bundleIdentifier
+            cancelIntentGraceIfNeeded()
+        case .entertainment, .unrelated:
+            if result.isHighConfidence {
+                beginIntentGraceIfNeeded(
+                    snapshot: snapshot,
+                    result: result,
+                    generation: generation,
+                    baseDecision: baseDecision
+                )
+            } else {
+                cancelIntentGraceIfNeeded()
+            }
+        case .uncertain:
+            cancelIntentGraceIfNeeded()
+        }
+
+        persistClassificationOutcome(
+            snapshot: snapshot,
+            decision: mappedDecision,
+            intentResult: result,
+            graceStarted: result.isHighConfidence && (result.relation == .entertainment || result.relation == .unrelated),
+            enforcementOccurred: isDimming
+        )
+
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+    }
+
+    private func beginIntentGraceIfNeeded(
+        snapshot: ContextSnapshot,
+        result: IntentClassificationResult,
+        generation: Int,
+        baseDecision: ClassificationDecision
+    ) {
+        guard activeSession != nil,
+              activeBreakCommitment == nil,
+              !isDeclaredActivityBypassActive else {
+            return
+        }
+
+        if distractionStartDate == nil {
+            distractionStartDate = snapshot.observedAt
+
+            let event = SessionEvent(
+                type: .distractionDetected,
+                appBundleID: lastWorkAppBundleID ?? "",
+                appName: getAppName(for: lastWorkAppBundleID ?? ""),
+                url: snapshot.url?.absoluteString,
+                distractionAppBundleID: snapshot.bundleIdentifier,
+                distraction_domain: snapshot.url?.host
+            )
+            sessionStore.log(event)
+
+            delegate?.didDetectDistraction(bundleID: snapshot.bundleIdentifier)
+            RuntimeTrace.event("intent_grace_started", fields: [
+                "bundleID": snapshot.bundleIdentifier,
+                "generation": String(generation),
+                "relation": result.relation.rawValue,
+                "confidence": String(result.confidence)
+            ])
+
+            scheduleDistractionTimer(
+                distractionBundleID: snapshot.bundleIdentifier,
+                observedAt: snapshot.observedAt
+            )
+        } else if !isDimming {
+            RuntimeTrace.event("intent_grace_continued", fields: [
+                "bundleID": snapshot.bundleIdentifier,
+                "generation": String(generation),
+                "relation": result.relation.rawValue
+            ])
+        }
+
+    }
+
+    private func cancelIntentGraceIfNeeded() {
+        guard distractionStartDate != nil else { return }
+        cancelDistractionTimer()
+        distractionStartDate = nil
+        if isDimming {
+            resumeSessionIfNeeded()
+        } else {
+            delegate?.didReturnToWork()
+        }
+    }
+
+    private func reason(for relation: IntentRelation) -> ClassificationReason {
+        switch relation {
+        case .related:
+            return .intentRelated
+        case .entertainment:
+            return .intentEntertainment
+        case .unrelated:
+            return .intentUnrelated
+        case .uncertain:
+            return .intentUncertain
+        }
+    }
+
+    private func persistClassificationOutcome(
+        snapshot: ContextSnapshot,
+        decision: ClassificationDecision,
+        intentResult: IntentClassificationResult?,
+        graceStarted: Bool,
+        enforcementOccurred: Bool
+    ) {
+        guard classificationOutcomeStore.isEnabled else { return }
+
+        let intentSummary = activeFocusIntent?.safeTrackingSummary
+        let relation: IntentRelation
+        if let intentResult {
+            relation = intentResult.relation
+        } else if decision.isFocus {
+            relation = .related
+        } else if decision.isDistraction {
+            relation = .unrelated
+        } else {
+            relation = .uncertain
+        }
+
+        let outcome = ClassificationOutcome.make(
+            bundleID: snapshot.bundleIdentifier,
+            appName: snapshot.localizedName,
+            contextGeneration: contextGeneration,
+            sessionID: activeSessionIdentity,
+            contextIdentity: snapshot.identity,
+            intentSummary: intentSummary,
+            relation: relation,
+            mappedLabel: decision.label,
+            confidence: decision.confidence,
+            source: decision.source,
+            modelVersion: intentResult?.modelVersion ?? decision.source.rawValue,
+            latency: intentResult?.latency ?? 0,
+            graceStarted: graceStarted,
+            enforcementOccurred: enforcementOccurred,
+            observedAt: snapshot.observedAt
+        )
+
+        classificationOutcomeStore.record(outcome, completion: nil)
     }
 
     private func triggerAsyncLocalTextClassification(snapshot: ContextSnapshot, generation: Int) {
@@ -795,7 +1297,7 @@ final class FocusEngine {
     /// Requests a memory-only break from the active session.
     @discardableResult
     func requestBreak(intention: String, now: Date = Date(), bypassMinimum: Bool = false) -> BreakRequestDecision {
-        guard let session = activeSession else {
+        guard activeSession != nil else {
             return .refusedUnderMinimum
         }
 
@@ -815,14 +1317,14 @@ final class FocusEngine {
             activeBreakCommitment = commitment
             breakState = .breakActive
             breakStartedAt = now
+            hasSeenNonFocusContextSinceBreakStarted = false
+            cancelBreakReturnGraceTimer()
             cancelSessionTimer()
             cancelDistractionTimer()
             distractionStartDate = nil
             isDimming = false
             delegate?.didReturnToWork()
-            breakTimer = Timer.scheduledTimer(withTimeInterval: CommitmentPolicy.breakDuration, repeats: false) { [weak self] _ in
-                self?.breakTimerExpired()
-            }
+            scheduleBreakTimer(duration: CommitmentPolicy.breakDuration)
             NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
         }
 
@@ -832,6 +1334,8 @@ final class FocusEngine {
     /// Resumes the active session after a break review or explicit cancellation.
     func resumeAfterBreakReview(now: Date = Date()) {
         guard activeBreakCommitment != nil else { return }
+        cancelBreakTimer()
+        cancelBreakReturnGraceTimer()
         clearBreakState(at: now)
         guard let session = activeSession else { return }
         let remaining = max(0, session.anchoredDuration - currentSessionFocusedTime(at: now))
@@ -841,11 +1345,13 @@ final class FocusEngine {
     }
 
     func resumeSessionFromUI() {
-        isDimming = false
-        pausedDate = nil
+        let wasDimming = isDimming
+        resumeSessionIfNeeded()
         cancelDistractionTimer()
         distractionStartDate = nil
-        delegate?.didReturnToWork()
+        if !wasDimming {
+            delegate?.didReturnToWork()
+        }
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
     }
 
@@ -853,11 +1359,14 @@ final class FocusEngine {
         guard activeSession != nil else { return }
         declaredActivity = activity
         isDeclaredActivityBypassActive = true
-        
-        isDimming = false
+
+        let wasDimming = isDimming
+        resumeSessionIfNeeded()
         cancelDistractionTimer()
         distractionStartDate = nil
-        delegate?.didReturnToWork()
+        if !wasDimming {
+            delegate?.didReturnToWork()
+        }
         
         scheduleDeclaredActivityCheckTimer()
         
@@ -884,9 +1393,9 @@ final class FocusEngine {
     }
     
     private func checkDeclaredActivity() {
-        guard isDeclaredActivityBypassActive else { return }
-        
-        let now = Date()
+        guard lifecyclePauseStartedAt == nil,
+              isDeclaredActivityBypassActive else { return }
+
         let decision = classifyContext(
             bundleID: currentApp ?? "",
             url: currentURL,
@@ -950,7 +1459,8 @@ final class FocusEngine {
     }
 
     internal func breakTimerExpired() {
-        guard let commitment = activeBreakCommitment else { return }
+        guard lifecyclePauseStartedAt == nil,
+              let commitment = activeBreakCommitment else { return }
         cancelBreakTimer()
         breakState = .breakReview
 
@@ -999,17 +1509,78 @@ final class FocusEngine {
 
     private func clearBreakState(at date: Date) {
         stopDeclaredActivityBypass()
+        cancelBreakTimer()
+        cancelBreakReturnGraceTimer()
         if let breakStartedAt {
             excludedBreakDuration += max(0, date.timeIntervalSince(breakStartedAt))
         }
         breakStartedAt = nil
         activeBreakCommitment = nil
         breakState = nil
+        hasSeenNonFocusContextSinceBreakStarted = false
     }
 
     private func cancelBreakTimer() {
         breakTimer?.invalidate()
         breakTimer = nil
+    }
+
+    private func scheduleBreakTimer(duration: TimeInterval) {
+        cancelBreakTimer()
+        breakTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            self?.breakTimerExpired()
+        }
+    }
+
+    private func cancelBreakReturnGraceTimer() {
+        breakReturnGraceTimer?.invalidate()
+        breakReturnGraceTimer = nil
+        breakReturnGraceStartedAt = nil
+    }
+
+    private func updateBreakReturnGrace(
+        for decision: ClassificationDecision,
+        snapshot: ContextSnapshot,
+        observedAt: Date
+    ) {
+        guard activeBreakCommitment != nil else { return }
+
+        if decision.isFocus {
+            guard hasSeenNonFocusContextSinceBreakStarted else { return }
+            guard breakReturnGraceStartedAt == nil else { return }
+
+            breakReturnGraceStartedAt = observedAt
+            let remaining = max(0, breakReturnGraceThreshold - Date().timeIntervalSince(observedAt))
+            guard remaining > 0 else {
+                breakReturnGraceTimerExpired(now: observedAt)
+                return
+            }
+
+            breakReturnGraceTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
+                self?.breakReturnGraceTimerExpired()
+            }
+            RuntimeTrace.event("break_return_grace_started", fields: [
+                "bundleID": snapshot.bundleIdentifier,
+                "seconds": String(breakReturnGraceThreshold)
+            ])
+        } else {
+            hasSeenNonFocusContextSinceBreakStarted = true
+            cancelBreakReturnGraceTimer()
+        }
+    }
+
+    internal func breakReturnGraceTimerExpired(now: Date = Date()) {
+        guard activeBreakCommitment != nil,
+              hasSeenNonFocusContextSinceBreakStarted,
+              let startedAt = breakReturnGraceStartedAt else { return }
+
+        guard now.timeIntervalSince(startedAt) >= breakReturnGraceThreshold,
+              currentClassification.isFocus else {
+            return
+        }
+
+        cancelBreakReturnGraceTimer()
+        resumeAfterBreakReview(now: now)
     }
     
     /// Applies a user correction as an explicit profile rule.
@@ -1038,6 +1609,22 @@ final class FocusEngine {
                 source: originalDecision.source
             )
         )
+
+        let sanitizedIdentity = ContextIdentity(
+            bundleID: bundleID,
+            sanitizedURL: ContextSanitizer.sanitizePersistedURL(currentURL),
+            normalizedTitle: ContextSanitizer.sanitizeTitle(currentTitle)
+        )
+        classificationOutcomeStore.recordCorrection(
+            identity: ClassificationOutcome.Identity(
+                contextGeneration: contextGeneration,
+                sessionID: activeSessionIdentity,
+                contextIdentity: sanitizedIdentity
+            ),
+            correction: correction,
+            correctedAt: Date(),
+            completion: nil
+        )
     }
 
     /// Locks in an active focused session.
@@ -1045,22 +1632,56 @@ final class FocusEngine {
         let now = Date()
         let start = workSessionStart ?? now
         let focusedAppName = getAppName(for: lastWorkAppBundleID ?? "")
+        let resolvedProfileName = Self.cleanedSuggestedLabel(category) ?? suggestedSessionProfile().name
+        let explicitGoal = Self.cleanedSuggestedLabel(goal)
+        let resolvedGoal = explicitGoal ?? suggestedSessionGoal()
 
         activeSessionIdentity = UUID()
         excludedBreakDuration = 0
+        let baselineSnapshot: ContextSnapshot
+        if let currentContext {
+            baselineSnapshot = ContextSnapshot(
+                bundleIdentifier: currentContext.bundleIdentifier,
+                localizedName: currentContext.localizedName,
+                url: currentURL,
+                title: currentContext.title,
+                source: BrowserStrategyFactory.isSupportedBrowser(currentContext.bundleIdentifier)
+                    ? (currentContext.bundleIdentifier == "com.apple.Safari" ? .safari : .chromium)
+                    : .application,
+                observedAt: now
+            )
+        } else {
+            baselineSnapshot = ContextSnapshot(
+                bundleIdentifier: currentApp ?? "",
+                localizedName: focusedAppName,
+                url: currentURL,
+                title: currentTitle,
+                source: BrowserStrategyFactory.isSupportedBrowser(currentApp ?? "")
+                    ? (currentApp == "com.apple.Safari" ? .safari : .chromium)
+                    : .application,
+                observedAt: now
+            )
+        }
+        activeFocusIntent = FocusIntent.make(
+            goal: explicitGoal,
+            baselineContext: baselineSnapshot,
+            activeProfileName: profileManager.activeProfile.name,
+            activeProfileCategory: resolvedProfileName
+        )
+        currentIntentResult = nil
         
         let session = ActiveSession(
             startDate: start,
             anchoredDuration: duration,
             appName: focusedAppName,
-            category: category,
-            goal: goal
+            category: resolvedProfileName,
+            goal: resolvedGoal
         )
         self.activeSession = session
         RuntimeTrace.event("session_anchored", fields: [
             "duration": String(duration),
             "appBundleID": lastWorkAppBundleID ?? "",
-            "hasGoal": String(goal != nil)
+            "hasGoal": String(explicitGoal != nil)
         ])
         cancelFocusPromptTimer()
         
@@ -1080,17 +1701,17 @@ final class FocusEngine {
             distractionAppBundleID: nil,
             distraction_domain: nil,
             action: .anchored,
-            category: category,
-            sessionGoal: goal
+            category: resolvedProfileName,
+            sessionGoal: resolvedGoal
         )
-        print("⚓️ [Session Started] AppName: \(focusedAppName) | Duration: \(duration)s | Goal: \(goal ?? "None")")
+        print("⚓️ [Session Started] AppName: \(focusedAppName) | Duration: \(duration)s | Goal: \(resolvedGoal ?? "None")")
         sessionStore.log(event)
         
         // Schedule session end timer (accounting for retroactive time)
         let remaining = max(0, duration - now.timeIntervalSince(start))
         scheduleSessionTimer(duration: remaining)
         
-        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
     }
     
     /// Resets the work session start time, e.g. when taking a break.
@@ -1132,6 +1753,8 @@ final class FocusEngine {
         // Clean up state
         activeSession = nil
         activeSessionIdentity = nil
+        activeFocusIntent = nil
+        currentIntentResult = nil
         clearBreakState(at: now)
         stopDeclaredActivityBypass()
         resetFocusTracking()
@@ -1145,7 +1768,7 @@ final class FocusEngine {
         // Notify delegate
         delegate?.sessionDidEnd()
         
-        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: nil)
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
         
         // Present Permission Gate immediately for testing if accessibility is not yet granted
         if !AXIsProcessTrusted() {
@@ -1158,10 +1781,11 @@ final class FocusEngine {
         currentSessionFocusedTime(at: Date())
     }
 
-    private func currentSessionFocusedTime(at date: Date) -> TimeInterval {
+    internal func currentSessionFocusedTime(at date: Date) -> TimeInterval {
         guard let session = activeSession else { return 0.0 }
-        let rawDuration = date.timeIntervalSince(session.startDate)
-        let activeBreakDuration = breakStartedAt.map { max(0, date.timeIntervalSince($0)) } ?? 0
+        let accountingDate = lifecyclePauseStartedAt.map { min(date, $0) } ?? date
+        let rawDuration = accountingDate.timeIntervalSince(session.startDate)
+        let activeBreakDuration = breakStartedAt.map { max(0, accountingDate.timeIntervalSince($0)) } ?? 0
         return max(0, rawDuration - totalIdleTime - excludedBreakDuration - activeBreakDuration)
     }
 
@@ -1187,6 +1811,7 @@ final class FocusEngine {
     }
     
     private func checkIdleTime() {
+        guard lifecyclePauseStartedAt == nil else { return }
         let anyInputEventType = CGEventType(rawValue: ~0)!
         let idleTime = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInputEventType)
         
@@ -1209,6 +1834,7 @@ final class FocusEngine {
     private func scheduleFocusPromptTimer() {
         cancelFocusPromptTimer()
         guard focusPromptsEnabled,
+              lifecyclePauseStartedAt == nil,
               activeSession == nil,
               !hasPromptedForCurrentFocusRun,
               let start = workSessionStart else {
@@ -1230,45 +1856,57 @@ final class FocusEngine {
         cancelFocusPromptTimer()
         workSessionStart = nil
         hasPromptedForCurrentFocusRun = false
+        activeFocusIntent = nil
+        currentIntentResult = nil
     }
 
-    private func requestFocusPromptIfEligible(now: Date) {
-        guard focusPromptsEnabled,
+    /// Starts a session automatically once the configured focus threshold is met.
+    @discardableResult
+    private func requestFocusPromptIfEligible(now: Date) -> Bool {
+        guard lifecyclePauseStartedAt == nil,
               activeSession == nil,
               !hasPromptedForCurrentFocusRun,
               let start = workSessionStart else {
-            return
+            return false
         }
 
         let elapsed = now.timeIntervalSince(start)
-        guard elapsed >= focusThreshold else { return }
+        guard elapsed >= focusThreshold else { return false }
 
         hasPromptedForCurrentFocusRun = true
-        RuntimeTrace.event("focus_prompt_requested", fields: [
+        RuntimeTrace.event("automatic_focus_session_started", fields: [
             "elapsed": String(now.timeIntervalSince(start)),
             "threshold": String(focusThreshold),
-            "appBundleID": lastWorkAppBundleID ?? currentApp ?? ""
+            "appBundleID": lastWorkAppBundleID ?? currentApp ?? "",
+            "duration": String(preferencesManager.automaticSessionDuration)
         ])
         cancelFocusPromptTimer()
-        let focusedAppName = getAppName(for: lastWorkAppBundleID ?? currentApp ?? "")
-        delegate?.didRequestExitTrigger(duration: elapsed, appName: focusedAppName)
+        startAutomaticFocusSession()
+        return true
     }
 
     internal func focusPromptTimerExpired() {
         cancelFocusPromptTimer()
-        guard let bundleID = currentApp,
+        guard lifecyclePauseStartedAt == nil,
+              let bundleID = currentApp,
               classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle).isFocus else {
             return
         }
 
-        requestFocusPromptIfEligible(now: Date())
-        if !hasPromptedForCurrentFocusRun {
+        if !requestFocusPromptIfEligible(now: Date()) {
             scheduleFocusPromptTimer()
         }
+    }
+
+    private func startAutomaticFocusSession() {
+        let duration = preferencesManager.automaticSessionDuration
+        let category = profileManager.activeProfile.name
+        anchorSession(duration: duration, category: category, goal: "Auto-chartered Voyage")
     }
     
     private func scheduleSessionTimer(duration: TimeInterval) {
         cancelSessionTimer()
+        guard lifecyclePauseStartedAt == nil else { return }
         sessionTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
             self?.sessionTimerExpired()
         }
@@ -1280,12 +1918,19 @@ final class FocusEngine {
     }
     
     internal func sessionTimerExpired() {
+        guard lifecyclePauseStartedAt == nil else { return }
         endSession(action: .timeout)
     }
     
-    private func scheduleDistractionTimer(distractionBundleID: String) {
+    private func scheduleDistractionTimer(distractionBundleID: String, observedAt: Date = Date()) {
         cancelDistractionTimer()
-        distractionTimer = Timer.scheduledTimer(withTimeInterval: distractionCountdownThreshold, repeats: false) { [weak self] _ in
+        guard lifecyclePauseStartedAt == nil else { return }
+        let remaining = max(0, distractionCountdownThreshold - Date().timeIntervalSince(observedAt))
+        guard remaining > 0 else {
+            distractionTimerExpired(distractionBundleID: distractionBundleID)
+            return
+        }
+        distractionTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
             self?.distractionTimerExpired(distractionBundleID: distractionBundleID)
         }
     }
@@ -1296,6 +1941,7 @@ final class FocusEngine {
     }
     
     internal func distractionTimerExpired(distractionBundleID: String) {
+        guard lifecyclePauseStartedAt == nil else { return }
         isDimming = true
         RuntimeTrace.event("distraction_timer_expired", fields: ["bundleID": distractionBundleID])
         pausedDate = Date()
@@ -1312,12 +1958,18 @@ final class FocusEngine {
         )
         sessionStore.log(event)
     }
+
+    var currentDistractionGraceRemaining: TimeInterval? {
+        guard let distractionStartDate else { return nil }
+        return max(0, distractionCountdownThreshold - Date().timeIntervalSince(distractionStartDate))
+    }
     
     // MARK: - Doomscroll Loop Breaker
     
     private func scheduleDoomscrollTimer(bundleID: String) {
         guard preferencesManager.enableDoomscrollLoopBreaker else { return }
         guard doomscrollTimer == nil else { return }
+        guard lifecyclePauseStartedAt == nil else { return }
         doomscrollingBundleID = bundleID
         hasFiredDoomscrollAlert = false
         let threshold = preferencesManager.doomscrollThreshold
@@ -1335,7 +1987,8 @@ final class FocusEngine {
     }
     
     internal func doomscrollTimerExpired() {
-        guard let bundleID = doomscrollingBundleID,
+        guard lifecyclePauseStartedAt == nil,
+              let bundleID = doomscrollingBundleID,
               activeSession == nil else {
             cancelDoomscrollTimer()
             return
@@ -1344,6 +1997,94 @@ final class FocusEngine {
         let threshold = preferencesManager.doomscrollThreshold
         RuntimeTrace.event("doomscroll_timer_expired", fields: ["bundleID": bundleID, "threshold": String(threshold)])
         delegate?.didDetectDoomscrolling(bundleID: bundleID, threshold: threshold)
+    }
+
+    private static func cleanedSuggestedLabel(_ text: String?) -> String? {
+        let cleaned = text?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let cleaned, !cleaned.isEmpty else { return nil }
+        return cleaned
+    }
+
+    private static func isGenericSuggestedLabel(_ text: String) -> Bool {
+        let normalized = text.lowercased()
+        let genericLabels = [
+            "google chrome",
+            "chrome",
+            "safari",
+            "firefox",
+            "mozilla firefox",
+            "microsoft edge",
+            "brave browser",
+            "browser",
+            "new tab",
+            "untitled",
+            "blank page",
+            "page"
+        ]
+
+        if genericLabels.contains(where: { normalized == $0 || normalized.hasPrefix("\($0) ") }) {
+            return true
+        }
+
+        return normalized.count < 3
+    }
+
+    private static func bestSuggestedProfile(
+        bundleID: String?,
+        url: URL?,
+        title: String,
+        profiles: [WorkProfile],
+        fallback: WorkProfile
+    ) -> WorkProfile {
+        guard !profiles.isEmpty else { return fallback }
+
+        let normalizedBundleID = bundleID?.lowercased() ?? ""
+        let normalizedHost = url?.host?.lowercased() ?? ""
+        let normalizedTitle = ContextSanitizer.sanitizeTitle(title).lowercased()
+
+        let scoredProfiles = profiles.map { profile -> (profile: WorkProfile, score: Int) in
+            var score = 0
+
+            if !normalizedBundleID.isEmpty {
+                if profile.allowedApps.contains(where: { $0.lowercased() == normalizedBundleID }) {
+                    score += 4
+                }
+                if profile.distractionApps.contains(where: { $0.lowercased() == normalizedBundleID }) {
+                    score -= 4
+                }
+            }
+
+            if !normalizedHost.isEmpty {
+                if profile.allowedDomains.contains(where: { normalizedHost == $0.lowercased() || normalizedHost.hasSuffix(".\($0.lowercased())") }) {
+                    score += 3
+                }
+                if profile.distractionDomains.contains(where: { normalizedHost == $0.lowercased() || normalizedHost.hasSuffix(".\($0.lowercased())") }) {
+                    score -= 3
+                }
+            }
+
+            if !normalizedTitle.isEmpty,
+               normalizedTitle.contains(profile.name.lowercased()) {
+                score += 1
+            }
+
+            return (profile, score)
+        }
+
+        if let bestMatch = scoredProfiles.max(by: { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.profile.name < rhs.profile.name
+            }
+            return lhs.score < rhs.score
+        }), bestMatch.score > 0 {
+            return bestMatch.profile
+        }
+
+        return fallback
     }
     
     private func getAppName(for bundleID: String) -> String {

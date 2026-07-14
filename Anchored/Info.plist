@@ -26,5 +26,7 @@
 	<false/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Anchored closes a distracting browser tab when you choose Close and Return to Work.</string>
 </dict>
 </plist>
