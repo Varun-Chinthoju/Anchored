@@ -1255,6 +1255,17 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.returnsToWork, 0)
     }
 
+    func testForceImmediateDimRequestsOverlayWithoutCountdown() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1_500)
+
+        engine.forceImmediateDim()
+
+        XCTAssertTrue(engine.isDimming)
+        XCTAssertEqual(mockDelegate.immediateDims, 1)
+        XCTAssertEqual(mockDelegate.detectedDistractions.count, 0)
+    }
+
     func testCmdTabToAnotherProductiveAppDoesNotCancelGracePeriod() {
         let profile = WorkProfile(
             name: "Neutral Apps",

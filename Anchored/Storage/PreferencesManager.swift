@@ -25,6 +25,7 @@ public final class PreferencesManager: ObservableObject {
         public static let automaticSessionDuration = "com.varun.Anchored.automaticSessionDuration"
         public static let focusSchedule = "com.varun.Anchored.focusSchedule"
         public static let launchAtLogin = "com.varun.Anchored.launchAtLogin"
+        public static let commitmentLockEnabled = "com.varun.Anchored.commitmentLockEnabled"
         public static let enableSmartNudges = "com.varun.Anchored.enableSmartNudges"
         public static let focusPromptExperimentEnabled = "com.varun.Anchored.focusPromptExperimentEnabled"
         public static let showCountdownPill = "com.varun.Anchored.showCountdownPill"
@@ -170,7 +171,29 @@ public final class PreferencesManager: ObservableObject {
     /// Whether the app is registered to launch at login.
     @Published public var launchAtLogin: Bool {
         didSet {
+            if commitmentLockEnabled && !launchAtLogin {
+                launchAtLogin = true
+                return
+            }
             updateLaunchAtLogin(launchAtLogin)
+        }
+    }
+
+    /// Whether the app should keep its normal off switches locked until the user explicitly unlocks it.
+    @Published public var commitmentLockEnabled: Bool {
+        didSet {
+            defaults.set(commitmentLockEnabled, forKey: Keys.commitmentLockEnabled)
+            if commitmentLockEnabled {
+                if !launchAtLogin {
+                    launchAtLogin = true
+                }
+                if !showCountdownPill {
+                    showCountdownPill = true
+                }
+                if !enableDoomscrollLoopBreaker {
+                    enableDoomscrollLoopBreaker = true
+                }
+            }
         }
     }
     
@@ -184,6 +207,10 @@ public final class PreferencesManager: ObservableObject {
     /// Whether the distraction countdown pill appears before dimming.
     @Published public var showCountdownPill: Bool {
         didSet {
+            if commitmentLockEnabled && !showCountdownPill {
+                showCountdownPill = true
+                return
+            }
             defaults.set(showCountdownPill, forKey: Keys.showCountdownPill)
         }
     }
@@ -380,6 +407,10 @@ public final class PreferencesManager: ObservableObject {
     /// Whether the doomscroll loop breaker is enabled.
     @Published public var enableDoomscrollLoopBreaker: Bool {
         didSet {
+            if commitmentLockEnabled && !enableDoomscrollLoopBreaker {
+                enableDoomscrollLoopBreaker = true
+                return
+            }
             defaults.set(enableDoomscrollLoopBreaker, forKey: Keys.enableDoomscrollLoopBreaker)
         }
     }
@@ -420,6 +451,7 @@ public final class PreferencesManager: ObservableObject {
         // Load smart nudges preference
         self.enableSmartNudges = defaults.object(forKey: Keys.enableSmartNudges) as? Bool ?? true
         self.showCountdownPill = defaults.object(forKey: Keys.showCountdownPill) as? Bool ?? Self.defaultShowCountdownPill
+        self.commitmentLockEnabled = defaults.object(forKey: Keys.commitmentLockEnabled) as? Bool ?? false
 
         // Load theme selection
         let storedTheme = defaults.string(forKey: Keys.selectedThemeID) ?? ThemeCatalog.defaultThemeID
@@ -486,6 +518,18 @@ public final class PreferencesManager: ObservableObject {
         if self.enableLocalTextClassification && self.enableCloudClassification {
             self.enableCloudClassification = false
             defaults.set(false, forKey: Keys.enableCloudClassification)
+        }
+
+        if self.commitmentLockEnabled {
+            if !self.launchAtLogin {
+                self.launchAtLogin = true
+            }
+            if !self.showCountdownPill {
+                self.showCountdownPill = true
+            }
+            if !self.enableDoomscrollLoopBreaker {
+                self.enableDoomscrollLoopBreaker = true
+            }
         }
     }
     

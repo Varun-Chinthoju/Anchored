@@ -149,6 +149,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &preferencesCancellables)
 
+        prefs.$commitmentLockEnabled
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.setupMainMenu()
+            }
+            .store(in: &preferencesCancellables)
+
         menuBarController = MenuBarController(focusEngine: engine)
         
         engine.start()
@@ -180,6 +187,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func setupMainMenu() {
         let mainMenu = NSMenu()
+        let prefs = PreferencesManager.shared
         
         // 1. App Menu ("Anchored")
         let appMenu = NSMenu(title: "Anchored")
@@ -198,7 +206,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
         
-        let quitItem = NSMenuItem(title: "Quit Anchored", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(
+            title: prefs.commitmentLockEnabled ? "Quit Anchored (Locked)" : "Quit Anchored",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        quitItem.isEnabled = !prefs.commitmentLockEnabled
         appMenu.addItem(quitItem)
         
         let appMenuItem = NSMenuItem()
@@ -215,6 +228,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let endItem = NSMenuItem(title: "End Focus Session", action: #selector(MenuBarController.endSessionClicked), keyEquivalent: "w")
         endItem.target = menuBarController
         voyageMenu.addItem(endItem)
+
+        let forceDimItem = NSMenuItem(title: "Force Dim Now", action: #selector(MenuBarController.forceDimClicked), keyEquivalent: "d")
+        forceDimItem.target = menuBarController
+        forceDimItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        voyageMenu.addItem(forceDimItem)
         
         voyageMenu.addItem(NSMenuItem.separator())
         
@@ -259,5 +277,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         contextHistoryPipeline = nil
         contextHistoryStore = nil
         classificationOutcomeStore = nil
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !PreferencesManager.shared.commitmentLockEnabled else {
+            let alert = NSAlert()
+            alert.messageText = "Commitment Lock is on"
+            alert.informativeText = "Unlock Anchored in Settings before quitting it normally."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Keep Locked")
+            alert.runModal()
+            return .terminateCancel
+        }
+
+        return .terminateNow
     }
 }

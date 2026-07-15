@@ -645,6 +645,8 @@ struct GeneralSettingsPane: View {
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.showCountdownPill)
+                            .disabled(prefs.commitmentLockEnabled)
+                            .opacity(prefs.commitmentLockEnabled ? 0.45 : 1)
                     }
 
                     SettingsRow(
@@ -813,6 +815,8 @@ struct GeneralSettingsPane: View {
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.enableDoomscrollLoopBreaker)
+                            .disabled(prefs.commitmentLockEnabled)
+                            .opacity(prefs.commitmentLockEnabled ? 0.45 : 1)
                     }
 
                     SettingsRow(
@@ -930,11 +934,21 @@ struct GeneralSettingsPane: View {
 
                 SettingsGroup {
                     SettingsRow(
+                        label: settingsCopy("Commitment Lock", pirate: "Commitment Lock", isPirateMode: isPirateMode),
+                        description: settingsCopy("Locks the app on, keeps launch at login and the warning pill enabled, and blocks normal quitting until you unlock it. macOS uninstall is still outside the app's control.", pirate: "Locks the app on, keeps launch at login and the warning pill enabled, and blocks normal quitting until you unlock it. macOS uninstall is still outside the app's control.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                        Toggle("", isOn: $prefs.commitmentLockEnabled)
+                    }
+
+                    SettingsRow(
                         label: settingsCopy("Launch at Login", pirate: "Launch on Ship Start", isPirateMode: isPirateMode),
                         description: settingsCopy("Automatically launch Anchored when you log in.", pirate: "Automatically start Anchored when ye boot yer Mac.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.launchAtLogin)
+                            .disabled(prefs.commitmentLockEnabled)
+                            .opacity(prefs.commitmentLockEnabled ? 0.45 : 1)
                     }
 
                     SettingsRow(

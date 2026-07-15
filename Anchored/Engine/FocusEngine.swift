@@ -1801,6 +1801,38 @@ final class FocusEngine {
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
     }
 
+    /// Forces the current session into the dimmed state immediately.
+    func forceImmediateDim() {
+        guard activeSession != nil, !isDimming else { return }
+
+        let bundleID = currentApp ?? lastWorkAppBundleID ?? ""
+        let appName = getAppName(for: bundleID)
+        isDimming = true
+        cancelSessionTimer()
+        cancelDistractionTimer()
+        distractionStartDate = Date()
+        distractionBundleID = bundleID.isEmpty ? nil : bundleID
+        pausedDate = Date()
+
+        RuntimeTrace.event("manual_force_dim_triggered", fields: [
+            "bundleID": bundleID,
+            "appName": appName
+        ])
+
+        sessionStore.log(
+            SessionEvent(
+                type: .escalationTriggered,
+                appBundleID: lastWorkAppBundleID ?? bundleID,
+                appName: getAppName(for: lastWorkAppBundleID ?? bundleID),
+                distractionAppBundleID: bundleID.isEmpty ? nil : bundleID,
+                action: .escalated
+            )
+        )
+
+        delegate?.didRequestImmediateDim()
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+    }
+
     func startDeclaredActivityBypass(activity: String) {
         guard activeSession != nil else { return }
         declaredActivity = activity

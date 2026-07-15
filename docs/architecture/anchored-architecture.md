@@ -24,6 +24,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Work profiles now persist per-profile `allowedApps` alongside distraction apps and domains
 - Focus classification runs through `DistractionEvaluator` evidence and the central `ClassificationResolver`: explicit domains outrank explicit apps, explicit apps outrank heuristics, and unknown contexts remain neutral. FocusEngine consumes one final `ClassificationDecision`; optional local/cloud/visual evidence may only promote a still-neutral context to focus after generation checks. The menu bar exposes a safe explanation and immediate app/domain corrections, while optional interaction summaries only adjust ambiguous productive evidence within a bounded cap.
 - Intent-aware tracking now compares a sanitized `FocusIntent` baseline against the current `ContextSnapshot`. During active sessions, high-confidence entertainment/unrelated intent can start the existing countdown grace period, but it still cannot dim immediately. Committed breaks auto-resume only after the user has left work and returned to a related context for 15 seconds.
+- Commitment lock is an app-level escape-hatch guard: it forces launch-at-login, the warning pill, and the loop breaker on, disables the app's own quit path, and adds a manual Force Dim Now command. It cannot block macOS-level uninstall or termination outside the app.
 - Supported educational browser videos stay neutral unless an explicit rule or stronger intent signal says otherwise.
 - Session-start and dim-return surfaces now auto-suggest a session goal plus profile/category from the current context, so a user can start or resume without typing a summary when the current window/title is clear enough.
 - A persisted focus schedule gate now controls automatic focus behavior by time of day. It supports a work window plus optional lunch break, keeps manual sessions available at any time, and exposes outside-hours status in the menu bar so the app can stay quiet during lunch or after hours.
@@ -217,6 +218,7 @@ Responsibilities:
 - auto-suggests the next session goal plus profile/category from the current context so the menu-bar start sheet and dim-return sheet can prefill the user-facing labels
 - auto-anchors the current focus run once the focus threshold is met, using the configured automatic session duration, instead of showing the old start prompt
 - builds a sanitized `FocusIntent` baseline from the session goal plus starting context, then runs an intent-relative local classifier that can keep distractions in the countdown grace path without letting them dim immediately
+- exposes `forceImmediateDim()` for the manual force-dim hotkey/menu action; it logs the escalation request and hands the immediate-dim request to the overlay delegate without waiting for the countdown
 - honors the persisted focus schedule gate: outside the configured window it suppresses automatic prompts, countdowns, doomscroll escalation, and shadow tracking, then restores those timers when the schedule opens again
 - owns the committed-break return grace timer: after the user leaves work and comes back, a stable related context for 15 seconds resumes the paused session through the existing break-review resume path
 - creates `sessionStart`, `distractionDetected`, `escalationTriggered`, `sessionEnd`
@@ -431,6 +433,7 @@ Owns:
 - launch at login
 - smart nudges enablement
 - warning pill visibility
+- commitment lock state
 - legacy focus-start rollout state
 - selected settings theme
 - persisted focus schedule gate with work-window and lunch-break settings
@@ -444,6 +447,7 @@ Architecture notes:
 - launch-at-login behavior is abstracted behind `LoginItemService` for tests
 - theme selection persists through `UserDefaults` and resolves through `ThemeCatalog`
 - a hidden `focusThresholdOverride` defaults key can temporarily shorten the live engine threshold without changing the persisted picker value
+- when commitment lock is enabled, `launchAtLogin`, `showCountdownPill`, and `enableDoomscrollLoopBreaker` are forced back on and the app blocks its own quit action
 - `focusPromptExperimentEnabled` is retained as a legacy rollout preference, but the shipped runtime no longer branches on it
 - `focusScheduleDidChange` tells the live engine when the configured schedule moves between active and inactive windows
 - `showCountdownPill` controls whether the warning pill appears before dimming; dimming still runs and the dim-center panel still appears on schedule
@@ -518,6 +522,7 @@ Owns:
 - status item/menu lifecycle
 - settings window entry points, including Analytics
 - start/end session actions
+- the manual Force Dim Now action and the locked quit presentation
 - current stats display
 
 It depends on:
@@ -551,6 +556,7 @@ Responsibilities:
 - injects the live `FocusEngine` into the Analytics view
 - applies the warm wood/brass theme colors to settings chrome, cards, and pane backgrounds
 - exposes focus schedule controls in General for enabled/disabled, start/end time, and optional lunch break windows
+- exposes the commitment lock toggle and visually disables the dependent launch-at-login, warning pill, and loop-breaker controls while the lock is on
 - keeps profile configuration in direct language rather than former themed terminology
 - uses one Analytics destination instead of separate Stats/Hourglass and legacy reporting panes
 - keeps Analytics inside the settings window rather than opening a separate analytics window

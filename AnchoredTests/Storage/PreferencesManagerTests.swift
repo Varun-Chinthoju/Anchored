@@ -41,6 +41,7 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertNil(manager.runtimeFocusThresholdOverride)
         XCTAssertEqual(manager.effectiveFocusThreshold, PreferencesManager.defaultFocusThreshold)
         XCTAssertFalse(manager.launchAtLogin)
+        XCTAssertFalse(manager.commitmentLockEnabled)
         XCTAssertTrue(manager.enableSmartNudges)
         XCTAssertTrue(manager.showCountdownPill)
         XCTAssertTrue(manager.focusPromptExperimentEnabled)
@@ -208,6 +209,24 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.showCountdownPill))
         let reloaded = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
         XCTAssertFalse(reloaded.showCountdownPill)
+    }
+
+    func testCommitmentLockForcesOffSwitchesBackOn() {
+        testDefaults.set(false, forKey: PreferencesManager.Keys.launchAtLogin)
+        testDefaults.set(false, forKey: PreferencesManager.Keys.showCountdownPill)
+        testDefaults.set(false, forKey: PreferencesManager.Keys.enableDoomscrollLoopBreaker)
+        testDefaults.set(true, forKey: PreferencesManager.Keys.commitmentLockEnabled)
+        mockService.status = .notRegistered
+
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        XCTAssertTrue(manager.commitmentLockEnabled)
+        XCTAssertTrue(manager.launchAtLogin)
+        XCTAssertTrue(manager.showCountdownPill)
+        XCTAssertTrue(manager.enableDoomscrollLoopBreaker)
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.launchAtLogin))
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.showCountdownPill))
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableDoomscrollLoopBreaker))
     }
 
     func testRuntimeFocusThresholdOverrideWinsForEngineUse() {

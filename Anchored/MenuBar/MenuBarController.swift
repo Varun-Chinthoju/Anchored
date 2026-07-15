@@ -95,6 +95,11 @@ class MenuBarController: NSObject, NSMenuDelegate {
             let endSessionItem = NSMenuItem(title: "End Focus Session", action: #selector(endSessionClicked), keyEquivalent: "")
             endSessionItem.target = self
             menu.addItem(endSessionItem)
+
+            let forceDimItem = NSMenuItem(title: "Force Dim Now", action: #selector(forceDimClicked), keyEquivalent: "d")
+            forceDimItem.target = self
+            forceDimItem.keyEquivalentModifierMask = [.command, .option, .shift]
+            menu.addItem(forceDimItem)
         } else {
             let statusTitle = focusEngine.isFocusScheduleActive ? "Status: Ready to Focus" : "Status: Outside Focus Schedule"
             let statusItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
@@ -160,6 +165,10 @@ class MenuBarController: NSObject, NSMenuDelegate {
         
         let quitItem = NSMenuItem(title: "Quit Anchored", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
+        if PreferencesManager.shared.commitmentLockEnabled {
+            quitItem.isEnabled = false
+            quitItem.title = "Quit Anchored (Locked)"
+        }
         menu.addItem(quitItem)
     }
     
@@ -171,6 +180,10 @@ class MenuBarController: NSObject, NSMenuDelegate {
     
     @objc func endSessionClicked() {
         focusEngine.endSession()
+    }
+
+    @objc func forceDimClicked() {
+        focusEngine.forceImmediateDim()
     }
     
     @objc private func editDistractionList() {
