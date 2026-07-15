@@ -78,7 +78,8 @@ public struct FocusIntent: Codable, Equatable, Sendable {
     public func makeInput(
         snapshot: ContextSnapshot,
         activeProfileName: String? = nil,
-        activeProfileCategory: String? = nil
+        activeProfileCategory: String? = nil,
+        screenText: String? = nil
     ) -> IntentClassificationInput {
         IntentClassificationInput(
             snapshot: snapshot,
@@ -86,7 +87,8 @@ public struct FocusIntent: Codable, Equatable, Sendable {
             goalFeatures: goalFeatures,
             baseline: baseline,
             activeProfileName: activeProfileName?.trimmingCharacters(in: .whitespacesAndNewlines),
-            activeProfileCategory: activeProfileCategory?.trimmingCharacters(in: .whitespacesAndNewlines)
+            activeProfileCategory: activeProfileCategory?.trimmingCharacters(in: .whitespacesAndNewlines),
+            screenText: screenText
         )
     }
 
@@ -172,6 +174,7 @@ public struct IntentClassificationInput: Codable, Equatable, Sendable {
     public let baseline: FocusIntentBaseline?
     public let activeProfileName: String?
     public let activeProfileCategory: String?
+    public let screenText: String?
 
     public init(
         snapshot: ContextSnapshot,
@@ -179,7 +182,8 @@ public struct IntentClassificationInput: Codable, Equatable, Sendable {
         goalFeatures: [String] = [],
         baseline: FocusIntentBaseline? = nil,
         activeProfileName: String? = nil,
-        activeProfileCategory: String? = nil
+        activeProfileCategory: String? = nil,
+        screenText: String? = nil
     ) {
         self.snapshot = snapshot
         self.sanitizedGoal = sanitizedGoal?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -189,6 +193,7 @@ public struct IntentClassificationInput: Codable, Equatable, Sendable {
         self.baseline = baseline
         self.activeProfileName = activeProfileName?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.activeProfileCategory = activeProfileCategory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.screenText = screenText?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

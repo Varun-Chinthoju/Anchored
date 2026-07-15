@@ -78,7 +78,7 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultDimOpacity: Double = 0.85
     public static let defaultDimTransitionDuration: Double = 3.0
     public static let defaultEnableDoomscrollLoopBreaker = true
-    public static let defaultDoomscrollThreshold: TimeInterval = 600.0
+    public static let defaultDoomscrollThreshold: TimeInterval = 1800.0
     
     /// The distraction countdown duration in seconds. Clamped to [0, 3600].
     @Published public var countdownDuration: Int {
@@ -179,16 +179,13 @@ public final class PreferencesManager: ObservableObject {
         }
     }
 
-    /// Whether the app should keep its normal off switches locked until the user explicitly unlocks it.
+    /// Whether the app should keep its protected off switches locked until the user explicitly unlocks it.
     @Published public var commitmentLockEnabled: Bool {
         didSet {
             defaults.set(commitmentLockEnabled, forKey: Keys.commitmentLockEnabled)
             if commitmentLockEnabled {
                 if !launchAtLogin {
                     launchAtLogin = true
-                }
-                if !showCountdownPill {
-                    showCountdownPill = true
                 }
                 if !enableDoomscrollLoopBreaker {
                     enableDoomscrollLoopBreaker = true
@@ -207,10 +204,6 @@ public final class PreferencesManager: ObservableObject {
     /// Whether the distraction countdown pill appears before dimming.
     @Published public var showCountdownPill: Bool {
         didSet {
-            if commitmentLockEnabled && !showCountdownPill {
-                showCountdownPill = true
-                return
-            }
             defaults.set(showCountdownPill, forKey: Keys.showCountdownPill)
         }
     }
@@ -523,9 +516,6 @@ public final class PreferencesManager: ObservableObject {
         if self.commitmentLockEnabled {
             if !self.launchAtLogin {
                 self.launchAtLogin = true
-            }
-            if !self.showCountdownPill {
-                self.showCountdownPill = true
             }
             if !self.enableDoomscrollLoopBreaker {
                 self.enableDoomscrollLoopBreaker = true

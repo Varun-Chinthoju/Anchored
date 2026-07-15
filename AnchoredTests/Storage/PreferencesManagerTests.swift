@@ -66,6 +66,8 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.cloudProvider, 0)
         XCTAssertEqual(manager.cloudModel, "gemini-2.5-flash")
         XCTAssertEqual(manager.cloudEndpoint, "https://generativelanguage.googleapis.com/v1beta/models/")
+        XCTAssertTrue(manager.enableDoomscrollLoopBreaker)
+        XCTAssertEqual(manager.doomscrollThreshold, PreferencesManager.defaultDoomscrollThreshold)
         
         // Dim preferences defaults
         XCTAssertEqual(manager.dimOpacity, PreferencesManager.defaultDimOpacity)
@@ -211,7 +213,7 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertFalse(reloaded.showCountdownPill)
     }
 
-    func testCommitmentLockForcesOffSwitchesBackOn() {
+    func testCommitmentLockForcesProtectedOffSwitchesBackOn() {
         testDefaults.set(false, forKey: PreferencesManager.Keys.launchAtLogin)
         testDefaults.set(false, forKey: PreferencesManager.Keys.showCountdownPill)
         testDefaults.set(false, forKey: PreferencesManager.Keys.enableDoomscrollLoopBreaker)
@@ -222,11 +224,26 @@ final class PreferencesManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.commitmentLockEnabled)
         XCTAssertTrue(manager.launchAtLogin)
-        XCTAssertTrue(manager.showCountdownPill)
+        XCTAssertFalse(manager.showCountdownPill)
         XCTAssertTrue(manager.enableDoomscrollLoopBreaker)
         XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.launchAtLogin))
-        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.showCountdownPill))
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.showCountdownPill))
         XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableDoomscrollLoopBreaker))
+    }
+
+    func testCommitmentLockDoesNotForceCountdownPillBackOnAfterInitialization() {
+        testDefaults.set(true, forKey: PreferencesManager.Keys.commitmentLockEnabled)
+        testDefaults.set(false, forKey: PreferencesManager.Keys.showCountdownPill)
+
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        XCTAssertTrue(manager.commitmentLockEnabled)
+        XCTAssertFalse(manager.showCountdownPill)
+
+        manager.showCountdownPill = false
+
+        XCTAssertFalse(manager.showCountdownPill)
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.showCountdownPill))
     }
 
     func testRuntimeFocusThresholdOverrideWinsForEngineUse() {

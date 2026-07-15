@@ -59,4 +59,34 @@ final class FocusIntentClassifierTests: XCTestCase {
         XCTAssertEqual(result.relation, .unrelated)
         XCTAssertEqual(result.reason, .goalMismatched)
     }
+
+    func testEducationalVisibleTextKeepsYouTubeContextFromReadingAsEntertainment() {
+        let goalContext = ContextSnapshot(
+            bundleIdentifier: "com.apple.dt.Xcode",
+            localizedName: "Xcode",
+            url: nil,
+            title: "Project",
+            source: .application
+        )
+        let intent = FocusIntent.make(
+            goal: "Write docs",
+            baselineContext: goalContext,
+            activeProfileName: "Work",
+            activeProfileCategory: "Focus"
+        )
+
+        let result = LocalIntentClassifier().classify(input: intent.makeInput(
+            snapshot: ContextSnapshot(
+                bundleIdentifier: "com.google.Chrome",
+                localizedName: "Google Chrome",
+                url: URL(string: "https://www.youtube.com/watch?v=swift-concurrency"),
+                title: "A page",
+                source: .chromium
+            ),
+            screenText: "Computer Science lecture on Swift concurrency and structured programming"
+        ))
+
+        XCTAssertEqual(result.relation, .uncertain)
+        XCTAssertEqual(result.reason, .insufficientIntent)
+    }
 }

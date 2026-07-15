@@ -4,7 +4,7 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="Anchored"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED_DATA_DIR="${TMPDIR:-/private/tmp}/anchored-release-derived-data"
+DERIVED_DATA_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/anchored-release-derived-data.XXXXXX")"
 BUILT_APP="$DERIVED_DATA_DIR/Build/Products/Release/$APP_NAME.app"
 INSTALLED_APP="/Applications/$APP_NAME.app"
 
@@ -15,6 +15,8 @@ xcodebuild \
   -scheme "$APP_NAME" \
   -configuration Release \
   -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO \
   -derivedDataPath "$DERIVED_DATA_DIR" \
   build
 

@@ -10,7 +10,7 @@ struct LocalIntentClassifier: IntentClassifying, Sendable {
     func classify(input: IntentClassificationInput) -> IntentClassificationResult {
         let start = DispatchTime.now().uptimeNanoseconds
 
-        let searchableText = Self.searchableText(for: input.snapshot)
+        let searchableText = Self.searchableText(for: input.snapshot, screenText: input.screenText)
         let goalFeatures = input.goalFeatures.isEmpty
             ? FocusIntent.extractGoalFeatures(from: input.sanitizedGoal ?? "")
             : input.goalFeatures
@@ -136,7 +136,7 @@ private extension LocalIntentClassifier {
         "mit"
     ]
 
-    static func searchableText(for snapshot: ContextSnapshot) -> String {
+    static func searchableText(for snapshot: ContextSnapshot, screenText: String?) -> String {
         let host = snapshot.url?.host ?? ""
         let path = snapshot.url?.path ?? ""
         return [
@@ -144,7 +144,8 @@ private extension LocalIntentClassifier {
             snapshot.localizedName,
             host,
             path,
-            ContextSanitizer.sanitizeTitle(snapshot.title)
+            ContextSanitizer.sanitizeTitle(snapshot.title),
+            screenText ?? ""
         ]
         .joined(separator: " ")
         .lowercased()

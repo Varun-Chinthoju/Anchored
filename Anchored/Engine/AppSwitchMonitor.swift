@@ -140,9 +140,12 @@ final class AppSwitchMonitor: ActivityMonitor {
 
     private func startPollingTimer() {
         cancelPollingTimer()
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
             self?.pollActiveContext()
         }
+        timer.tolerance = 0.25
+        RunLoop.main.add(timer, forMode: .common)
+        pollingTimer = timer
     }
 
     private func cancelPollingTimer() {

@@ -550,7 +550,6 @@ final class FocusEngine {
 
         let candidates: [String?] = [
             ContextSanitizer.sanitizeTitle(currentTitle),
-            currentContext?.localizedName,
             currentURL?.host?.replacingOccurrences(of: "www.", with: "")
         ]
 
@@ -1385,11 +1384,6 @@ final class FocusEngine {
             return
         }
 
-        let input = focusIntent.makeInput(
-            snapshot: snapshot,
-            activeProfileName: profileManager.activeProfile.name
-        )
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
 
@@ -1401,6 +1395,18 @@ final class FocusEngine {
                 return
             }
 
+            let visibleText: String?
+            if FocusEngine.isSensitiveContext(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title) {
+                visibleText = nil
+            } else {
+                visibleText = self.normalizedVisibleText(self.ocrProvider.extractText())
+            }
+
+            let input = focusIntent.makeInput(
+                snapshot: snapshot,
+                activeProfileName: self.profileManager.activeProfile.name,
+                screenText: visibleText
+            )
             let result = self.intentClassifier.classify(input: input)
             DispatchQueue.main.async { [weak self] in
                 guard let self,
@@ -2459,7 +2465,7 @@ final class FocusEngine {
         return max(0, threshold - Date().timeIntervalSince(distractionStartDate))
     }
 
-    private static let musicAppGraceThreshold: TimeInterval = 90.0
+    private static let musicAppGraceThreshold: TimeInterval = 120.0
 
     private static let musicAppBundleIdentifiers: Set<String> = [
         "com.apple.Music",
