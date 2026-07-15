@@ -49,6 +49,7 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertFalse(manager.classificationFeedbackEnabled)
         XCTAssertFalse(manager.interactionSummaryEnabled)
         XCTAssertFalse(manager.enableLocalTextClassification)
+        XCTAssertEqual(manager.localTextModel, PreferencesManager.defaultLocalTextModel)
         XCTAssertFalse(manager.sessionSummaryPromptEnabled)
         XCTAssertTrue(manager.weeklyReviewNotificationsEnabled)
         XCTAssertFalse(manager.focusScheduleEnabled)
@@ -84,6 +85,7 @@ final class PreferencesManagerTests: XCTestCase {
         testDefaults.set(1, forKey: PreferencesManager.Keys.cloudProvider)
         testDefaults.set("gpt-4-custom", forKey: PreferencesManager.Keys.cloudModel)
         testDefaults.set("https://custom.openai.com/v1", forKey: PreferencesManager.Keys.cloudEndpoint)
+        testDefaults.set("qwen2.5:1.5b", forKey: PreferencesManager.Keys.localTextModel)
         testDefaults.set(0.5, forKey: PreferencesManager.Keys.dimOpacity)
         testDefaults.set(10.0, forKey: PreferencesManager.Keys.dimTransitionDuration)
         mockService.status = .enabled
@@ -109,6 +111,7 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.cloudProvider, 1)
         XCTAssertEqual(manager.cloudModel, "gpt-4-custom")
         XCTAssertEqual(manager.cloudEndpoint, "https://custom.openai.com/v1")
+        XCTAssertEqual(manager.localTextModel, "qwen2.5:1.5b")
         
         // Dim preferences loaded values
         XCTAssertEqual(manager.dimOpacity, 0.5)
@@ -151,6 +154,50 @@ final class PreferencesManagerTests: XCTestCase {
         manager.enableLocalTextClassification = true
 
         XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableLocalTextClassification))
+    }
+
+    func testEnablingLocalTextClassificationDisablesCloudClassification() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.enableCloudClassification = true
+        manager.enableLocalTextClassification = true
+
+        XCTAssertTrue(manager.enableLocalTextClassification)
+        XCTAssertFalse(manager.enableCloudClassification)
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableLocalTextClassification))
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.enableCloudClassification))
+    }
+
+    func testEnablingCloudClassificationDisablesLocalTextClassification() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.enableLocalTextClassification = true
+        manager.enableCloudClassification = true
+
+        XCTAssertTrue(manager.enableCloudClassification)
+        XCTAssertFalse(manager.enableLocalTextClassification)
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableCloudClassification))
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.enableLocalTextClassification))
+    }
+
+    func testConflictingStoredClassificationPreferencesPreferLocalTextClassification() {
+        testDefaults.set(true, forKey: PreferencesManager.Keys.enableCloudClassification)
+        testDefaults.set(true, forKey: PreferencesManager.Keys.enableLocalTextClassification)
+
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        XCTAssertTrue(manager.enableLocalTextClassification)
+        XCTAssertFalse(manager.enableCloudClassification)
+        XCTAssertTrue(testDefaults.bool(forKey: PreferencesManager.Keys.enableLocalTextClassification))
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.enableCloudClassification))
+    }
+
+    func testLocalTextModelPreferencePersists() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.localTextModel = "qwen2.5:0.5b"
+
+        XCTAssertEqual(testDefaults.string(forKey: PreferencesManager.Keys.localTextModel), "qwen2.5:0.5b")
     }
 
     func testCountdownPillPreferencePersists() {

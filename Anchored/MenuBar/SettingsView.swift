@@ -993,8 +993,8 @@ struct GeneralSettingsPane: View {
                     }
 
                     SettingsRow(
-                        label: settingsCopy("Local Text Classification (Experimental)", pirate: "Local Text Classifier (Experimental)", isPirateMode: isPirateMode),
-                        description: settingsCopy("Runs a small on-device classifier over the bundle ID, title, and visible OCR text off the main thread. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a small on-device classifier over the bundle, title, and visible OCR text off the main deck. Only strong productive results may clear a neutral sight; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
+                        label: settingsCopy("Local Productivity Check", pirate: "Local Productivity Check", isPirateMode: isPirateMode),
+                        description: settingsCopy("Runs a fully on-device text scorer over the bundle ID, title, URL, and visible OCR text. Turning this on disables cloud AI. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a fully on-deck text scorer over the bundle, title, URL, and visible OCR text. Turning this on disables cloud AI. Only strong productive results may clear a neutral sight; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.enableLocalTextClassification)
@@ -1002,7 +1002,7 @@ struct GeneralSettingsPane: View {
 
                     SettingsRow(
                         label: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
-                        description: settingsCopy("Use cloud AI classification for high-precision focus validation.", pirate: "Ask the cloud winds if yer context is productive.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Use cloud AI classification for high-precision focus validation. Turning this on disables the local on-device check.", pirate: "Ask the cloud winds if yer context be productive. Turning this on disables the local on-deck check.", isPirateMode: isPirateMode),
                         showDivider: prefs.enableCloudClassification
                     ) {
                         Toggle("", isOn: $prefs.enableCloudClassification)

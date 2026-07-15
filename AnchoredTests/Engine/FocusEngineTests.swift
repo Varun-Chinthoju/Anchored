@@ -21,6 +21,7 @@ final class FocusEngineTests: XCTestCase {
         suiteName = "com.varun.Anchored.FocusEngineTests.\(UUID().uuidString)"
         testDefaults = UserDefaults(suiteName: suiteName)!
         testDefaults.removePersistentDomain(forName: suiteName)
+        KeychainHelper.clearCachedKeys()
         distractionListManager = DistractionListManager(defaults: testDefaults)
         profileManager = ProfileManager(defaults: testDefaults)
         testPreferences = PreferencesManager(defaults: testDefaults)
@@ -66,6 +67,7 @@ final class FocusEngineTests: XCTestCase {
         if FileManager.default.fileExists(atPath: directoryURL.path) {
             try? FileManager.default.removeItem(at: directoryURL)
         }
+        KeychainHelper.clearCachedKeys()
         super.tearDown()
     }
     
@@ -540,12 +542,8 @@ final class FocusEngineTests: XCTestCase {
         
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
         
-        // Wait for distraction countdown timer (0.05s threshold) to fire
-        let expectation = XCTestExpectation(description: "Wait for distraction countdown timer")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 0.5)
+        XCTAssertNotNil(engine.currentDistractionGraceRemaining)
+        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
         
         XCTAssertTrue(engine.isDimming)
         
@@ -1282,6 +1280,25 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNotNil(engine.currentDistractionGraceRemaining)
         XCTAssertFalse(engine.isDimming)
         XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
+    }
+
+    func testMusicAppsUseLongerGracePeriodBeforeDimming() {
+        let profile = WorkProfile(
+            name: "Music Grace",
+            distractionApps: ["com.spotify.client"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        engine.distractionCountdownThreshold = 0.05
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.spotify.client"])
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertGreaterThan(engine.currentDistractionGraceRemaining ?? 0, 60)
     }
 
     // MARK: - Cloud Classification Integration Tests

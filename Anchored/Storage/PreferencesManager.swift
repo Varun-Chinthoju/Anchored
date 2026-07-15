@@ -32,6 +32,7 @@ public final class PreferencesManager: ObservableObject {
         public static let enableImageClassification = "com.varun.Anchored.enableImageClassification"
         public static let useLocalGemma = "com.varun.Anchored.useLocalGemma"
         public static let localModelEndpoint = "com.varun.Anchored.localModelEndpoint"
+        public static let localTextModel = "com.varun.Anchored.localTextModel"
         public static let enableCloudClassification = "com.varun.Anchored.enableCloudClassification"
         public static let cloudProvider = "com.varun.Anchored.cloudProvider"
         public static let cloudModel = "com.varun.Anchored.cloudModel"
@@ -63,6 +64,7 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultCloudEndpointGemini = "https://generativelanguage.googleapis.com/v1beta/models/"
     public static let defaultCloudEndpointOpenAI = "https://api.openai.com/v1/chat/completions"
     public static let defaultCloudEndpointAnthropic = "https://api.anthropic.com/v1/messages"
+    public static let defaultLocalTextModel = "qwen2.5:0.5b"
 
     public static let defaultContextHistoryEnabled = false
     public static let defaultContextHistoryRetentionDays = 30
@@ -211,7 +213,8 @@ public final class PreferencesManager: ObservableObject {
         }
     }
 
-    /// The endpoint URL of the local model server (Ollama or llama.cpp)
+    /// Legacy compatibility preference for an older local model endpoint.
+    /// The current on-device text scorer does not depend on a server.
     @Published public var localModelEndpoint: String {
         didSet {
             defaults.set(localModelEndpoint, forKey: Keys.localModelEndpoint)
@@ -222,6 +225,9 @@ public final class PreferencesManager: ObservableObject {
     @Published public var enableCloudClassification: Bool {
         didSet {
             defaults.set(enableCloudClassification, forKey: Keys.enableCloudClassification)
+            if enableCloudClassification && enableLocalTextClassification {
+                enableLocalTextClassification = false
+            }
         }
     }
 
@@ -282,6 +288,22 @@ public final class PreferencesManager: ObservableObject {
         }
     }
 
+    /// Legacy compatibility preference for the older local text runtime.
+    @Published public var localTextModel: String {
+        didSet {
+            let normalized = localTextModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalized.isEmpty {
+                localTextModel = Self.defaultLocalTextModel
+                return
+            }
+            if normalized != localTextModel {
+                localTextModel = normalized
+                return
+            }
+            defaults.set(normalized, forKey: Keys.localTextModel)
+        }
+    }
+
     /// Whether detailed context history recording is enabled.
     @Published public var contextHistoryEnabled: Bool {
         didSet {
@@ -313,7 +335,12 @@ public final class PreferencesManager: ObservableObject {
 
     /// Whether the experimental local text classifier may promote neutral contexts.
     @Published public var enableLocalTextClassification: Bool {
-        didSet { defaults.set(enableLocalTextClassification, forKey: Keys.enableLocalTextClassification) }
+        didSet {
+            defaults.set(enableLocalTextClassification, forKey: Keys.enableLocalTextClassification)
+            if enableLocalTextClassification && enableCloudClassification {
+                enableCloudClassification = false
+            }
+        }
     }
 
     /// Whether Done should offer a local user-authored session summary prompt.
@@ -406,6 +433,9 @@ public final class PreferencesManager: ObservableObject {
         self.enableImageClassification = defaults.object(forKey: Keys.enableImageClassification) as? Bool ?? false
         self.useLocalGemma = defaults.object(forKey: Keys.useLocalGemma) as? Bool ?? false
         self.localModelEndpoint = defaults.string(forKey: Keys.localModelEndpoint) ?? "http://localhost:11434/api/generate"
+        let storedLocalTextModel = (defaults.string(forKey: Keys.localTextModel) ?? Self.defaultLocalTextModel)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.localTextModel = storedLocalTextModel.isEmpty ? Self.defaultLocalTextModel : storedLocalTextModel
         
         // Load cloud classification preferences
         self.enableCloudClassification = defaults.object(forKey: Keys.enableCloudClassification) as? Bool ?? Self.defaultEnableCloudClassification
@@ -452,6 +482,11 @@ public final class PreferencesManager: ObservableObject {
         // Initialize launchAtLogin state based on current SMAppService status
         let serviceStatus = loginItemService.status
         self.launchAtLogin = (serviceStatus == .enabled)
+
+        if self.enableLocalTextClassification && self.enableCloudClassification {
+            self.enableCloudClassification = false
+            defaults.set(false, forKey: Keys.enableCloudClassification)
+        }
     }
     
     /// Synchronizes the actual SMAppService status back to the published property if modified externally.

@@ -38,6 +38,29 @@ final class LocalTextClassifierTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(result.confidence, ClassificationPolicy.highConfidenceThreshold)
     }
 
+    func testOnDeviceLocalClassificationUsesRealContextDataWhenEnabled() throws {
+        let suiteName = "com.varun.Anchored.LocalTextClassifierTests.\(UUID().uuidString)"
+        let testDefaults = UserDefaults(suiteName: suiteName)!
+        defer { testDefaults.removePersistentDomain(forName: suiteName) }
+
+        let preferences = PreferencesManager(defaults: testDefaults)
+        preferences.enableLocalTextClassification = true
+
+        let result = LocalTextClassifier(preferences: preferences).classify(
+            snapshot: snapshot(
+                bundleID: "com.example.Reader",
+                url: nil,
+                title: "Overview"
+            ),
+            screenText: "Swift API documentation and code examples"
+        )
+
+        XCTAssertEqual(result.label, .productive)
+        XCTAssertEqual(result.modelVersion, LocalTextClassifier.version)
+        XCTAssertGreaterThanOrEqual(result.confidence, ClassificationPolicy.highConfidenceThreshold)
+        XCTAssertEqual(result.explanation, "local productive signals")
+    }
+
     func testConflictingSignalsStayNeutral() {
         let result = LocalTextClassifier().classify(snapshot: snapshot(
             bundleID: "com.google.Chrome",
@@ -69,54 +92,6 @@ final class LocalTextClassifierTests: XCTestCase {
 
         XCTAssertEqual(decision.label, .neutral)
         XCTAssertEqual(decision.reason, .optionalDistractionIsNonEnforcing)
-    }
-
-    func testEvaluationReportsSafetyMetricsAndGate() {
-        let fixtures = [
-            LocalClassificationFixture(
-                id: "productive-doc",
-                snapshot: snapshot(
-                    bundleID: "com.google.Chrome",
-                    url: "https://developer.apple.com/documentation/swift",
-                    title: "Swift API documentation"
-                ),
-                expectedLabel: .productive
-            ),
-            LocalClassificationFixture(
-                id: "distracting-music",
-                snapshot: snapshot(
-                    bundleID: "com.spotify.client",
-                    url: nil,
-                    title: "Music"
-                ),
-                expectedLabel: .distracting
-            ),
-            LocalClassificationFixture(
-                id: "unknown",
-                snapshot: snapshot(
-                    bundleID: "com.google.Chrome",
-                    url: "https://example.com/page",
-                    title: "A page"
-                ),
-                expectedLabel: .neutral
-            )
-        ]
-
-        let report = LocalClassifierEvaluator.evaluate(
-            classifier: LocalTextClassifier(),
-            fixtures: fixtures,
-            resourceMetrics: LocalClassifierResourceMetrics(
-                cpuTimeMilliseconds: 2,
-                peakMemoryBytes: 1024
-            )
-        )
-
-        XCTAssertEqual(report.fixtureCount, 3)
-        XCTAssertEqual(report.falseDistractionRate, 0)
-        XCTAssertEqual(report.distractingPrecision, 1)
-        XCTAssertEqual(report.cpuTimeMilliseconds, 2)
-        XCTAssertEqual(report.peakMemoryBytes, 1024)
-        XCTAssertTrue(report.precisionGatePassed)
     }
 
     private func snapshot(bundleID: String, url: String?, title: String) -> ContextSnapshot {

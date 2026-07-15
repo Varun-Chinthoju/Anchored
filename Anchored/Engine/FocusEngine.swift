@@ -179,6 +179,8 @@ final class FocusEngine {
     
     /// The date when the user entered a distraction app.
     private var distractionStartDate: Date?
+    /// The distraction context currently being timed for grace.
+    private var distractionBundleID: String?
     
     /// The date when the active focus session was paused.
     public var pausedDate: Date?
@@ -252,7 +254,7 @@ final class FocusEngine {
         self.visualChecker = visualChecker
         self.cloudClassificationService = cloudClassificationService ?? LiveCloudClassificationService(preferences: preferencesManager)
         self.interactionSummaryProvider = interactionSummaryProvider ?? LocalInteractionSummaryProvider()
-        self.localTextClassifier = localTextClassifier ?? LocalTextClassifier()
+        self.localTextClassifier = localTextClassifier ?? LocalTextClassifier(preferences: preferencesManager)
         self.intentClassifier = intentClassifier ?? LocalIntentClassifier()
         self.classificationOutcomeStore = classificationOutcomeStore ?? ClassificationOutcomeStore.shared
         self.breakReviewChecker = breakReviewChecker
@@ -2373,7 +2375,9 @@ final class FocusEngine {
     private func scheduleDistractionTimer(distractionBundleID: String, observedAt: Date = Date()) {
         cancelDistractionTimer()
         guard lifecyclePauseStartedAt == nil else { return }
-        let remaining = max(0, distractionCountdownThreshold - Date().timeIntervalSince(observedAt))
+        self.distractionBundleID = distractionBundleID
+        let threshold = distractionGraceThreshold(for: distractionBundleID)
+        let remaining = max(0, threshold - Date().timeIntervalSince(observedAt))
         guard remaining > 0 else {
             distractionTimerExpired(distractionBundleID: distractionBundleID)
             return
@@ -2386,6 +2390,7 @@ final class FocusEngine {
     private func cancelDistractionTimer() {
         distractionTimer?.invalidate()
         distractionTimer = nil
+        distractionBundleID = nil
     }
     
     internal func distractionTimerExpired(distractionBundleID: String) {
@@ -2408,8 +2413,30 @@ final class FocusEngine {
     }
 
     var currentDistractionGraceRemaining: TimeInterval? {
-        guard let distractionStartDate else { return nil }
-        return max(0, distractionCountdownThreshold - Date().timeIntervalSince(distractionStartDate))
+        guard let distractionStartDate,
+              let distractionBundleID else { return nil }
+        let threshold = distractionGraceThreshold(for: distractionBundleID)
+        return max(0, threshold - Date().timeIntervalSince(distractionStartDate))
+    }
+
+    private static let musicAppGraceThreshold: TimeInterval = 90.0
+
+    private static let musicAppBundleIdentifiers: Set<String> = [
+        "com.apple.Music",
+        "com.spotify.client",
+        "com.apple.podcasts"
+    ]
+
+    private func distractionGraceThreshold(for bundleID: String) -> TimeInterval {
+        let normalizedBundleID = bundleID.lowercased()
+        let isMusicBundle = Self.musicAppBundleIdentifiers.contains { $0.lowercased() == normalizedBundleID }
+            || normalizedBundleID.contains("music")
+            || normalizedBundleID.contains("spotify")
+            || normalizedBundleID.contains("podcast")
+        if isMusicBundle {
+            return max(distractionCountdownThreshold, Self.musicAppGraceThreshold)
+        }
+        return distractionCountdownThreshold
     }
     
     // MARK: - Doomscroll Loop Breaker
