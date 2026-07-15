@@ -27,7 +27,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Supported educational browser videos stay neutral unless an explicit rule or stronger intent signal says otherwise.
 - Session-start and dim-return surfaces now auto-suggest a session goal plus profile/category from the current context, so a user can start or resume without typing a summary when the current window/title is clear enough.
 - A persisted focus schedule gate now controls automatic focus behavior by time of day. It supports a work window plus optional lunch break, keeps manual sessions available at any time, and exposes outside-hours status in the menu bar so the app can stay quiet during lunch or after hours.
-- Wave 3 adds `LocalTextClassifier` behind `PreferencesManager.enableLocalTextClassification` (off by default). It receives a sanitized `ContextSnapshot` off-main; when enabled, high-confidence productive results may promote the current neutral context. If disabled, local text classification is skipped.
+- Wave 3 adds `LocalTextClassifier` behind `PreferencesManager.enableLocalTextClassification` (off by default). It receives a sanitized `ContextSnapshot` plus transient on-device visible text from OCR off-main; when enabled, high-confidence productive results may promote the current neutral context. If disabled, local text classification is skipped.
 - Wave 4 constrains cloud classification to categorical `CloudClassificationInput` values and structured `ClassificationResult` responses; it never sends OCR, screenshots, raw titles, full URLs, browsing history, typed content, or raw interaction data. Visual analysis is an experimental, disabled-by-default final fallback after local text and cloud resolution, running entirely via macOS native Vision APIs (OCR and Image Classification) and completely free of expensive external python/SmolVLM subprocesses.
 - The application includes privacy controls to toggle the experimental visual fallback (`PreferencesManager.enableImageClassification`) and choose/download the local model (`useLocalGemma` and `downloadGemmaModel()`) during onboarding and in settings; `downloadGemmaModel()` behaves as a mock local-only completion helper to preserve bindings while eliminating external shell process downloads.
 - A private in-memory classification cache (`classificationCache`) in `FocusEngine.swift` stores and reuses classification decisions for the duration of the context (active profile/allowed rule changes clear the cache), preventing redundant executions of local text, cloud, and visual fallbacks on the same context snapshot.
@@ -99,7 +99,7 @@ It currently:
 1. Delegates fresh-install detection to `FreshInstallChecking` (`LiveFreshInstallChecker` with `FileManager` + `appPathProvider` closure), removing `NSClassFromString` sniffing. `shouldShowOnboardingFlow` delegates to checker; tests inject `FlagOnlyChecker`.
 2. On completion, instantiates:
    - `AppSwitchMonitor` (2.5s poll, sleep/wake/lock suspend/resume, ContextIdentity dedup)
-   - `FocusEngine` with injected `LiveOCRProvider` (`WindowTextExtracting`), `LiveVisualProductivityChecker` (`VisualProductivityChecking`), and optional `ContextClassifying` local text runtime
+   - `FocusEngine` with injected `LiveOCRProvider` (`WindowTextExtracting`), `LiveVisualProductivityChecker` (`VisualProductivityChecking`), and optional `ContextClassifying` local text runtime that can consume transient visible OCR text
    - `OverlayManager`
    - `MenuBarController`
    - `ShadowTrackingEngine`
@@ -211,7 +211,7 @@ Responsibilities:
 - resolves `DistractionEvaluator` evidence through `ClassificationResolver`, then coordinates state transitions from the final decision; it does not own rule precedence
 - publishes the current safe `ClassificationDecision` to the menu bar and applies corrections through `ProfileManager`, recording only opt-in structured feedback
 - passes an opt-in, memory-only `InteractionSummary` to the resolver; the bounded modifier cannot override explicit rules
-- runs the opt-in local text classifier off-main against a sanitized snapshot; generation/current-context checks protect the promotion callback
+- runs the opt-in local text classifier off-main against a sanitized snapshot plus transient visible OCR text; generation/current-context checks protect the promotion callback
 - schedules the optional pipeline in order: local text, then cloud structured evidence, then the explicitly enabled visual fallback; generation checks discard stale results and only a productive result can promote the current neutral context to focus through the resolver
 - auto-suggests the next session goal plus profile/category from the current context so the menu-bar start sheet and dim-return sheet can prefill the user-facing labels
 - auto-anchors the current focus run once the focus threshold is met, using the configured automatic session duration, instead of showing the old start prompt
@@ -224,7 +224,7 @@ Responsibilities:
 
 Injection seams (Task 9):
 
-- `WindowTextExtracting` / `LiveOCRProvider`: Vision `CGWindowListCreateImage` + `VNRecognizeTextRequest` off-main, injected into FocusEngine. Tests inject `MockOCRProvider` returning "".
+- `WindowTextExtracting` / `LiveOCRProvider`: Vision `CGWindowListCreateImage` + `VNRecognizeTextRequest` off-main, injected into FocusEngine. Tests inject `MockOCRProvider` returning configurable visible text for local text classification.
 - `VisualProductivityChecking` / `LiveVisualProductivityChecker` wrapping `SmartImageClassifier.isProductiveVisual` (now without XCTest sniffing). Tests inject `MockVisualChecker` returning false.
 - `activityMonitor: ActivityMonitor`, `distractionListManager`, `sessionStore`, `profileManager`, `preferencesManager` all injected
 - Cloud: `CloudClassifier(preferences:)` with optional `URLSession` injection, no `NSClassFromString` for MockURLProtocol

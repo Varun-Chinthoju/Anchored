@@ -11,6 +11,7 @@ final class FocusEngineTests: XCTestCase {
     private var testPreferences: PreferencesManager!
     private var sessionStore: SessionStore!
     private var mockDelegate: MockFocusEngineDelegate!
+    private var mockOCRProvider: MockOCRProvider!
     private var engine: FocusEngine!
     private var tempStoreURL: URL!
     
@@ -32,6 +33,7 @@ final class FocusEngineTests: XCTestCase {
         // Setup mock ActivityMonitor and Delegate
         mockActivityMonitor = MockActivityMonitor()
         mockDelegate = MockFocusEngineDelegate()
+        mockOCRProvider = MockOCRProvider()
         // Initialize FocusEngine (default threshold = 10 minutes) with fake providers to avoid Vision overhead
         engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
@@ -40,7 +42,7 @@ final class FocusEngineTests: XCTestCase {
             profileManager: profileManager,
             focusThreshold: 600.0,
             preferencesManager: testPreferences,
-            ocrProvider: MockOCRProvider(),
+            ocrProvider: mockOCRProvider,
             visualChecker: MockVisualChecker()
         )
         engine.delegate = mockDelegate
@@ -420,6 +422,45 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(engine.currentClassification.isNeutral)
         XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
         XCTAssertFalse(engine.isDimming)
+    }
+
+    func testLocalTextPipelinePassesVisibleWindowTextIntoClassifier() {
+        testPreferences.enableLocalTextClassification = true
+        mockOCRProvider.text = "Swift API documentation and code examples"
+
+        let classifier = OCRDrivenClassifier()
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: mockOCRProvider,
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: classifier
+        )
+        engine.delegate = mockDelegate
+
+        let promoted = expectation(description: "visible text promoted the neutral context")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .focusEngineClassificationDidChange,
+            object: engine,
+            queue: .main
+        ) { [weak engine] _ in
+            if engine?.currentClassification.isFocus == true {
+                promoted.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Reader", title: "Overview")
+
+        wait(for: [promoted], timeout: 2.0)
+
+        XCTAssertEqual(classifier.observedScreenText, "Swift API documentation and code examples")
+        XCTAssertTrue(engine.currentClassification.isFocus)
     }
     
     // MARK: - Capsule Actions
@@ -1215,7 +1256,34 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
         XCTAssertEqual(mockDelegate.returnsToWork, 0)
     }
-    
+
+    func testCmdTabToAnotherProductiveAppDoesNotCancelGracePeriod() {
+        let profile = WorkProfile(
+            name: "Neutral Apps",
+            distractionApps: ["com.hnc.Discord"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        engine.distractionCountdownThreshold = 10.0
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.hnc.Discord")
+
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.hnc.Discord"])
+        XCTAssertNotNil(engine.currentDistractionGraceRemaining)
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.jetbrains.intellij")
+
+        XCTAssertEqual(mockDelegate.returnsToWork, 0)
+        XCTAssertNotNil(engine.currentDistractionGraceRemaining)
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
+    }
+
     // MARK: - Cloud Classification Integration Tests
     
     func testCloudClassificationIsDistractionProductive() {
@@ -2035,7 +2103,7 @@ private final class CountingClassifier: ContextClassifying, @unchecked Sendable 
         return count
     }
     
-    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+    func classify(snapshot: ContextSnapshot, screenText: String?) -> ClassificationResult {
         lock.lock()
         count += 1
         lock.unlock()
@@ -2050,7 +2118,7 @@ private final class CountingClassifier: ContextClassifying, @unchecked Sendable 
 }
 
 private final class ProductiveTestClassifier: ContextClassifying, Sendable {
-    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+    func classify(snapshot: ContextSnapshot, screenText: String?) -> ClassificationResult {
         ClassificationResult(
             label: .productive,
             confidence: 0.95,
@@ -2067,7 +2135,7 @@ private final class DeferredContextClassifier: ContextClassifying, @unchecked Se
     private var pendingSignal: DispatchSemaphore?
     var onRequest: (() -> Void)?
 
-    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+    func classify(snapshot: ContextSnapshot, screenText: String?) -> ClassificationResult {
         let semaphore = DispatchSemaphore(value: 0)
         lock.lock()
         pendingResult = nil
@@ -2095,6 +2163,26 @@ private final class DeferredContextClassifier: ContextClassifying, @unchecked Se
         let signal = pendingSignal
         lock.unlock()
         signal?.signal()
+    }
+}
+
+private final class OCRDrivenClassifier: ContextClassifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var observedScreenText: String?
+
+    func classify(snapshot: ContextSnapshot, screenText: String?) -> ClassificationResult {
+        lock.lock()
+        observedScreenText = screenText
+        lock.unlock()
+
+        let isProductive = (screenText ?? "").lowercased().contains("documentation")
+        return ClassificationResult(
+            label: isProductive ? .productive : .neutral,
+            confidence: isProductive ? 0.95 : 0.0,
+            modelVersion: "test-ocr",
+            latency: 0,
+            explanation: isProductive ? "test ocr productive result" : "test ocr neutral result"
+        )
     }
 }
 
@@ -2188,9 +2276,11 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     }
 }
 
-struct MockOCRProvider: WindowTextExtracting {
+final class MockOCRProvider: WindowTextExtracting {
+    var text: String = ""
+
     func extractText() -> String {
-        return ""
+        text
     }
 }
 
@@ -2253,11 +2343,11 @@ private final class PassThroughCountingClassifier: ContextClassifying, @unchecke
         self.wrapped = wrapped
     }
     
-    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+    func classify(snapshot: ContextSnapshot, screenText: String?) -> ClassificationResult {
         lock.lock()
         count += 1
         lock.unlock()
-        return wrapped.classify(snapshot: snapshot)
+        return wrapped.classify(snapshot: snapshot, screenText: screenText)
     }
 }
 
@@ -2267,7 +2357,7 @@ private final class ConcurrentDeferredClassifier: ContextClassifying, @unchecked
     private var pendingResults: [ContextIdentity: ClassificationResult] = [:]
     var onRequest: ((ContextIdentity) -> Void)?
 
-    func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+    func classify(snapshot: ContextSnapshot, screenText: String?) -> ClassificationResult {
         let identity = snapshot.identity
         let semaphore = DispatchSemaphore(value: 0)
         

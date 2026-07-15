@@ -24,6 +24,20 @@ final class LocalTextClassifierTests: XCTestCase {
         XCTAssertEqual(result.label, .neutral)
     }
 
+    func testVisibleWindowTextCanPromoteAnOtherwiseNeutralContext() {
+        let result = LocalTextClassifier().classify(
+            snapshot: snapshot(
+                bundleID: "com.example.Reader",
+                url: nil,
+                title: "Overview"
+            ),
+            screenText: "Swift API documentation and code examples"
+        )
+
+        XCTAssertEqual(result.label, .productive)
+        XCTAssertGreaterThanOrEqual(result.confidence, ClassificationPolicy.highConfidenceThreshold)
+    }
+
     func testConflictingSignalsStayNeutral() {
         let result = LocalTextClassifier().classify(snapshot: snapshot(
             bundleID: "com.google.Chrome",

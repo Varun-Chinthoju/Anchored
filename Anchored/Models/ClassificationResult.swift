@@ -149,7 +149,7 @@ public enum ClassificationPolicy {
     /// outranks an app rule. Optional model evidence can contribute to the
     /// intent-aware grace period, but never dims the screen immediately.
     ///
-    /// Privacy: classification input is sanitized ContextSnapshot only (bundleID, host/path, normalized title via ContextSanitizer).
+    /// Privacy: local classification input is a sanitized ContextSnapshot plus optional transient visible OCR text; cloud requests still receive only categorical features.
     /// Safety: asynchronous classifiers cannot directly start dimming/blocking.
     /// Threading: ML inference must run off main on background serial queue with generation-based stale rejection; CoreML stays out of FocusEngine.
 

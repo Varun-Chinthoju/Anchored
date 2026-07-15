@@ -1304,7 +1304,12 @@ final class FocusEngine {
             print("📈 [Focus Context] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(url?.host ?? "nil") focus=true titleLen=\(title.count)")
             
             if activeSession != nil {
-                if shouldImmediatelyResumeSession(for: actualSnapshot, decision: decision) {
+                if distractionStartDate != nil && !isDimming {
+                    RuntimeTrace.event("focus_context_held_until_dimming", fields: [
+                        "bundleID": bundleID,
+                        "generation": String(contextGeneration)
+                    ])
+                } else if shouldImmediatelyResumeSession(for: actualSnapshot, decision: decision) {
                     lastWorkAppBundleID = bundleID
                     let needsUIUpdate = (distractionStartDate != nil && !isDimming)
                     resumeSessionIfNeeded()
@@ -1622,7 +1627,20 @@ final class FocusEngine {
                 return
             }
 
-            let result = self.localTextClassifier.classify(snapshot: sanitizedSnapshot)
+            let visibleText: String?
+            if FocusEngine.isSensitiveContext(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title) {
+                RuntimeTrace.event("local_text_classification_skipped_sensitive", fields: [
+                    "bundleID": snapshot.bundleIdentifier
+                ])
+                visibleText = nil
+            } else {
+                visibleText = self.normalizedVisibleText(self.ocrProvider.extractText())
+            }
+
+            let result = self.localTextClassifier.classify(
+                snapshot: sanitizedSnapshot,
+                screenText: visibleText
+            )
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
 
@@ -1682,6 +1700,14 @@ final class FocusEngine {
                 )
             }
         }
+    }
+
+    private func normalizedVisibleText(_ text: String) -> String? {
+        let cleaned = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .joined(separator: " ")
+        return cleaned.isEmpty ? nil : cleaned
     }
     
     private func resumeSessionIfNeeded() {

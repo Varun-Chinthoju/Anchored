@@ -994,7 +994,7 @@ struct GeneralSettingsPane: View {
 
                     SettingsRow(
                         label: settingsCopy("Local Text Classification (Experimental)", pirate: "Local Text Classifier (Experimental)", isPirateMode: isPirateMode),
-                        description: settingsCopy("Runs a small on-device text classifier off the main thread. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a small local text classifier off the main deck. Only strong productive results may clear a neutral sight; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Runs a small on-device classifier over the bundle ID, title, and visible OCR text off the main thread. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a small on-device classifier over the bundle, title, and visible OCR text off the main deck. Only strong productive results may clear a neutral sight; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.enableLocalTextClassification)

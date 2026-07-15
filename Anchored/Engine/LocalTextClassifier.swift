@@ -1,10 +1,11 @@
 import Foundation
 
 /// A small, deterministic on-device text classifier used as an opt-in
-/// promotion candidate. It consumes only the sanitized identity of a
-/// ContextSnapshot and never performs enforcement itself.
+/// promotion candidate. It consumes the sanitized identity of a ContextSnapshot
+/// plus transient visible text captured on-device and never performs
+/// enforcement itself.
 public final class LocalTextClassifier: ContextClassifying, Sendable {
-    public static let version = "local-text-v1"
+    public static let version = "local-text-v2"
 
     private static let productiveSignals = [
         "xcode", "vscode", "visual studio", "terminal", "iterm", "notion", "obsidian",
@@ -22,12 +23,13 @@ public final class LocalTextClassifier: ContextClassifying, Sendable {
 
     public init() {}
 
-    public func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+    public func classify(snapshot: ContextSnapshot, screenText: String?) -> ClassificationResult {
         let identity = snapshot.identity
         let searchableText = [
             identity.bundleID,
             identity.sanitizedURL ?? "",
-            identity.normalizedTitle
+            identity.normalizedTitle,
+            Self.normalized(screenText)
         ]
         .joined(separator: " ")
         .lowercased()
@@ -73,6 +75,10 @@ public final class LocalTextClassifier: ContextClassifying, Sendable {
             explanation: "local confidence below gate"
         )
     }
+
+    public func classify(snapshot: ContextSnapshot) -> ClassificationResult {
+        classify(snapshot: snapshot, screenText: nil)
+    }
 }
 
 private extension LocalTextClassifier {
@@ -82,6 +88,14 @@ private extension LocalTextClassifier {
                 score += 1
             }
         }
+    }
+
+    static func normalized(_ text: String?) -> String {
+        guard let text else { return "" }
+        return text
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .joined(separator: " ")
     }
 }
 
