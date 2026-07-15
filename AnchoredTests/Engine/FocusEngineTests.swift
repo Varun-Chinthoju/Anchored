@@ -489,6 +489,28 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(events.first?.action, .anchored)
         XCTAssertEqual(events.first?.sessionDurationSeconds, 1500)
     }
+
+    func testAnchorSessionFallsBackToProfileNameWhenNoWorkAppIsAvailable() {
+        let expectedFallback = profileManager.activeProfile.name
+
+        engine.anchorSession(duration: 1_500.0)
+
+        XCTAssertEqual(engine.activeSession?.appName, expectedFallback)
+        XCTAssertFalse(engine.activeSession?.appName.isEmpty ?? true)
+
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.first?.appName, expectedFallback)
+    }
+
+    func testSuggestedSessionGoalSuppressesVideoTitlesFromEntertainmentSites() {
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://www.youtube.com/watch?v=swift-concurrency"),
+            title: "Computer Science Lecture - Swift Concurrency"
+        )
+
+        XCTAssertNil(engine.suggestedSessionGoal())
+    }
     
     func testDismissTriggerResetsWorkSessionStart() {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")

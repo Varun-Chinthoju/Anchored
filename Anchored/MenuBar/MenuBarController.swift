@@ -70,7 +70,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
         // Status header
         let activeProfileName = ProfileManager.shared.activeProfile.name
         if let session = focusEngine.activeSession {
-            let baseStatus = session.goal != nil ? "Focus: \(session.goal!)" : "Focusing in \(session.appName)"
+            let baseStatus = session.goal != nil ? "Focus: \(session.goal!)" : "Focusing in \(session.displayName)"
             let statusTitle = focusEngine.isFocusScheduleActive ? baseStatus : "\(baseStatus) (Schedule Off)"
             let statusItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
             statusItem.isEnabled = false

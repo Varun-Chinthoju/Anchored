@@ -124,18 +124,18 @@ struct MenuBarPopoverView: View {
                                     .font(.system(size: 16, weight: .bold, design: .rounded))
                                     .multilineTextAlignment(.center)
                                 HStack(spacing: 4) {
-                                    Text("Focusing in")
-                                    Text(session.category ?? profileManager.activeProfile.name)
-                                        .bold()
-                                    Text("via \(session.appName)")
-                                }
+                                Text("Focusing in")
+                                Text(session.category ?? profileManager.activeProfile.name)
+                                    .bold()
+                                Text("via \(session.displayName)")
+                            }
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(themeTextSecondary)
                             } else {
                                 Text("Focusing on")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(themeTextSecondary)
-                                Text(session.appName)
+                                Text(session.displayName)
                                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                             }
                         }
@@ -315,7 +315,7 @@ struct MenuBarPopoverView: View {
                                     .font(.system(size: 12))
                                 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(session.appName)
+                                    Text(session.displayName)
                                         .font(.system(size: 12, weight: .semibold))
                                     Text(formatTime(session.timestamp))
                                         .font(.system(size: 10))

@@ -540,7 +540,15 @@ final class FocusEngine {
     }
 
     func suggestedSessionGoal() -> String? {
-        let candidates = [
+        if shouldSuppressSuggestedGoalCandidate(
+            bundleID: currentContext?.bundleIdentifier ?? currentApp,
+            url: currentURL,
+            title: currentTitle
+        ) {
+            return nil
+        }
+
+        let candidates: [String?] = [
             ContextSanitizer.sanitizeTitle(currentTitle),
             currentContext?.localizedName,
             currentURL?.host?.replacingOccurrences(of: "www.", with: "")
@@ -2109,10 +2117,10 @@ final class FocusEngine {
     func anchorSession(duration: TimeInterval, category: String? = nil, goal: String? = nil) {
         let now = Date()
         let start = workSessionStart ?? now
-        let focusedAppName = getAppName(for: lastWorkAppBundleID ?? "")
         let resolvedProfileName = Self.cleanedSuggestedLabel(category) ?? suggestedSessionProfile().name
         let explicitGoal = Self.cleanedSuggestedLabel(goal)
         let resolvedGoal = explicitGoal ?? suggestedSessionGoal()
+        let focusedAppName = resolvedSessionAppName(fallbackCategory: resolvedProfileName)
 
         activeSessionIdentity = UUID()
         excludedBreakDuration = 0
@@ -2594,6 +2602,25 @@ final class FocusEngine {
 
         return fallback
     }
+
+    private func resolvedSessionAppName(fallbackCategory: String) -> String {
+        let candidates: [String?] = [
+            getAppName(for: lastWorkAppBundleID ?? currentApp ?? ""),
+            currentContext?.localizedName,
+            Self.cleanedSuggestedLabel(fallbackCategory),
+            profileManager.activeProfile.name
+        ]
+
+        for candidate in candidates {
+            guard let cleaned = Self.cleanedSuggestedLabel(candidate),
+                  !cleaned.isEmpty else {
+                continue
+            }
+            return cleaned
+        }
+
+        return "Manual Focus Session"
+    }
     
     private func getAppName(for bundleID: String) -> String {
         if bundleID.isEmpty { return "" }
@@ -2614,6 +2641,48 @@ final class FocusEngine {
             }
         }
         return bundleID
+    }
+
+    private func shouldSuppressSuggestedGoalCandidate(bundleID: String?, url: URL?, title: String) -> Bool {
+        let normalizedTitle = ContextSanitizer.sanitizeTitle(title).lowercased()
+        guard !normalizedTitle.isEmpty else { return false }
+
+        let normalizedHost = url?.host?.lowercased() ?? ""
+        let entertainmentHosts = [
+            "youtube.com",
+            "youtu.be",
+            "vimeo.com",
+            "twitch.tv",
+            "netflix.com",
+            "hulu.com",
+            "tiktok.com",
+            "instagram.com",
+            "facebook.com",
+            "x.com",
+            "twitter.com"
+        ]
+        if entertainmentHosts.contains(where: { normalizedHost == $0 || normalizedHost.hasSuffix(".\($0)") }) {
+            return true
+        }
+
+        guard let bundleID, BrowserStrategyFactory.isSupportedBrowser(bundleID) else {
+            return false
+        }
+
+        let entertainmentTitleSignals = [
+            "video",
+            "lecture",
+            "course",
+            "tutorial",
+            "watch",
+            "stream",
+            "episode",
+            "movie",
+            "gaming",
+            "gameplay"
+        ]
+
+        return entertainmentTitleSignals.contains { normalizedTitle.contains($0) }
     }
 }
 

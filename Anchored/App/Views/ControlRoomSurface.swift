@@ -94,7 +94,7 @@ struct ControlRoomFooterStrip: View {
                 .foregroundColor(palette.textSecondaryColor)
             Spacer()
             if let session = activeSession {
-                Label(session.appName, systemImage: "dot.radiowaves.left.and.right")
+                Label(session.displayName, systemImage: "dot.radiowaves.left.and.right")
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundColor(palette.textPrimaryColor)
                     .padding(.horizontal, 10)

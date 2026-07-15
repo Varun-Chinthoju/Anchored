@@ -549,7 +549,7 @@ extension SQLiteSessionStore {
 
         for session in sessions {
             let bundleID = session.appBundleID
-            let appName = session.appName
+            let appName = session.displayName
             let duration = TimeInterval(session.sessionDurationSeconds ?? 0)
 
             var domain: String? = nil
@@ -622,7 +622,7 @@ extension SQLiteSessionStore {
                                     type: .focus,
                                     startDate: currentBlockStart,
                                     endDate: ev.timestamp,
-                                    appName: startEvent.appName
+                                    appName: startEvent.displayName
                                 ))
                             }
                         } else if currentBlockType == .distraction {
@@ -631,7 +631,7 @@ extension SQLiteSessionStore {
                                     type: .distraction,
                                     startDate: currentBlockStart,
                                     endDate: ev.timestamp,
-                                    appName: startEvent.appName,
+                                    appName: startEvent.displayName,
                                     distractionAppBundleID: currentDistractionApp,
                                     distractionDomain: currentDistractionDomain
                                 ))
@@ -650,14 +650,14 @@ extension SQLiteSessionStore {
                             type: .focus,
                             startDate: currentBlockStart,
                             endDate: endDate,
-                            appName: startEvent.appName
+                            appName: startEvent.displayName
                         ))
                     } else {
                         blocks.append(TimelineBlock(
                             type: .distraction,
                             startDate: currentBlockStart,
                             endDate: endDate,
-                            appName: startEvent.appName,
+                            appName: startEvent.displayName,
                             distractionAppBundleID: currentDistractionApp,
                             distractionDomain: currentDistractionDomain
                         ))

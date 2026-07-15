@@ -25,4 +25,23 @@ struct ActiveSession: Codable, Equatable {
         self.category = category
         self.goal = goal
     }
+
+    var displayName: String {
+        let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedAppName.isEmpty {
+            return trimmedAppName
+        }
+
+        if let trimmedCategory = category?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmedCategory.isEmpty {
+            return trimmedCategory
+        }
+
+        if let trimmedGoal = goal?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmedGoal.isEmpty {
+            return trimmedGoal
+        }
+
+        return "Manual Focus Session"
+    }
 }
