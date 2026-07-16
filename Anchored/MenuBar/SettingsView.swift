@@ -210,7 +210,6 @@ struct SettingsView: View {
             .frame(minWidth: 900, idealWidth: 990, minHeight: 570, idealHeight: 630)
             .accentColor(SettingsTheme.accent)
             .tint(SettingsTheme.accent)
-            .background(ControlRoomShellBackground(palette: SettingsTheme.palette))
     }
 
     var body: some View {
@@ -230,6 +229,11 @@ struct SettingsView: View {
                 selectedSettingsPane(isPirateMode: isPirateMode)
             }
         }
+        .searchable(
+            text: $searchQuery,
+            placement: .sidebar,
+            prompt: settingsCopy("Search Settings", pirate: "Search the charts", isPirateMode: isPirateMode)
+        )
         .onChange(of: selectedItem) { newItem in
             if case .profile(let id) = newItem,
                let profile = profileManager.profiles.first(where: { $0.id == id }) {
@@ -250,134 +254,63 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func settingsSidebar(isPirateMode: Bool) -> some View {
-        let themeAccent = SettingsTheme.accent
-        let themeSurfaceRaised = SettingsTheme.surfaceRaised
         let themeTextSecondary = SettingsTheme.textSecondary
 
-        return VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "magnifyingglass")
+        return List(selection: $selectedItem) {
+            Section {
+                ForEach(profileManager.profiles) { profile in
+                    ProfileRowView(
+                        profile: profile,
+                        isActive: profile.id == profileManager.activeProfile.id,
+                        isPirateMode: isPirateMode,
+                        onDelete: { deleteProfile(profile) },
+                        onMakeActive: { makeProfileActive(profile) },
+                        canDelete: profileManager.profiles.count > 1
+                    )
+                    .tag(SidebarItem.profile(profile.id))
+                }
+
+                Button {
+                    newProfileName = ""
+                    showAddAlert = true
+                } label: {
+                    Label("Add Profile", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+            } header: {
+                Text("Profiles")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(1.1)
                     .foregroundColor(themeTextSecondary)
-                    .font(.system(size: 12))
-                TextField(settingsCopy("Search", pirate: "Search the charts", isPirateMode: isPirateMode), text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                if !searchQuery.isEmpty {
-                    Button { searchQuery = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(themeTextSecondary)
-                    }
-                    .buttonStyle(.plain)
+            }
+
+            Section {
+                ForEach([SettingsSection.general, SettingsSection.privacy, SettingsSection.captainsLog, SettingsSection.about]) { section in
+                    Label(section.displayName(isPirateMode: isPirateMode), systemImage: section.iconName)
+                        .labelStyle(ColoredLabelStyle(color: section.iconColor))
+                        .tag(sidebarItem(for: section))
+                }
+            } header: {
+                Text(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(1.1)
+                    .foregroundColor(themeTextSecondary)
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 480)
+        .alert("New Profile", isPresented: $showAddAlert) {
+            TextField("Profile Name", text: $newProfileName)
+            Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) { }
+            Button(settingsCopy("Create", pirate: "Commission", isPirateMode: isPirateMode)) {
+                let trimmed = newProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    let newProfile = WorkProfile(name: trimmed)
+                    profileManager.addProfile(newProfile)
+                    selectedItem = .profile(newProfile.id)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(themeSurfaceRaised.opacity(0.6))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(SettingsTheme.border.opacity(0.5), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Profiles")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .tracking(1.1)
-                        .foregroundColor(themeTextSecondary)
-                        .padding(.horizontal, 14)
-                        .padding(.top, 8)
-
-                    ForEach(profileManager.profiles) { profile in
-                        ProfileRowView(
-                            profile: profile,
-                            isActive: profile.id == profileManager.activeProfile.id,
-                            isPirateMode: isPirateMode,
-                            onDelete: { deleteProfile(profile) },
-                            onMakeActive: { makeProfileActive(profile) },
-                            canDelete: profileManager.profiles.count > 1
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(selectedItem == .profile(profile.id) ? themeAccent.opacity(0.18) : .clear)
-                        .cornerRadius(6)
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedItem = .profile(profile.id) }
-                    }
-
-                    Button {
-                        newProfileName = ""
-                        showAddAlert = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(SettingsTheme.darkWood)
-                                .padding(4)
-                                .background(SettingsTheme.accent)
-                                .clipShape(Circle())
-                            Text("Add Profile")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(SettingsTheme.accent)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-
-                    Text(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .tracking(1.1)
-                        .foregroundColor(themeTextSecondary)
-                        .padding(.horizontal, 14)
-                        .padding(.top, 14)
-
-                    ForEach([SettingsSection.general, SettingsSection.privacy, SettingsSection.captainsLog, SettingsSection.about]) { section in
-                        Label(section.displayName(isPirateMode: isPirateMode), systemImage: section.iconName)
-                            .labelStyle(ColoredLabelStyle(color: section.iconColor))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.18) : .clear)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.28) : Color.clear, lineWidth: 1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectedItem = sidebarItem(for: section) }
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 12)
-            }
-            .background(
-                LinearGradient(
-                    colors: [
-                        ControlRoomTheme.shellTop,
-                        ControlRoomTheme.shellBottom
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .alert("New Profile", isPresented: $showAddAlert) {
-                TextField("Profile Name", text: $newProfileName)
-                Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) { }
-                Button(settingsCopy("Create", pirate: "Commission", isPirateMode: isPirateMode)) {
-                    let trimmed = newProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty {
-                        let newProfile = WorkProfile(name: trimmed)
-                        profileManager.addProfile(newProfile)
-                        selectedItem = .profile(newProfile.id)
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 460)
         }
     }
 

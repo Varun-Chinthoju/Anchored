@@ -21,7 +21,9 @@ class SettingsWindow: NSWindow {
         self.hasShadow = true
         self.minSize = NSSize(width: 900, height: 570)
         self.appearance = NSAppearance(named: .vibrantDark)
-        self.titlebarAppearsTransparent = true
+        self.titlebarAppearsTransparent = false
+        self.titleVisibility = .visible
+        self.toolbarStyle = .unifiedCompact
         
         let themeAccent = PreferencesManager.shared.selectedThemePalette.accentColor
         let view = SettingsView(
