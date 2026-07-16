@@ -72,7 +72,7 @@ struct OnboardingView: View {
                 
                 HStack(alignment: .center) {
                     if currentStep == 0 || currentStep == 1 {
-                        Text(t("how_btn")) // Standard prompt
+                        Text(langManager.translate("how_btn"))
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                             .opacity(0.4)
@@ -87,13 +87,13 @@ struct OnboardingView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "power")
-                            Text("Quit Anchored")
+                            Text(langManager.translate("onboarding_quit"))
                         }
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.82))
                     }
                     .buttonStyle(.plain)
-                    .help("Quit Anchored")
+                    .help(langManager.translate("onboarding_quit"))
                 }
                 .padding(.horizontal, 40)
                 .padding(.bottom, 28)

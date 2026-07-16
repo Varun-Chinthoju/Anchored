@@ -18,12 +18,12 @@ struct HowItWorksStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: t("how_title"),
+                        text: langManager.translate("how_title"),
                         font: .system(size: 32, weight: .semibold, design: .rounded),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text(t("how_left_desc"))
+                    Text(langManager.translate("how_left_desc"))
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(3)
@@ -36,7 +36,7 @@ struct HowItWorksStepView: View {
                     onNext()
                 }) {
                     HStack {
-                        Text(t("how_btn"))
+                        Text(langManager.translate("how_btn"))
                         Image(systemName: "arrow.right")
                     }
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -61,22 +61,22 @@ struct HowItWorksStepView: View {
             VStack(spacing: 16) {
                 FeatureCard(
                     icon: "binoculars.fill",
-                    title: t("how_card1_title"),
-                    description: t("how_desc1"),
+                    title: langManager.translate("how_card1_title"),
+                    description: langManager.translate("how_desc1"),
                     accentColor: PirateTheme.gold
                 )
                 
                 FeatureCard(
                     icon: "shield.fill",
-                    title: t("how_card2_title"),
-                    description: t("how_desc2"),
+                    title: langManager.translate("how_card2_title"),
+                    description: langManager.translate("how_desc2"),
                     accentColor: PirateTheme.gold
                 )
                 
                 FeatureCard(
                     icon: "eye.slash.fill",
-                    title: t("how_card3_title"),
-                    description: t("how_desc3"),
+                    title: langManager.translate("how_card3_title"),
+                    description: langManager.translate("how_desc3"),
                     accentColor: PirateTheme.gold
                 )
             }

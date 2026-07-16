@@ -25,12 +25,12 @@ struct SetSailStepView: View {
             
             VStack(spacing: 12) {
                 GlowingText(
-                    text: t("sail_title"),
+                    text: langManager.translate("sail_title"),
                     font: .system(size: 34, weight: .semibold, design: .rounded),
                     colors: [PirateTheme.gold, PirateTheme.parchment]
                 )
                 
-                Text(t("sail_desc"))
+                Text(langManager.translate("sail_desc"))
                     .font(.system(size: 15, design: .rounded))
                     .foregroundColor(PirateTheme.parchment.opacity(0.85))
                     .multilineTextAlignment(.center)
@@ -44,7 +44,7 @@ struct SetSailStepView: View {
                 AudioEngine.shared.play(.chime)
                 onComplete()
             }) {
-                Text(t("sail_btn"))
+                Text(langManager.translate("sail_btn"))
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .foregroundColor(PirateTheme.darkWood)
                     .frame(width: 280)

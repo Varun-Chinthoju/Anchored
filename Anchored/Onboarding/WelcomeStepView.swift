@@ -25,12 +25,12 @@ struct WelcomeStepView: View {
             
             VStack(spacing: 12) {
                 GlowingText(
-                    text: t("welcome_title"),
+                    text: langManager.translate("welcome_title"),
                     font: .system(size: 34, weight: .semibold, design: .rounded),
                     colors: [PirateTheme.gold, PirateTheme.parchment]
                 )
                 
-                Text(t("welcome_desc"))
+                Text(langManager.translate("welcome_desc"))
                     .font(.system(size: 15, design: .rounded))
                     .foregroundColor(PirateTheme.parchment.opacity(0.85))
                     .multilineTextAlignment(.center)
@@ -44,7 +44,7 @@ struct WelcomeStepView: View {
                 AudioEngine.shared.play(.tick)
                 onNext()
             }) {
-                Text(t("welcome_btn"))
+                Text(langManager.translate("welcome_btn"))
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundColor(PirateTheme.darkWood)
                     .frame(width: 280)

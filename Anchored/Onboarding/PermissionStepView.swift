@@ -25,12 +25,12 @@ struct PermissionStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: langManager.translatePlain("perm_title", for: .english),
+                        text: langManager.translate("perm_title"),
                         font: .system(size: 32, weight: .semibold, design: .rounded),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text("Enable permissions to unlock URL-level awareness and local visual AI check capabilities. All data stays 100% private on your device.")
+                    Text(langManager.translate("perm_desc"))
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(3)
@@ -52,10 +52,10 @@ struct PermissionStepView: View {
                             .foregroundColor(isAXGranted ? PirateTheme.gold : PirateTheme.bronze)
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Accessibility Permission")
+                            Text(langManager.translate("perm_step_ax_title"))
                                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment)
-                            Text("Detects browser tabs and distraction URLs.")
+                            Text(langManager.translate("perm_step_ax_desc"))
                                 .font(.system(size: 11, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment.opacity(0.6))
                         }
@@ -67,7 +67,7 @@ struct PermissionStepView: View {
                                 AudioEngine.shared.play(.tick)
                                 triggerAXRequest()
                             }) {
-                                Text("Enable")
+                                Text(langManager.translate("perm_step_enable"))
                                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                                     .foregroundColor(PirateTheme.darkWood)
                                     .padding(.horizontal, 12)
@@ -77,7 +77,7 @@ struct PermissionStepView: View {
                             }
                             .buttonStyle(.plain)
                         } else {
-                            Text("Enabled")
+                            Text(langManager.translate("perm_step_enabled"))
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.gold)
                         }
@@ -97,10 +97,10 @@ struct PermissionStepView: View {
                             .foregroundColor(isScreenGranted ? PirateTheme.gold : PirateTheme.bronze)
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Screen Recording Permission")
+                            Text(langManager.translate("perm_step_screen_title"))
                                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment)
-                            Text("Enables local visual checks (AI and Vision fallbacks).")
+                            Text(langManager.translate("perm_step_screen_desc"))
                                 .font(.system(size: 11, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment.opacity(0.6))
                         }
@@ -112,7 +112,7 @@ struct PermissionStepView: View {
                                 AudioEngine.shared.play(.tick)
                                 triggerScreenRequest()
                             }) {
-                                Text("Enable")
+                                Text(langManager.translate("perm_step_enable"))
                                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                                     .foregroundColor(PirateTheme.darkWood)
                                     .padding(.horizontal, 12)
@@ -122,7 +122,7 @@ struct PermissionStepView: View {
                             }
                             .buttonStyle(.plain)
                         } else {
-                            Text("Enabled")
+                            Text(langManager.translate("perm_step_enabled"))
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.gold)
                         }
@@ -153,7 +153,7 @@ struct PermissionStepView: View {
                             onNext()
                         }) {
                             HStack {
-                                Text(langManager.translatePlain("perm_btn_continue", for: .english))
+                                Text(langManager.translate("perm_btn_continue"))
                                 Image(systemName: "arrow.right")
                             }
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -177,7 +177,7 @@ struct PermissionStepView: View {
                             AudioEngine.shared.play(.tick)
                             onNext()
                         }) {
-                            Text("Skip For Now (AI and browser distraction checking will be limited)")
+                            Text(langManager.translate("perm_step_skip"))
                                 .font(.system(size: 11, weight: .medium, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment.opacity(0.5))
                                 .padding(.vertical, 6)
@@ -190,7 +190,7 @@ struct PermissionStepView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "power")
-                            Text("Quit Anchored")
+                            Text(langManager.translate("onboarding_quit"))
                         }
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.72))
@@ -198,7 +198,7 @@ struct PermissionStepView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
-                    .help("Quit so you can finish granting macOS permissions, then reopen Anchored.")
+                    .help(langManager.translate("onboarding_quit"))
                 }
                 
                 Spacer()

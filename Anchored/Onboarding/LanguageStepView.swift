@@ -104,11 +104,11 @@ struct LanguageStepView: View {
                         
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                             ForEach(AppLanguage.allCases) { language in
-                                if language != .english {
-                                    let isSelected = langManager.currentLanguage == language && langManager.isPirateMode
+                                if language != .english && language != .pirate {
+                                    let isSelected = langManager.currentLanguage == language
                                     Button(action: {
                                         AudioEngine.shared.play(.tick)
-                                        langManager.setLanguage(language, isPirateMode: true)
+                                        langManager.setLanguage(language, isPirateMode: false)
                                         hasSelected = true
                                     }) {
                                         HStack {
@@ -154,7 +154,7 @@ struct LanguageStepView: View {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                             ForEach(AppLanguage.allCases) { language in
                                 if language != .pirate {
-                                    let isSelected = langManager.currentLanguage == language && !langManager.isPirateMode
+                                    let isSelected = langManager.currentLanguage == language
                                     Button(action: {
                                         AudioEngine.shared.play(.tick)
                                         langManager.setLanguage(language, isPirateMode: false)

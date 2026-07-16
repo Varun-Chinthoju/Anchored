@@ -22,7 +22,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     
     var displayName: String {
         switch self {
-        case .pirate:      return "🏴‍☠️ Pirate Speak"
+        case .pirate:      return "Plain English"
         case .english:     return "🇺🇸 English"
         case .chinese:     return "🇨🇳 中文 (Simplified)"
         case .spanishLA:   return "🇲🇽 Español (LatAm)"
@@ -44,34 +44,39 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 
 class LanguageManager: ObservableObject {
     static let shared = LanguageManager()
+
+    private let defaults: UserDefaults
     
-    @Published var currentLanguage: AppLanguage = .pirate {
+    @Published var currentLanguage: AppLanguage = .english {
         didSet {
-            UserDefaults.standard.set(currentLanguage.rawValue, forKey: "com.varun.Anchored.language")
+            defaults.set(currentLanguage.rawValue, forKey: "com.varun.Anchored.language")
         }
     }
     
-    @Published var isPirateMode: Bool = true {
+    @Published var isPirateMode: Bool = false {
         didSet {
-            UserDefaults.standard.set(isPirateMode, forKey: "com.varun.Anchored.isPirateMode")
+            defaults.set(isPirateMode, forKey: "com.varun.Anchored.isPirateMode")
         }
     }
     
-    private init() {
-        self.isPirateMode = UserDefaults.standard.object(forKey: "com.varun.Anchored.isPirateMode") as? Bool ?? true
-        if let storedLang = UserDefaults.standard.string(forKey: "com.varun.Anchored.language"),
-           let lang = AppLanguage(rawValue: storedLang) {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.isPirateMode = false
+        defaults.set(false, forKey: "com.varun.Anchored.isPirateMode")
+        if let storedLang = defaults.string(forKey: "com.varun.Anchored.language"),
+           let lang = AppLanguage(rawValue: storedLang),
+           lang != .pirate {
             self.currentLanguage = lang
         } else {
             let detected = Self.detectSystemLanguage()
             self.currentLanguage = detected
-            UserDefaults.standard.set(detected.rawValue, forKey: "com.varun.Anchored.language")
+            defaults.set(detected.rawValue, forKey: "com.varun.Anchored.language")
         }
     }
     
     static func detectSystemLanguage() -> AppLanguage {
         guard let preferred = Locale.preferredLanguages.first?.lowercased() else {
-            return .pirate
+            return .english
         }
         
         if preferred.hasPrefix("zh") {
@@ -102,14 +107,16 @@ class LanguageManager: ObservableObject {
             return .tagalog
         } else if preferred.hasPrefix("th") {
             return .thai
+        } else if preferred.hasPrefix("en") {
+            return .english
         } else {
-            return .pirate // Default to pirate for English and other unsupported languages
+            return .english
         }
     }
     
     func setLanguage(_ language: AppLanguage, isPirateMode: Bool) {
-        self.currentLanguage = language
-        self.isPirateMode = isPirateMode
+        self.currentLanguage = language == .pirate ? .english : language
+        self.isPirateMode = false
     }
     
     func translate(_ key: String) -> String {
@@ -117,73 +124,70 @@ class LanguageManager: ObservableObject {
     }
     
     func translate(_ key: String, for language: AppLanguage) -> String {
-        if isPirateMode {
-            if language == .pirate {
-                return translations[key]?[.pirate] ?? translations[key]?[.english] ?? key
-            } else {
-                let standard = translations[key]?[language] ?? translations[key]?[.english] ?? key
-                return makePirate(standard, for: language)
-            }
-        } else {
-            if language == .pirate {
-                return translations[key]?[.english] ?? key
-            }
-            return translations[key]?[language] ?? translations[key]?[.english] ?? key
+        let resolvedLanguage = language == .pirate ? .english : language
+        if resolvedLanguage == .english, let override = plainEnglishOverrides[key] {
+            return override
         }
+        return translations[key]?[resolvedLanguage] ?? translations[key]?[.english] ?? key
     }
 
-    func translatePlain(_ key: String, for language: AppLanguage) -> String {
-        if language == .pirate {
-            return translations[key]?[.pirate] ?? translations[key]?[.english] ?? key
-        }
-        return translations[key]?[language] ?? translations[key]?[.english] ?? key
-    }
-    
-    private func makePirate(_ text: String, for language: AppLanguage) -> String {
-        guard !text.isEmpty,
-              !text.contains("🔒"),
-              !text.contains("🔓"),
-              text != "Active",
-              text != "5s",
-              text != "10s",
-              text != "15s",
-              text != "20s" else {
-            return text
-        }
-        
-        switch language {
-        case .pirate:
-            return text
-        case .english:
-            return "Ahoy! " + text + ", matey!"
-        case .chinese:
-            return "啊哈！" + text + "，船长起航！"
-        case .spanishLA, .spanishES:
-            return "¡Al abordaje! " + text + ", ¡arr!"
-        case .french:
-            return "Ohé ! " + text + ", morbleu !"
-        case .italian:
-            return "Corpo di mille balene! " + text + ", capitano!"
-        case .portuguese:
-            return "Raios e coriscos! " + text + ", marujo!"
-        case .romanian:
-            return "Ahoy! " + text + ", căpitane!"
-        case .japanese:
-            return "ヨーホー！" + text + "、船長！"
-        case .korean:
-            return "어호이! " + text + ", 선장님!"
-        case .vietnamese:
-            return "Ahoy! " + text + ", thuyền trưởng!"
-        case .tagalog:
-            return "Ahoy! " + text + ", kasama!"
-        case .thai:
-            return "อะฮอย! " + text + ", กัปตัน!"
-        case .hindi:
-            return "अहोय! " + text + ", कप्तान!"
-        case .telugu:
-            return "అహోయ్! " + text + ", కెప్టెన్!"
-        }
-    }
+    private let plainEnglishOverrides: [String: String] = [
+        "lang_fun_route": "Additional Languages",
+        "lang_boring_side": "English",
+        "lang_title": "Choose Your\nLanguage",
+        "lang_desc": "Pick the language Anchored should use.",
+        "lang_btn": "Continue",
+        "welcome_title": "Welcome to Anchored",
+        "welcome_desc": "Anchored helps you stay focused by watching for distracting apps and websites.",
+        "welcome_btn": "Get Started",
+        "how_title": "How It Works",
+        "how_left_desc": "Anchored watches for distraction signals and helps you get back on task.",
+        "how_btn": "Continue",
+        "how_card1_title": "1. Passive Monitoring",
+        "how_desc1": "We watch for browser domains and app switches. Only active focus counts.",
+        "how_card2_title": "2. Gentle Reminder",
+        "how_desc2": "If you stay in distracting apps too long, Anchored dims the screen to nudge you back.",
+        "how_card3_title": "3. Return to Work",
+        "how_desc3": "Switch back to your work app or stay focused long enough to clear the reminder.",
+        "dist_title": "Choose Distractions",
+        "dist_desc": "Pick the apps and websites you want Anchored to treat as distractions.",
+        "dist_custom_btn": "Add App or Site",
+        "dist_btn": "Continue",
+        "dist_active_title": "Focus Apps",
+        "pref_title": "Choose Your Settings",
+        "pref_desc": "Set the focus threshold, countdown, and startup behavior.",
+        "pref_btn": "Continue",
+        "pref_threshold_title": "Focus Threshold",
+        "pref_threshold_desc": "How long you stay in a focus app before Anchored starts a session.",
+        "pref_countdown_title": "Distraction Countdown",
+        "pref_countdown_desc": "How long a distraction can remain before the screen dims.",
+        "pref_nudges_title": "Enable Focus Nudges",
+        "pref_nudges_desc": "Show a warning when focus auto-starts.",
+        "pref_image_model_title": "Visual Checks",
+        "pref_image_model_desc": "Use local screen checks when needed.",
+        "pref_use_gemma_title": "Use Local Model",
+        "pref_use_gemma_desc": "Run the local visual model for screen checks.",
+        "pref_launch_title": "Launch at Login",
+        "pref_launch_desc": "Start Anchored automatically when you sign in.",
+        "perm_title": "Grant\nPermissions",
+        "perm_desc": "Anchored needs Accessibility permission to monitor browser domains and window titles. This helps detect distracting websites and apps.",
+        "perm_btn_grant": "Grant Permission",
+        "perm_btn_continue": "Continue",
+        "perm_gate_title": "Unlock Permissions",
+        "perm_gate_desc": "You've completed 10 successful sessions. To unlock URL-level awareness inside browsers and detect distracting sites like YouTube and Reddit, grant Accessibility permission.",
+        "perm_gate_later": "Maybe Later",
+        "perm_step_ax_title": "Accessibility Permission",
+        "perm_step_ax_desc": "Detects browser tabs and distracting URLs.",
+        "perm_step_screen_title": "Screen Recording Permission",
+        "perm_step_screen_desc": "Enables local visual checks.",
+        "perm_step_enable": "Enable",
+        "perm_step_enabled": "Enabled",
+        "perm_step_skip": "Skip For Now (local visual checks will be limited)",
+        "onboarding_quit": "Quit Anchored",
+        "sail_title": "Ready to Focus",
+        "sail_desc": "Your setup is complete and your settings are saved. You're ready to focus.",
+        "sail_btn": "Start Focusing"
+    ]
     
     private let translations: [String: [AppLanguage: String]] = [
         "lang_fun_route": [
@@ -1097,6 +1101,204 @@ class LanguageManager: ObservableObject {
             .vietnamese: "Cấp\nQuyền Truy Cập",
             .tagalog: "Ipagkaloob ang\nPermiso",
             .thai: "อนุญาต\nการเข้าถึง"
+        ],
+        "perm_gate_title": [
+            .pirate: "Unlock the Spyglass!",
+            .english: "Unlock the Spyglass!",
+            .chinese: "解锁望远镜！",
+            .spanishLA: "¡Desbloquea el Catalejo!",
+            .spanishES: "¡Desbloquea el Catalejo!",
+            .hindi: "स्पाईग्लास अनलॉक करें!",
+            .telugu: "స్పైగ్లాస్‌ను అన్‌లాక్ చేయండి!",
+            .french: "Débloquez la longue-vue !",
+            .italian: "Sblocca il cannocchiale!",
+            .portuguese: "Desbloqueie a luneta!",
+            .romanian: "Deblocați luneta!",
+            .japanese: "スパイグラスを解除！",
+            .korean: "스파이글라스를 잠금 해제하세요!",
+            .vietnamese: "Mở khóa ống nhòm!",
+            .tagalog: "I-unlock ang Spyglass!",
+            .thai: "ปลดล็อกส่องทางไกล!"
+        ],
+        "perm_gate_desc": [
+            .pirate: "Ye've completed 10 successful voyages! To unlock URL-level awareness inside browsers (Safari, Chrome, Arc, Edge, Brave, Firefox) and detect distraction sites like YouTube and Reddit, grant us Accessibility permissions.",
+            .english: "You've completed 10 successful sessions! To unlock URL-level awareness inside browsers (Safari, Chrome, Arc, Edge, Brave, Firefox) and detect distraction sites like YouTube and Reddit, grant Accessibility permission.",
+            .chinese: "您已完成 10 次成功会话！要解锁浏览器中的 URL 级感知并检测 YouTube 和 Reddit 等分心站点，请授予辅助功能权限。",
+            .spanishLA: "¡Has completado 10 sesiones exitosas! Para desbloquear la conciencia de URL dentro de los navegadores (Safari, Chrome, Arc, Edge, Brave, Firefox) y detectar sitios de distracción como YouTube y Reddit, concede permisos de Accesibilidad.",
+            .spanishES: "¡Has completado 10 sesiones exitosas! Para desbloquear la detección de URLs dentro de los navegadores (Safari, Chrome, Arc, Edge, Brave, Firefox) y detectar sitios distractores como YouTube y Reddit, concede permisos de Accesibilidad.",
+            .hindi: "आपने 10 सफल सत्र पूरे कर लिए हैं! ब्राउज़र (Safari, Chrome, Arc, Edge, Brave, Firefox) के भीतर URL-स्तर की जागरूकता अनलॉक करने और YouTube/Reddit जैसे ध्यान भटकाने वाले साइट्स पहचानने के लिए एक्सेसिबिलिटी अनुमति दें।",
+            .telugu: "మీరు 10 విజయవంతమైన సెషన్‌లను పూర్తిచేశారు! బ్రౌజర్‌లలో URL-స్థాయి అవగాహనను ప్రారంభించి YouTube మరియు Reddit వంటి డిస్ట్రాక్షన్ సైట్లను గుర్తించడానికి Accessibility అనుమతి ఇవ్వండి.",
+            .french: "Vous avez terminé 10 sessions réussies ! Pour débloquer la lecture des URL dans les navigateurs (Safari, Chrome, Arc, Edge, Brave, Firefox) et détecter les sites distrayants comme YouTube et Reddit, accordez l'accès d'accessibilité.",
+            .italian: "Hai completato 10 sessioni riuscite! Per sbloccare il riconoscimento degli URL nei browser (Safari, Chrome, Arc, Edge, Brave, Firefox) e rilevare siti distraenti come YouTube e Reddit, concedi i permessi di Accessibilità.",
+            .portuguese: "Você concluiu 10 sessões bem-sucedidas! Para desbloquear a leitura de URLs nos navegadores (Safari, Chrome, Arc, Edge, Brave, Firefox) e detectar sites de distração como YouTube e Reddit, conceda permissão de Acessibilidade.",
+            .romanian: "Ați finalizat 10 sesiuni reușite! Pentru a debloca detectarea URL-urilor în browsere (Safari, Chrome, Arc, Edge, Brave, Firefox) și a identifica site-uri care distrag atenția, acordați permisiunea de accesibilitate.",
+            .japanese: "10回の成功したセッションを完了しました！ブラウザ内のURLレベル認識を有効にし、YouTubeやRedditなどの気を散らすサイトを検出するには、アクセシビリティ権限を許可してください。",
+            .korean: "10회의 성공적인 세션을 완료했습니다! 브라우저(Safari, Chrome, Arc, Edge, Brave, Firefox)에서 URL 수준 인식을 활성화하고 YouTube, Reddit 같은 방해 사이트를 감지하려면 접근성 권한을 허용하세요.",
+            .vietnamese: "Bạn đã hoàn thành 10 phiên làm việc thành công! Để mở khóa khả năng nhận biết URL trong trình duyệt (Safari, Chrome, Arc, Edge, Brave, Firefox) và phát hiện các trang gây xao nhãng như YouTube và Reddit, hãy cấp quyền Trợ năng.",
+            .tagalog: "Nakumpleto mo na ang 10 matagumpay na sesyon! Para ma-unlock ang pagtingin sa URL sa mga browser (Safari, Chrome, Arc, Edge, Brave, Firefox) at matukoy ang mga nakaka-distract na site tulad ng YouTube at Reddit, bigyan kami ng Accessibility permission.",
+            .thai: "คุณทำงานสำเร็จ 10 เซสชันแล้ว! หากต้องการปลดล็อกความเข้าใจระดับ URL ภายในบราวเซอร์ (Safari, Chrome, Arc, Edge, Brave, Firefox) และตรวจจับเว็บไซต์ที่ดึงสมาธิอย่าง YouTube และ Reddit โปรดอนุญาตสิทธิ์การเข้าถึง"
+        ],
+        "perm_gate_later": [
+            .pirate: "Maybe Later",
+            .english: "Maybe Later",
+            .chinese: "稍后再说",
+            .spanishLA: "Quizás Más Tarde",
+            .spanishES: "Quizás Más Tarde",
+            .hindi: "शायद बाद में",
+            .telugu: "తర్వాత చేయొచ్చు",
+            .french: "Peut-être plus tard",
+            .italian: "Forse più tardi",
+            .portuguese: "Talvez mais tarde",
+            .romanian: "Poate mai târziu",
+            .japanese: "後で",
+            .korean: "나중에",
+            .vietnamese: "Có lẽ sau",
+            .tagalog: "Baka Mamaya",
+            .thai: "ไว้ทีหลัง"
+        ],
+        "perm_step_ax_title": [
+            .pirate: "Accessibility Permission",
+            .english: "Accessibility Permission",
+            .chinese: "辅助功能权限",
+            .spanishLA: "Permiso de Accesibilidad",
+            .spanishES: "Permiso de Accesibilidad",
+            .hindi: "एक्सेसिबिलिटी अनुमति",
+            .telugu: "యాక్సెసిబిలిటీ అనుమతి",
+            .french: "Autorisation d'accessibilité",
+            .italian: "Permesso di Accessibilità",
+            .portuguese: "Permissão de Acessibilidade",
+            .romanian: "Permisiune de accesibilitate",
+            .japanese: "アクセシビリティ権限",
+            .korean: "접근성 권한",
+            .vietnamese: "Quyền Trợ năng",
+            .tagalog: "Pahintulot sa Accessibility",
+            .thai: "สิทธิ์การเข้าถึง"
+        ],
+        "perm_step_ax_desc": [
+            .pirate: "Detects browser tabs and distraction URLs.",
+            .english: "Detects browser tabs and distraction URLs.",
+            .chinese: "检测浏览器标签页和分心网址。",
+            .spanishLA: "Detecta pestañas del navegador y URL de distracción.",
+            .spanishES: "Detecta pestañas del navegador y URL distractoras.",
+            .hindi: "ब्राउज़र टैब और ध्यान भटकाने वाले URL पहचानता है।",
+            .telugu: "బ్రౌజర్ ట్యాబ్‌లు మరియు డిస్ట్రాక్షన్ URLలను గుర్తిస్తుంది.",
+            .french: "Détecte les onglets du navigateur et les URL distrayantes.",
+            .italian: "Rileva schede del browser e URL distraenti.",
+            .portuguese: "Detecta abas do navegador e URLs de distração.",
+            .romanian: "Detectează filele browserului și URL-urile care distrag atenția.",
+            .japanese: "ブラウザのタブと気が散るURLを検出します。",
+            .korean: "브라우저 탭과 방해되는 URL을 감지합니다.",
+            .vietnamese: "Phát hiện các tab trình duyệt và URL gây xao nhãng.",
+            .tagalog: "Tinutukoy ang mga tab ng browser at mga URL na nakaka-distract.",
+            .thai: "ตรวจจับแท็บเบราว์เซอร์และ URL ที่ทำให้เสียสมาธิ"
+        ],
+        "perm_step_screen_title": [
+            .pirate: "Screen Recording Permission",
+            .english: "Screen Recording Permission",
+            .chinese: "屏幕录制权限",
+            .spanishLA: "Permiso de Grabación de Pantalla",
+            .spanishES: "Permiso de Grabación de Pantalla",
+            .hindi: "स्क्रीन रिकॉर्डिंग अनुमति",
+            .telugu: "స్క్రీన్ రికార్డింగ్ అనుమతి",
+            .french: "Autorisation d'enregistrement d'écran",
+            .italian: "Permesso di registrazione schermo",
+            .portuguese: "Permissão de Gravação de Tela",
+            .romanian: "Permisiune de înregistrare a ecranului",
+            .japanese: "画面収録の権限",
+            .korean: "화면 녹화 권한",
+            .vietnamese: "Quyền Ghi màn hình",
+            .tagalog: "Pahintulot sa Screen Recording",
+            .thai: "สิทธิ์การบันทึกหน้าจอ"
+        ],
+        "perm_step_screen_desc": [
+            .pirate: "Enables local visual checks (AI and Vision fallbacks).",
+            .english: "Enables local visual checks (AI and Vision fallbacks).",
+            .chinese: "启用本地视觉检查（AI 和 Vision 回退）。",
+            .spanishLA: "Habilita comprobaciones visuales locales (AI y Vision como respaldo).",
+            .spanishES: "Habilita comprobaciones visuales locales (AI y Vision como respaldo).",
+            .hindi: "स्थानीय दृश्य जाँच सक्षम करता है (AI और Vision फ़ॉलबैक)।",
+            .telugu: "స్థానిక విజువల్ తనిఖీలను (AI మరియు Vision fallbackలు) ప్రారంభిస్తుంది.",
+            .french: "Active les vérifications visuelles locales (repli AI et Vision).",
+            .italian: "Abilita i controlli visivi locali (fallback AI e Vision).",
+            .portuguese: "Ativa verificações visuais locais (fallbacks de IA e Vision).",
+            .romanian: "Activează verificările vizuale locale (fallback-uri AI și Vision).",
+            .japanese: "ローカルの視覚チェック（AI と Vision のフォールバック）を有効にします。",
+            .korean: "로컬 시각 검사를 활성화합니다(AI 및 Vision 대체 경로).",
+            .vietnamese: "Bật các kiểm tra trực quan cục bộ (phương án dự phòng AI và Vision).",
+            .tagalog: "Pinapagana ang lokal na visual checks (AI at Vision fallback).",
+            .thai: "เปิดใช้งานการตรวจสอบภาพในเครื่อง (AI และ Vision fallback)"
+        ],
+        "perm_step_enable": [
+            .pirate: "Enable",
+            .english: "Enable",
+            .chinese: "启用",
+            .spanishLA: "Activar",
+            .spanishES: "Activar",
+            .hindi: "सक्षम करें",
+            .telugu: "ప్రారంభించు",
+            .french: "Activer",
+            .italian: "Abilita",
+            .portuguese: "Ativar",
+            .romanian: "Activați",
+            .japanese: "有効にする",
+            .korean: "활성화",
+            .vietnamese: "Bật",
+            .tagalog: "Paganahin",
+            .thai: "เปิดใช้งาน"
+        ],
+        "perm_step_enabled": [
+            .pirate: "Enabled",
+            .english: "Enabled",
+            .chinese: "已启用",
+            .spanishLA: "Activado",
+            .spanishES: "Activado",
+            .hindi: "सक्रिय",
+            .telugu: "ప్రారంభించబడింది",
+            .french: "Activé",
+            .italian: "Attivato",
+            .portuguese: "Ativado",
+            .romanian: "Activat",
+            .japanese: "有効",
+            .korean: "사용 가능",
+            .vietnamese: "Đã bật",
+            .tagalog: "Naka-enable",
+            .thai: "เปิดใช้งานแล้ว"
+        ],
+        "perm_step_skip": [
+            .pirate: "Skip For Now (AI and browser distraction checking will be limited)",
+            .english: "Skip For Now (AI and browser distraction checking will be limited)",
+            .chinese: "暂时跳过（AI 和浏览器分心检查将受限）",
+            .spanishLA: "Omitir por ahora (la comprobación de distracciones mediante IA y navegador será limitada)",
+            .spanishES: "Omitir por ahora (la comprobación de distracciones mediante IA y navegador será limitada)",
+            .hindi: "अभी के लिए छोड़ें (AI और ब्राउज़र विकर्षण जाँच सीमित रहेगी)",
+            .telugu: "ఇప్పటికైతే దాటవేయండి (AI మరియు బ్రౌజర్ డిస్ట్రాక్షన్ తనిఖీలు పరిమితంగా ఉంటాయి)",
+            .french: "Passer pour l’instant (la détection des distractions via l’IA et le navigateur sera limitée)",
+            .italian: "Salta per ora (il controllo delle distrazioni con IA e browser sarà limitato)",
+            .portuguese: "Pular por enquanto (a verificação de distrações com IA e navegador será limitada)",
+            .romanian: "Săriți deocamdată (verificarea distragerilor cu AI și browser va fi limitată)",
+            .japanese: "今はスキップ（AI とブラウザの気が散るチェックは制限されます）",
+            .korean: "지금은 건너뛰기(AI 및 브라우저 방해 확인은 제한됩니다)",
+            .vietnamese: "Bỏ qua tạm thời (kiểm tra xao nhãng bằng AI và trình duyệt sẽ bị giới hạn)",
+            .tagalog: "Laktawan Muna (lilimita ang AI at browser distraction checking)",
+            .thai: "ข้ามไปก่อน (การตรวจจับสิ่งรบกวนด้วย AI และเบราว์เซอร์จะมีข้อจำกัด)"
+        ],
+        "onboarding_quit": [
+            .pirate: "Quit Anchored",
+            .english: "Quit Anchored",
+            .chinese: "退出 Anchored",
+            .spanishLA: "Salir de Anchored",
+            .spanishES: "Salir de Anchored",
+            .hindi: "Anchored बंद करें",
+            .telugu: "Anchored నుండి నిష్క్రమించు",
+            .french: "Quitter Anchored",
+            .italian: "Esci da Anchored",
+            .portuguese: "Sair do Anchored",
+            .romanian: "Ieșiți din Anchored",
+            .japanese: "Anchoredを終了",
+            .korean: "Anchored 종료",
+            .vietnamese: "Thoát Anchored",
+            .tagalog: "Lumabas sa Anchored",
+            .thai: "ออกจาก Anchored"
         ],
         "perm_desc": [
             .pirate: "Anchored requires Accessibility permissions to monitor browser domains and window titles. This allows us to detect when you wander into distracting waters and gently guide you back.",

@@ -35,12 +35,12 @@ struct PreferencesStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: t("pref_title"),
+                        text: langManager.translate("pref_title"),
                         font: .system(size: 32, weight: .semibold, design: .rounded),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text(t("pref_desc"))
+                    Text(langManager.translate("pref_desc"))
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(3)
@@ -54,7 +54,7 @@ struct PreferencesStepView: View {
                         onComplete?()
                     }) {
                         HStack {
-                            Text(t("pref_btn"))
+                            Text(langManager.translate("pref_btn"))
                             Image(systemName: "arrow.right")
                         }
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -81,11 +81,11 @@ struct PreferencesStepView: View {
                 // Focus Threshold Picker
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(t("pref_threshold_title"))
+                        Text(langManager.translate("pref_threshold_title"))
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                         Spacer()
-                        Text(t("pref_threshold_desc"))
+                        Text(langManager.translate("pref_threshold_desc"))
                             .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
@@ -109,11 +109,11 @@ struct PreferencesStepView: View {
                 // Countdown Duration Picker
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(t("pref_countdown_title"))
+                        Text(langManager.translate("pref_countdown_title"))
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                         Spacer()
-                        Text(t("pref_countdown_desc"))
+                        Text(langManager.translate("pref_countdown_desc"))
                             .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
@@ -137,10 +137,10 @@ struct PreferencesStepView: View {
                 // Smart Nudges Toggle
                 Toggle(isOn: $prefs.enableSmartNudges) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(t("pref_nudges_title"))
+                        Text(langManager.translate("pref_nudges_title"))
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
-                        Text(t("pref_nudges_desc"))
+                        Text(langManager.translate("pref_nudges_desc"))
                             .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
@@ -158,10 +158,10 @@ struct PreferencesStepView: View {
                 // AI Visual Productivity Check Toggle
                 Toggle(isOn: $prefs.enableImageClassification) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(t("pref_image_model_title"))
+                        Text(langManager.translate("pref_image_model_title"))
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
-                        Text(t("pref_image_model_desc"))
+                        Text(langManager.translate("pref_image_model_desc"))
                             .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
@@ -181,10 +181,10 @@ struct PreferencesStepView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle(isOn: $prefs.useLocalGemma) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(t("pref_use_gemma_title"))
+                                Text(langManager.translate("pref_use_gemma_title"))
                                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                                     .foregroundColor(PirateTheme.parchment)
-                                Text(t("pref_use_gemma_desc"))
+                                Text(langManager.translate("pref_use_gemma_desc"))
                                     .font(.system(size: 10, design: .rounded))
                                     .foregroundColor(PirateTheme.parchment.opacity(0.6))
                             }
@@ -196,7 +196,7 @@ struct PreferencesStepView: View {
                                 Button(action: {
                                     prefs.downloadGemmaModel()
                                 }) {
-                                    Text(t(prefs.gemmaDownloadStatus))
+                                    Text(langManager.translate(prefs.gemmaDownloadStatus))
                                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                                         .foregroundColor(PirateTheme.darkWood)
                                         .padding(.horizontal, 12)
@@ -231,10 +231,10 @@ struct PreferencesStepView: View {
                 // Launch at Login Toggle
                 Toggle(isOn: $prefs.launchAtLogin) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(t("pref_launch_title"))
+                        Text(langManager.translate("pref_launch_title"))
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
-                        Text(t("pref_launch_desc"))
+                        Text(langManager.translate("pref_launch_desc"))
                             .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }

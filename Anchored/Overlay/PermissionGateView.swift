@@ -42,11 +42,11 @@ public struct PermissionGateView: View {
                     .padding(.top, 4)
                 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Unlock the Spyglass!")
+                    Text(langManager.translate("perm_gate_title"))
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundColor(themeAccent)
                     
-                    Text("Ye've completed 10 successful voyages! To unlock URL-level awareness inside browsers (Safari, Chrome, Arc, Edge, Brave, Firefox) and detect distraction sites like YouTube and Reddit, grant us Accessibility permissions.")
+                    Text(langManager.translate("perm_gate_desc"))
                         .font(.system(size: 13))
                         .foregroundColor(themeTextPrimary.opacity(0.85))
                         .lineLimit(5)
@@ -56,7 +56,7 @@ public struct PermissionGateView: View {
             
             HStack {
                 Button(action: onDismiss) {
-                    Text("Maybe Later")
+                    Text(langManager.translate("perm_gate_later"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(themeTextSecondary)
                         .padding(.horizontal, 16)
@@ -72,8 +72,8 @@ public struct PermissionGateView: View {
                 
                 Spacer()
                 
-                Button(action: onGrant) {
-                    Text(langManager.translatePlain("perm_btn_grant", for: .english))
+            Button(action: onGrant) {
+                    Text(langManager.translate("perm_btn_grant"))
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(themeSurface)
                         .padding(.horizontal, 18)
@@ -89,7 +89,7 @@ public struct PermissionGateView: View {
             }) {
                 HStack(spacing: 6) {
                     Image(systemName: "power")
-                    Text("Quit Anchored")
+                    Text(langManager.translate("onboarding_quit"))
                 }
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(themeTextSecondary.opacity(0.8))
@@ -97,7 +97,7 @@ public struct PermissionGateView: View {
                 .padding(.vertical, 6)
             }
             .buttonStyle(.plain)
-            .help("Quit Anchored")
+            .help(langManager.translate("onboarding_quit"))
         }
         .padding(24)
         .frame(width: 480)

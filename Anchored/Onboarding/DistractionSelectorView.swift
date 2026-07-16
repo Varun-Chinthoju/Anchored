@@ -42,12 +42,12 @@ struct DistractionSelectorView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: t("dist_title"),
+                        text: langManager.translate("dist_title"),
                         font: .system(size: 36, weight: .bold, design: .serif),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
-                    Text(t("dist_desc"))
+                    Text(langManager.translate("dist_desc"))
                         .font(.system(size: 14, design: .serif))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
                         .lineSpacing(4)
@@ -60,7 +60,7 @@ struct DistractionSelectorView: View {
                 }) {
                     HStack {
                         Image(systemName: "plus")
-                        Text(t("dist_custom_btn"))
+                        Text(langManager.translate("dist_custom_btn"))
                     }
                     .font(.system(size: 13, weight: .semibold, design: .serif))
                     .foregroundColor(PirateTheme.gold)
@@ -84,7 +84,7 @@ struct DistractionSelectorView: View {
                         onNext?()
                     }) {
                         HStack {
-                            Text(t("dist_btn"))
+                            Text(langManager.translate("dist_btn"))
                             Image(systemName: "arrow.right")
                         }
                         .font(.system(size: 14, weight: .bold, design: .serif))
@@ -111,7 +111,7 @@ struct DistractionSelectorView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // Default Distraction Grid
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(t("dist_active_title"))
+                        Text(langManager.translate("dist_active_title"))
                             .font(.system(size: 11, weight: .bold, design: .serif))
                             .foregroundColor(PirateTheme.gold.opacity(0.8))
                             .tracking(1.0)
@@ -153,7 +153,7 @@ struct DistractionSelectorView: View {
                     let customApps = distractions.filter { !defaultApps.map(\.0).contains($0) }
                     if !customApps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(t("dist_active_title"))
+                            Text(langManager.translate("dist_active_title"))
                                 .font(.system(size: 11, weight: .bold, design: .serif))
                                 .foregroundColor(PirateTheme.gold.opacity(0.8))
                                 .tracking(1.0)
