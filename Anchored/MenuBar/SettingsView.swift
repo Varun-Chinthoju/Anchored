@@ -187,8 +187,8 @@ struct SettingsView: View {
         !normalizedSearchQuery.isEmpty
     }
 
-    private var searchResults: [SettingsSearchResult] {
-        SettingsSearchIndex.results(
+    private var searchSections: [SettingsSearchSection] {
+        SettingsSearchIndex.sections(
             query: normalizedSearchQuery,
             isPirateMode: langManager.isPirateMode,
             activeProfileName: profileManager.activeProfile.name
@@ -197,13 +197,12 @@ struct SettingsView: View {
 
     private var searchResultsView: some View {
         SettingsSearchResultsView(
-            searchQuery: $searchQuery,
-            results: searchResults,
+            query: normalizedSearchQuery,
+            sections: searchSections,
             onSelect: selectSearchResult
         )
     }
 
-    @ViewBuilder
     private func settingsSurface<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -216,15 +215,6 @@ struct SettingsView: View {
 
     var body: some View {
         settingsSurface {
-            rootContent
-        }
-    }
-
-    @ViewBuilder
-    private var rootContent: some View {
-        if isSearching {
-            searchResultsView
-        } else {
             regularSettingsView
         }
     }
@@ -234,7 +224,11 @@ struct SettingsView: View {
         return NavigationSplitView {
             settingsSidebar(isPirateMode: isPirateMode)
         } detail: {
-            selectedSettingsPane(isPirateMode: isPirateMode)
+            if isSearching {
+                searchResultsView
+            } else {
+                selectedSettingsPane(isPirateMode: isPirateMode)
+            }
         }
         .onChange(of: selectedItem) { newItem in
             if case .profile(let id) = newItem,
@@ -245,6 +239,11 @@ struct SettingsView: View {
         .onReceive(profileManager.$activeProfile) { newActiveProfile in
             if case .profile = selectedItem {
                 selectedItem = .profile(newActiveProfile.id)
+            }
+        }
+        .onChange(of: normalizedSearchQuery) { query in
+            if !query.isEmpty {
+                searchScrollTarget = nil
             }
         }
     }
@@ -378,7 +377,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 440)
+            .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 460)
         }
     }
 

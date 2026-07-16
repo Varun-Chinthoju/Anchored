@@ -611,8 +611,8 @@ enum SettingsSearchIndex {
 }
 
 struct SettingsSearchResultsView: View {
-    @Binding var searchQuery: String
-    let results: [SettingsSearchResult]
+    let query: String
+    let sections: [SettingsSearchSection]
     let onSelect: (SettingsSearchResult) -> Void
 
     private var themePalette: ThemePalette {
@@ -626,30 +626,38 @@ struct SettingsSearchResultsView: View {
     private var border: Color { themePalette.borderColor }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             searchHeader
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if results.isEmpty {
+                VStack(alignment: .leading, spacing: 20) {
+                    if sections.isEmpty {
                         noResultsView
                     } else {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(results) { result in
-                                Button {
-                                    onSelect(result)
-                                } label: {
-                                    searchRow(result)
+                        ForEach(sections) { section in
+                            VStack(alignment: .leading, spacing: 12) {
+                                sectionHeader(section)
+
+                                LazyVStack(alignment: .leading, spacing: 12) {
+                                    ForEach(section.results) { result in
+                                        Button {
+                                            onSelect(result)
+                                        } label: {
+                                            searchRow(result)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
                                 }
-                                .buttonStyle(.plain)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
                 .padding(24)
-                .frame(maxWidth: 880, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(ControlRoomShellBackground(palette: themePalette))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -657,36 +665,36 @@ struct SettingsSearchResultsView: View {
     }
 
     private var searchHeader: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(textSecondary)
-                .font(.system(size: 13))
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Search Results")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundColor(textPrimary)
 
-            TextField("Search Settings", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-
-            if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
+                if !query.isEmpty {
+                    Text("Matches for “\(query)”")
+                        .font(.system(size: 12))
+                        .foregroundColor(textSecondary)
+                } else {
+                    Text("Choose a setting to navigate to.")
+                        .font(.system(size: 12))
                         .foregroundColor(textSecondary)
                 }
-                .buttonStyle(.plain)
             }
+
+            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(surfaceRaised.opacity(0.65))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(border.opacity(0.55), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .padding(.top, 18)
-        .padding(.bottom, 12)
+        .padding(.bottom, 14)
+    }
+
+    private func sectionHeader(_ section: SettingsSearchSection) -> some View {
+        Text(section.title)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .tracking(1.0)
+            .foregroundColor(textSecondary)
+            .textCase(.uppercase)
     }
 
     private var noResultsView: some View {
@@ -694,7 +702,7 @@ struct SettingsSearchResultsView: View {
             Text("No settings found")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundColor(textPrimary)
-            Text("No matching settings were found for “\(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))”.")
+            Text("No matching settings were found for “\(query)”.")
                 .font(.system(size: 12))
                 .foregroundColor(textSecondary)
         }
