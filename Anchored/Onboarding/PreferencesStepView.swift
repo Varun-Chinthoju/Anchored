@@ -27,7 +27,7 @@ struct PreferencesStepView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(PirateTheme.gold.opacity(0.08))
+                        .fill(PirateTheme.gold.opacity(0.12))
                         .frame(width: 80, height: 80)
                     
                     SafeSystemImage(systemName: "gearshape.fill", size: 32)
@@ -36,14 +36,14 @@ struct PreferencesStepView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
                         text: t("pref_title"),
-                        font: .system(size: 36, weight: .bold, design: .serif),
+                        font: .system(size: 32, weight: .semibold, design: .rounded),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
                     Text(t("pref_desc"))
-                        .font(.system(size: 14, design: .serif))
+                        .font(.system(size: 14, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
-                        .lineSpacing(4)
+                        .lineSpacing(3)
                 }
                 
                 Spacer()
@@ -57,7 +57,7 @@ struct PreferencesStepView: View {
                             Text(t("pref_btn"))
                             Image(systemName: "arrow.right")
                         }
-                        .font(.system(size: 14, weight: .bold, design: .serif))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundColor(PirateTheme.darkWood)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
@@ -82,11 +82,11 @@ struct PreferencesStepView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(t("pref_threshold_title"))
-                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                         Spacer()
                         Text(t("pref_threshold_desc"))
-                            .font(.system(size: 11, design: .serif))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                     
@@ -100,21 +100,21 @@ struct PreferencesStepView: View {
                 }
                 .padding(20)
                 .background(PirateTheme.darkWood.opacity(0.4))
-                .cornerRadius(12)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(PirateTheme.gold.opacity(0.14), lineWidth: 1)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 
                 // Countdown Duration Picker
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(t("pref_countdown_title"))
-                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                         Spacer()
                         Text(t("pref_countdown_desc"))
-                            .font(.system(size: 11, design: .serif))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                     
@@ -128,20 +128,20 @@ struct PreferencesStepView: View {
                 }
                 .padding(20)
                 .background(PirateTheme.darkWood.opacity(0.4))
-                .cornerRadius(12)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(PirateTheme.gold.opacity(0.14), lineWidth: 1)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 
                 // Smart Nudges Toggle
                 Toggle(isOn: $prefs.enableSmartNudges) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(t("pref_nudges_title"))
-                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                         Text(t("pref_nudges_desc"))
-                            .font(.system(size: 11, design: .serif))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                 }
@@ -149,20 +149,20 @@ struct PreferencesStepView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
                 .background(PirateTheme.darkWood.opacity(0.4))
-                .cornerRadius(12)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(PirateTheme.gold.opacity(0.14), lineWidth: 1)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 
                 // AI Visual Productivity Check Toggle
                 Toggle(isOn: $prefs.enableImageClassification) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(t("pref_image_model_title"))
-                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                         Text(t("pref_image_model_desc"))
-                            .font(.system(size: 11, design: .serif))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                 }
@@ -182,10 +182,10 @@ struct PreferencesStepView: View {
                         Toggle(isOn: $prefs.useLocalGemma) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(t("pref_use_gemma_title"))
-                                    .font(.system(size: 12, weight: .semibold, design: .serif))
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
                                     .foregroundColor(PirateTheme.parchment)
                                 Text(t("pref_use_gemma_desc"))
-                                    .font(.system(size: 10, design: .serif))
+                                    .font(.system(size: 10, design: .rounded))
                                     .foregroundColor(PirateTheme.parchment.opacity(0.6))
                             }
                         }
@@ -197,7 +197,7 @@ struct PreferencesStepView: View {
                                     prefs.downloadGemmaModel()
                                 }) {
                                     Text(t(prefs.gemmaDownloadStatus))
-                                        .font(.system(size: 11, weight: .bold, design: .serif))
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
                                         .foregroundColor(PirateTheme.darkWood)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 6)
@@ -220,11 +220,11 @@ struct PreferencesStepView: View {
                     .padding(.vertical, 12)
                     .padding(.horizontal, 20)
                     .background(PirateTheme.darkWood.opacity(0.2))
-                    .cornerRadius(12)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .stroke(PirateTheme.gold.opacity(0.1), lineWidth: 1)
                     )
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .padding(.leading, 16)
                 }
                 
@@ -232,10 +232,10 @@ struct PreferencesStepView: View {
                 Toggle(isOn: $prefs.launchAtLogin) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(t("pref_launch_title"))
-                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                         Text(t("pref_launch_desc"))
-                            .font(.system(size: 11, design: .serif))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundColor(PirateTheme.parchment.opacity(0.6))
                     }
                 }
@@ -243,11 +243,11 @@ struct PreferencesStepView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
                 .background(PirateTheme.darkWood.opacity(0.4))
-                .cornerRadius(12)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(PirateTheme.gold.opacity(0.14), lineWidth: 1)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .frame(maxWidth: .infinity)
         }

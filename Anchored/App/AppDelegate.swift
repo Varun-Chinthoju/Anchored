@@ -192,6 +192,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. App Menu ("Anchored")
         let appMenu = NSMenu(title: "Anchored")
         appMenu.addItem(withTitle: "About the Vessel (About Anchored)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let updatesItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdatesClicked(_:)), keyEquivalent: "")
+        updatesItem.target = self
+        appMenu.addItem(updatesItem)
         appMenu.addItem(NSMenuItem.separator())
         
         let prefsItem = NSMenuItem(title: "Settings...", action: #selector(MenuBarController.openPreferences), keyEquivalent: ",")
@@ -207,11 +210,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(NSMenuItem.separator())
         
         let quitItem = NSMenuItem(
-            title: prefs.commitmentLockEnabled ? "Quit Anchored (Locked)" : "Quit Anchored",
+            title: "Quit Anchored",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
-        quitItem.isEnabled = !prefs.commitmentLockEnabled
         appMenu.addItem(quitItem)
         
         let appMenuItem = NSMenuItem()
@@ -249,10 +251,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
         editMenu.addItem(NSMenuItem.separator())
-        editMenu.addItem(withTitle: "Cut", action: Selector(("cut:")), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: Selector(("copy:")), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: Selector(("paste:")), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSStandardKeyBindingResponding.selectAll(_:)), keyEquivalent: "a")
         
         let editMenuItem = NSMenuItem()
         editMenuItem.submenu = editMenu
@@ -279,17 +281,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         classificationOutcomeStore = nil
     }
 
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !PreferencesManager.shared.commitmentLockEnabled else {
-            let alert = NSAlert()
-            alert.messageText = "Commitment Lock is on"
-            alert.informativeText = "Unlock Anchored in Settings before quitting it normally."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Keep Locked")
-            alert.runModal()
-            return .terminateCancel
-        }
+    @objc private func checkForUpdatesClicked(_ sender: Any?) {
+        UpdateManager.shared.checkForUpdates()
+    }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         return .terminateNow
     }
 }

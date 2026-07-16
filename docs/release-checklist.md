@@ -17,9 +17,18 @@ Use this checklist for every public release. A green local build is not a releas
 
 - [ ] Update `CHANGELOG.md` and version metadata.
 - [ ] Create an annotated semantic-version tag (`vMAJOR.MINOR.PATCH`).
-- [ ] Archive, sign, and notarize the release build; validate with Gatekeeper on a clean macOS user account.
+- [ ] Archive, sign, and notarize the release build with the stable Developer ID Application certificate; validate with Gatekeeper on a clean macOS user account.
+- [ ] Update the Sparkle appcast and confirm the `SUFeedURL` and `SUPublicEDKey` values match the published release.
 - [ ] Publish a GitHub Release with release notes, supported macOS version, known limitations, and a signed/notarized artifact.
 - [ ] Verify the README install link and CI badge after publishing.
+
+## Release automation
+
+- [ ] Keep the GitHub Actions release workflow on `v*` tags only.
+- [ ] Store the stable signing certificate in `MACOS_CERTIFICATE_P12_BASE64` and `MACOS_CERTIFICATE_PASSWORD`.
+- [ ] Store notarization credentials in `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
+- [ ] Store the Sparkle Ed25519 private key in `SPARKLE_ED25519_PRIVATE_KEY` so the generated appcast stays signed.
+- [ ] Upload the versioned app zip and `appcast.xml` together on every release so `releases/latest/download/appcast.xml` stays valid.
 
 ## Repository controls
 

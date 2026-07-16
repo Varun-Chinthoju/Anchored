@@ -115,6 +115,14 @@ final class OverlayManagerTests: XCTestCase {
 
         XCTAssertNil(overlayManager.countdownPillPanel)
     }
+
+    func testDimCenterRevealDelayWaitsForMissionMessagePhase() {
+        preferencesManager.dimTransitionDuration = 10.0
+        XCTAssertEqual(overlayManager.dimCenterRevealDelay, 3.0, accuracy: 0.0001)
+
+        preferencesManager.dimTransitionDuration = 0.5
+        XCTAssertEqual(overlayManager.dimCenterRevealDelay, 0.15, accuracy: 0.0001)
+    }
     
     func testOnlyOneCountdownPillPanelAtATime() {
         XCTAssertNil(overlayManager.countdownPillPanel)

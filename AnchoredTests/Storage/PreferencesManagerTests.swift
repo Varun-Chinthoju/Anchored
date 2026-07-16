@@ -246,6 +246,20 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.showCountdownPill))
     }
 
+    func testCommitmentLockCanBeUnlockedAgain() {
+        testDefaults.set(true, forKey: PreferencesManager.Keys.commitmentLockEnabled)
+        mockService.status = .notRegistered
+
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        XCTAssertTrue(manager.commitmentLockEnabled)
+
+        manager.commitmentLockEnabled = false
+
+        XCTAssertFalse(manager.commitmentLockEnabled)
+        XCTAssertFalse(testDefaults.bool(forKey: PreferencesManager.Keys.commitmentLockEnabled))
+    }
+
     func testRuntimeFocusThresholdOverrideWinsForEngineUse() {
         testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
         testDefaults.set(5.0, forKey: PreferencesManager.Keys.focusThresholdOverride)

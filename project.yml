@@ -5,6 +5,9 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift.git
     from: 6.29.1
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    from: 2.9.4
 targets:
   Anchored:
     type: application
@@ -15,12 +18,26 @@ targets:
     dependencies:
       - package: GRDB
         product: GRDB
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         INFOPLIST_FILE: Anchored/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.varun.Anchored
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_VERSION: "5.7"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SPARKLE_FEED_URL: "https://github.com/Varun-Chinthoju/Anchored/releases/latest/download/appcast.xml"
+        SPARKLE_PUBLIC_ED_KEY: "T87HpD4v4x9wRpDV52YgiU1M+lox/AVzkJyZ7KJ23HA="
+      configs:
+        Debug:
+          CODE_SIGN_STYLE: Automatic
+          CODE_SIGN_IDENTITY: Apple Development
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Developer ID Application
+          ENABLE_HARDENED_RUNTIME: YES
   AnchoredTests:
     type: bundle.unit-test
     platform: macOS
@@ -37,4 +54,3 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_VERSION: "5.7"
         GENERATE_INFOPLIST_FILE: YES
-

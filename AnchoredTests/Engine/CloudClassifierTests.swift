@@ -24,6 +24,7 @@ final class CloudClassifierTests: XCTestCase {
         classifier = CloudClassifier(preferences: preferences, session: session)
         KeychainHelper.mockKeys = [:]
         KeychainHelper.useMockOnly = true
+        KeychainHelper.clearCachedKeys()
     }
     
     override func tearDown() {
@@ -35,6 +36,7 @@ final class CloudClassifierTests: XCTestCase {
         MockURLProtocol.requestHandler = nil
         KeychainHelper.mockKeys = [:]
         KeychainHelper.useMockOnly = false
+        KeychainHelper.clearCachedKeys()
         super.tearDown()
     }
 

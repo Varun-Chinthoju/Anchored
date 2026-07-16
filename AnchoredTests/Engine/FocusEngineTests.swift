@@ -502,6 +502,12 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(events.first?.appName, expectedFallback)
     }
 
+    func testSuggestedSessionGoalDoesNotFallbackToAppName() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        XCTAssertNil(engine.suggestedSessionGoal())
+    }
+
     func testSuggestedSessionGoalSuppressesVideoTitlesFromEntertainmentSites() {
         mockActivityMonitor.simulateContextChange(
             bundleID: "com.google.Chrome",
@@ -703,6 +709,20 @@ final class FocusEngineTests: XCTestCase {
         // Switch back to work
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+
+    func testStaleDistractionTimerCannotDimAfterReturningToWork() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        // Simulate a timer callback that was queued before cancellation.
+        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
+
         XCTAssertFalse(engine.isDimming)
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
     }
@@ -1051,6 +1071,14 @@ final class FocusEngineTests: XCTestCase {
             XCTAssertEqual(mockDelegate.requestedPermissionGate, 0)
         }
     }
+
+    func testPermissionGateIsNotTriggeredBeforeTenSessions() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500.0)
+        engine.endSession()
+
+        XCTAssertEqual(mockDelegate.requestedPermissionGate, 0)
+    }
     
     func testTitlePropagation() {
         let expectation = self.expectation(description: "FocusEngineContextDidChange notification fired")
@@ -1258,7 +1286,7 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertGreaterThan(resumedStartDate.timeIntervalSince(initialStartDate), 0.04)
     }
 
-    func testCmdTabToAnotherProductiveAppDoesNotBypassDimming() {
+    func testReturningToAnotherProductiveAppDoesNotLeaveStaleDimmingEnforcement() {
         let profile = WorkProfile(name: "Neutral Apps")
         profileManager.addProfile(profile)
         profileManager.switchProfile(to: profile.name)
@@ -1267,14 +1295,10 @@ final class FocusEngineTests: XCTestCase {
         engine.anchorSession(duration: 1_500)
 
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
-        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
-        XCTAssertTrue(engine.isDimming)
-
         mockActivityMonitor.simulateContextChange(bundleID: "com.jetbrains.intellij")
 
-        XCTAssertTrue(engine.isDimming)
+        XCTAssertFalse(engine.isDimming)
         XCTAssertEqual(engine.lastWorkAppBundleID, "com.apple.dt.Xcode")
-        XCTAssertEqual(mockDelegate.returnsToWork, 0)
     }
 
     func testForceImmediateDimRequestsOverlayWithoutCountdown() {

@@ -26,11 +26,36 @@ public struct KeychainHelper {
 
     internal static var mockKeys: [String: String] = [:]
     public static var useMockOnly = false
+    private static var cachedKeys: [String: String] = [:]
+    private static let cacheLock = NSLock()
+
+    private static func normalizedProvider(_ provider: String) -> String {
+        provider.lowercased()
+    }
+
+    private static func cachedKey(forProvider provider: String) -> String? {
+        let normalized = normalizedProvider(provider)
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return cachedKeys[normalized]
+    }
+
+    private static func storeCachedKey(_ key: String?, forProvider provider: String) {
+        let normalized = normalizedProvider(provider)
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let key {
+            cachedKeys[normalized] = key
+        } else {
+            cachedKeys.removeValue(forKey: normalized)
+        }
+    }
 
     public static func saveKey(_ key: String, forProvider provider: String) throws {
-        let normalized = provider.lowercased()
+        let normalized = normalizedProvider(provider)
         if useMockOnly {
             mockKeys[normalized] = key
+            storeCachedKey(key, forProvider: provider)
             return
         }
         mockKeys.removeValue(forKey: normalized)
@@ -48,6 +73,7 @@ public struct KeychainHelper {
             if updateStatus != errSecSuccess {
                 throw KeychainError.unhandledError(status: updateStatus)
             }
+            storeCachedKey(key, forProvider: provider)
         } else if status == errSecItemNotFound {
             var newQuery = query
             newQuery[kSecValueData as String] = data
@@ -56,6 +82,7 @@ public struct KeychainHelper {
             if addStatus != errSecSuccess {
                 throw KeychainError.unhandledError(status: addStatus)
             }
+            storeCachedKey(key, forProvider: provider)
         } else {
             throw KeychainError.unhandledError(status: status)
         }
@@ -63,7 +90,11 @@ public struct KeychainHelper {
 
     public static func loadKey(forProvider provider: String) -> String? {
         if useMockOnly {
-            return mockKeys[provider.lowercased()]
+            return mockKeys[normalizedProvider(provider)]
+        }
+
+        if let cached = cachedKey(forProvider: provider) {
+            return cached
         }
 
         let query: [String: Any] = [
@@ -76,15 +107,20 @@ public struct KeychainHelper {
         var ref: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &ref)
         if status == errSecSuccess, let data = ref as? Data {
-            return String(data: data, encoding: .utf8)
+            let loaded = String(data: data, encoding: .utf8)
+            if let loaded {
+                storeCachedKey(loaded, forProvider: provider)
+            }
+            return loaded
         }
         return nil
     }
 
     public static func deleteKey(forProvider provider: String) throws {
-        let normalized = provider.lowercased()
+        let normalized = normalizedProvider(provider)
         if useMockOnly {
             mockKeys.removeValue(forKey: normalized)
+            storeCachedKey(nil, forProvider: provider)
             return
         }
 
@@ -99,9 +135,16 @@ public struct KeychainHelper {
         if status != errSecSuccess && status != errSecItemNotFound {
             throw KeychainError.unhandledError(status: status)
         }
+        storeCachedKey(nil, forProvider: provider)
     }
 
     internal static func clearMockKeys() {
         mockKeys.removeAll()
+    }
+
+    internal static func clearCachedKeys() {
+        cacheLock.lock()
+        cachedKeys.removeAll()
+        cacheLock.unlock()
     }
 }

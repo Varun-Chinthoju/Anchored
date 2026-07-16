@@ -10,7 +10,7 @@ struct HowItWorksStepView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(PirateTheme.gold.opacity(0.08))
+                        .fill(PirateTheme.gold.opacity(0.12))
                         .frame(width: 80, height: 80)
                     
                     SafeSystemImage(systemName: "compass.fill", size: 32)
@@ -19,14 +19,14 @@ struct HowItWorksStepView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
                         text: t("how_title"),
-                        font: .system(size: 36, weight: .bold, design: .serif),
+                        font: .system(size: 32, weight: .semibold, design: .rounded),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
                     Text(t("how_left_desc"))
-                        .font(.system(size: 14, design: .serif))
+                        .font(.system(size: 14, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
-                        .lineSpacing(4)
+                        .lineSpacing(3)
                 }
                 
                 Spacer()
@@ -39,7 +39,7 @@ struct HowItWorksStepView: View {
                         Text(t("how_btn"))
                         Image(systemName: "arrow.right")
                     }
-                    .font(.system(size: 14, weight: .bold, design: .serif))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundColor(PirateTheme.darkWood)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
@@ -96,8 +96,8 @@ struct FeatureCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(accentColor.opacity(0.12))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(accentColor.opacity(0.1))
                     .frame(width: 44, height: 44)
                 
                 SafeSystemImage(systemName: icon, size: 18, color: accentColor)
@@ -105,10 +105,10 @@ struct FeatureCard: View {
             
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 15, weight: .bold, design: .serif))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundColor(PirateTheme.parchment)
                 Text(description)
-                    .font(.system(size: 12.5, design: .serif))
+                    .font(.system(size: 12.5, design: .rounded))
                     .foregroundColor(PirateTheme.parchment.opacity(0.7))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -116,11 +116,11 @@ struct FeatureCard: View {
             Spacer()
         }
         .padding(20)
-        .background(PirateTheme.darkWood.opacity(0.4))
-        .cornerRadius(14)
+        .background(PirateTheme.darkWood.opacity(0.34))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(PirateTheme.gold.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(PirateTheme.gold.opacity(0.16), lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

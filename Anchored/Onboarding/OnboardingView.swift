@@ -17,16 +17,21 @@ struct OnboardingView: View {
                 }
             
             VStack {
-                // Header / Step dots
+                // Header / Step progress
                 if currentStep > 0 {
-                    HStack(spacing: 8) {
-                        ForEach(0..<6) { index in
-                            Circle()
-                                .fill(index == currentStep ? PirateTheme.gold : PirateTheme.separator)
-                                .frame(width: 8, height: 8)
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            ForEach(0..<6) { index in
+                                Circle()
+                                    .fill(index == currentStep ? PirateTheme.gold : PirateTheme.separator.opacity(0.8))
+                                    .frame(width: 6, height: 6)
+                            }
                         }
+                        Text("Step \(currentStep + 1) of 6")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundColor(PirateTheme.parchment.opacity(0.65))
                     }
-                    .padding(.top, 40)
+                    .padding(.top, 34)
                 }
                 
                 // Active Card content with simple slide transitions
@@ -68,7 +73,7 @@ struct OnboardingView: View {
                 // Click-anywhere helper hint (only shown for non-interactive pages)
                 if currentStep == 0 || currentStep == 1 {
                     Text(t("how_btn")) // Standard prompt
-                        .font(.system(size: 11, weight: .medium, design: .serif))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
                         .foregroundColor(PirateTheme.parchment)
                         .opacity(0.4)
                         .padding(.bottom, 32)

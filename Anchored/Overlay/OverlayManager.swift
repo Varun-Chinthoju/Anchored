@@ -31,7 +31,9 @@ class OverlayManager: NSObject, FocusEngineDelegate {
     private var pendingDimCenterPanelReveal: DispatchWorkItem?
     private(set) var lastBreakReview: (intention: String, result: BreakReviewResult)?
     private(set) var refusedBreakCount = 0
-    private let dimCenterRevealBuffer: TimeInterval = 0.15
+    var dimCenterRevealDelay: TimeInterval {
+        max(0, preferencesManager.dimTransitionDuration * DimOverlayWindow.missionMessageRevealFraction)
+    }
     
     /// Configurable countdown duration in seconds. Clamped to the range 0-3600.
     private var _countdownDuration: Int = 30
@@ -254,7 +256,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         countdownPillPanel?.showDimmedState()
 
         showDimOverlay(on: screen)
-        scheduleDimCenterPanelReveal(delay: preferencesManager.dimTransitionDuration + dimCenterRevealBuffer) { [weak self] in
+        scheduleDimCenterPanelReveal(delay: dimCenterRevealDelay) { [weak self] in
             self?.showDimCenterPanel(on: screen)
         }
     }
@@ -294,7 +296,7 @@ class OverlayManager: NSObject, FocusEngineDelegate {
         RuntimeTrace.event("doomscroll_dim_started")
         showDimOverlay(on: screen)
         // Show a lightweight center panel for the doomscroll dim state
-        scheduleDimCenterPanelReveal(delay: preferencesManager.dimTransitionDuration + dimCenterRevealBuffer) { [weak self] in
+        scheduleDimCenterPanelReveal(delay: dimCenterRevealDelay) { [weak self] in
             self?.showDoomscrollDimCenterPanel(on: screen)
         }
     }

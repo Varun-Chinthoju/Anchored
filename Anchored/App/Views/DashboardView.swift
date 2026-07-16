@@ -310,19 +310,12 @@ struct DashboardView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("FOCUS")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundColor(palette.textSecondaryColor)
-                    .tracking(1.6)
-                Text("Anchored")
-                    .font(.system(size: 24, weight: .semibold, design: .serif))
-                    .foregroundColor(palette.textPrimaryColor)
-                Text("Review your momentum and correct course.")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundColor(palette.textSecondaryColor)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            ControlRoomSectionHeader(
+                eyebrow: "Focus",
+                title: "Anchored",
+                subtitle: "Review your momentum and correct course without leaving this panel.",
+                accent: palette.accentColor
+            )
 
             VStack(spacing: 8) {
                 ForEach(DashboardNavItem.allCases) { item in
@@ -358,12 +351,12 @@ struct DashboardView: View {
                     .foregroundColor(palette.textPrimaryColor)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(DashboardChrome.control.opacity(0.92))
+                    .background(palette.surfaceColor.opacity(0.82))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(palette.borderColor.opacity(0.9), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(palette.borderColor.opacity(0.7), lineWidth: 1)
                     )
-                    .cornerRadius(12)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -455,14 +448,12 @@ struct DashboardView: View {
 
     private var headerRow: some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Captain's Log")
-                    .font(.system(size: 28, weight: .semibold, design: .serif))
-                    .foregroundColor(palette.textPrimaryColor)
-                Text("Focus history, trends, and distractions in one place")
-                    .font(.system(size: 13, design: .rounded))
-                    .foregroundColor(palette.textSecondaryColor)
-            }
+            ControlRoomSectionHeader(
+                eyebrow: "Captain's Log",
+                title: "Focus history in one place",
+                subtitle: "Trends, sessions, and distractions stay in the same working surface.",
+                accent: palette.accentColor
+            )
 
             Spacer()
 
@@ -501,27 +492,27 @@ private struct DashboardSidebarRow: View {
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
             Spacer()
         }
-        .foregroundColor(isSelected ? Color.black.opacity(0.82) : palette.textSecondaryColor)
+        .foregroundColor(isSelected ? palette.textPrimaryColor : palette.textSecondaryColor)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(backgroundFill)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? palette.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? palette.accentColor.opacity(0.35) : palette.borderColor.opacity(0.25), lineWidth: 1)
         )
-        .cornerRadius(12)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var backgroundFill: some View {
         Group {
             if isSelected {
                 LinearGradient(
-                    colors: [palette.accentColor, palette.accentShadowColor],
+                    colors: [palette.accentColor.opacity(0.92), palette.accentShadowColor.opacity(0.92)],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
             } else {
-                palette.surfaceSubtleColor.opacity(0.35)
+                palette.surfaceSubtleColor.opacity(0.48)
             }
         }
     }
@@ -535,11 +526,18 @@ private struct TodayActivityCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Today")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundColor(palette.textSecondaryColor)
+            HStack(spacing: 8) {
+                Capsule()
+                    .fill(palette.accentColor.opacity(0.8))
+                    .frame(width: 20, height: 4)
+                Text("Today")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(1.1)
+                    .foregroundColor(palette.textSecondaryColor)
+            }
+
             Text(formatDuration(focusDuration))
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
                 .foregroundColor(palette.textPrimaryColor)
             Text("\(sessionCount) completed session\(sessionCount == 1 ? "" : "s")")
                 .font(.system(size: 11, design: .rounded))
@@ -548,19 +546,13 @@ private struct TodayActivityCard: View {
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(palette.accentColor)
         }
-        .padding(14)
-        .background(
-            LinearGradient(
-                colors: [DashboardChrome.cardTop, DashboardChrome.cardBottom],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .padding(16)
+        .background(DashboardChrome.cardBottom.opacity(0.72))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(palette.borderColor.opacity(0.95), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(palette.borderColor.opacity(0.72), lineWidth: 1)
         )
-        .cornerRadius(16)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {

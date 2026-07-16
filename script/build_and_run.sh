@@ -4,16 +4,53 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="Anchored"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED_DATA_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/anchored-release-derived-data.XXXXXX")"
-BUILT_APP="$DERIVED_DATA_DIR/Build/Products/Release/$APP_NAME.app"
-INSTALLED_APP="/Applications/$APP_NAME.app"
+INSTALL_PATH="/Applications/$APP_NAME.app"
+
+BUILD_CONFIGURATION="Release"
+LAUNCH_WITH_Lldb="no"
+
+case "$MODE" in
+  run)
+    BUILD_CONFIGURATION="Release"
+    ;;
+  debug)
+    BUILD_CONFIGURATION="Debug"
+    ;;
+  --debug|lldb)
+    BUILD_CONFIGURATION="Debug"
+    LAUNCH_WITH_Lldb="yes"
+    ;;
+  --logs|logs|--telemetry|telemetry|--verify|verify)
+    BUILD_CONFIGURATION="Release"
+    ;;
+  -h|--help|help)
+    cat <<'EOF'
+usage: ./script/build_and_run.sh [run|debug|--debug|--logs|--telemetry|--verify]
+
+  run       Build Release, install to /Applications, and launch.
+  debug     Build Debug, install to /Applications, and launch.
+  --debug   Build Debug, install to /Applications, and launch under lldb.
+  --logs    Build Release, install to /Applications, launch, then stream logs.
+  --telemetry  Same as --logs for now.
+  --verify  Build Release, install to /Applications, launch, and confirm the process exists.
+EOF
+    exit 0
+    ;;
+  *)
+    echo "usage: $0 [run|debug|--debug|--logs|--telemetry|--verify]" >&2
+    exit 2
+    ;;
+esac
+
+DERIVED_DATA_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/anchored-${BUILD_CONFIGURATION,,}-derived-data.XXXXXX")"
+BUILT_APP="$DERIVED_DATA_DIR/Build/Products/$BUILD_CONFIGURATION/$APP_NAME.app"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 xcodebuild \
   -project "$PROJECT_ROOT/Anchored.xcodeproj" \
   -scheme "$APP_NAME" \
-  -configuration Release \
+  -configuration "$BUILD_CONFIGURATION" \
   -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
@@ -21,19 +58,20 @@ xcodebuild \
   build
 
 test -d "$BUILT_APP"
-/bin/rm -rf "$INSTALLED_APP"
-/usr/bin/ditto "$BUILT_APP" "$INSTALLED_APP"
+/bin/rm -rf "$INSTALL_PATH"
+/usr/bin/ditto "$BUILT_APP" "$INSTALL_PATH"
 
 open_app() {
-  /usr/bin/open -n "$INSTALLED_APP"
+  /usr/bin/open -n "$INSTALL_PATH"
 }
 
+if [[ "$LAUNCH_WITH_Lldb" == "yes" ]]; then
+  exec lldb -- "$INSTALL_PATH/Contents/MacOS/$APP_NAME"
+fi
+
 case "$MODE" in
-  run)
+  run|debug)
     open_app
-    ;;
-  --debug|debug)
-    lldb -- "$INSTALLED_APP/Contents/MacOS/$APP_NAME"
     ;;
   --logs|logs)
     open_app
@@ -47,9 +85,5 @@ case "$MODE" in
     open_app
     sleep 1
     pgrep -x "$APP_NAME" >/dev/null
-    ;;
-  *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
-    exit 2
     ;;
 esac

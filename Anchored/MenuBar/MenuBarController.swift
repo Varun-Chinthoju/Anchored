@@ -165,10 +165,6 @@ class MenuBarController: NSObject, NSMenuDelegate {
         
         let quitItem = NSMenuItem(title: "Quit Anchored", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
-        if PreferencesManager.shared.commitmentLockEnabled {
-            quitItem.isEnabled = false
-            quitItem.title = "Quit Anchored (Locked)"
-        }
         menu.addItem(quitItem)
     }
     
@@ -204,7 +200,11 @@ class MenuBarController: NSObject, NSMenuDelegate {
         }
         
         NSApp.setActivationPolicy(.regular)
-        let window = SettingsWindow(focusEngine: focusEngine, initialSection: section)
+        let window = SettingsWindow(
+            focusEngine: focusEngine,
+            initialSection: section,
+            onCheckForUpdates: UpdateManager.shared.checkForUpdates
+        )
         
         NotificationCenter.default.addObserver(
             self,

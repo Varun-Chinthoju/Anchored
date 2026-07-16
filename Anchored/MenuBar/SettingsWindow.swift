@@ -3,7 +3,11 @@ import SwiftUI
 
 class SettingsWindow: NSWindow {
     
-    init(focusEngine: FocusEngine, initialSection: SettingsSection = .general) {
+    init(
+        focusEngine: FocusEngine,
+        initialSection: SettingsSection = .general,
+        onCheckForUpdates: (() -> Void)? = nil
+    ) {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 990, height: 630),
             styleMask: [.titled, .closable, .miniaturizable],
@@ -20,7 +24,11 @@ class SettingsWindow: NSWindow {
         self.titlebarAppearsTransparent = true
         
         let themeAccent = PreferencesManager.shared.selectedThemePalette.accentColor
-        let view = SettingsView(focusEngine: focusEngine, initialSection: initialSection)
+        let view = SettingsView(
+            focusEngine: focusEngine,
+            initialSection: initialSection,
+            onCheckForUpdates: onCheckForUpdates
+        )
             .preferredColorScheme(.dark)
             .accentColor(themeAccent)
             .tint(themeAccent)

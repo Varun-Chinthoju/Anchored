@@ -9,12 +9,14 @@ final class KeychainHelperTests: XCTestCase {
         super.setUp()
         KeychainHelper.useMockOnly = true
         KeychainHelper.mockKeys = [:]
+        KeychainHelper.clearCachedKeys()
     }
 
     override func tearDownWithError() throws {
         try? KeychainHelper.deleteKey(forProvider: testProvider)
         KeychainHelper.useMockOnly = false
         KeychainHelper.mockKeys = [:]
+        KeychainHelper.clearCachedKeys()
         try super.tearDownWithError()
     }
     

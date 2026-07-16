@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, Sign, and Publish
+    runs-on: macos-14
+    env:
+      APP_NAME: Anchored
+      REPOSITORY: ${{ github.repository }}
+      DERIVED_DATA_PATH: ${{ runner.temp }}/anchored-derived-data
+      SPM_PATH: ${{ runner.temp }}/anchored-spm
+      ARCHIVE_PATH: ${{ runner.temp }}/Anchored.xcarchive
+      STAGING_PATH: ${{ runner.temp }}/anchored-release
+      MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      SPARKLE_ED25519_PRIVATE_KEY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+      RELEASE_TAG_INPUT: ${{ github.event.inputs.tag }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Validate Release Inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required in \
+            MACOS_CERTIFICATE_P12_BASE64 \
+            MACOS_CERTIFICATE_PASSWORD \
+            APPLE_ID \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            APPLE_TEAM_ID \
+            SPARKLE_ED25519_PRIVATE_KEY
+          do
+            if [[ -z "${!required:-}" ]]; then
+              echo "::error::$required is required for the release workflow"
+              exit 1
+            fi
+          done
+
+      - name: Import Developer ID Certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/anchored-release.keychain-db"
+          P12_PATH="$RUNNER_TEMP/anchored-release.p12"
+
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$P12_PATH"
+
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$P12_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security find-identity -p codesigning -v "$KEYCHAIN_PATH"
+
+      - name: Resolve Release Metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            RELEASE_TAG="${RELEASE_TAG_INPUT}"
+          fi
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Archive Application
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project Anchored.xcodeproj \
+            -scheme "$APP_NAME" \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SPM_PATH" \
+            MARKETING_VERSION="${{ steps.metadata.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.metadata.outputs.build_number }}" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+
+      - name: Stage Application Bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$STAGING_PATH"
+          APP_ARCHIVE_PATH="$ARCHIVE_PATH/Products/Applications/$APP_NAME.app"
+          STAGED_APP_PATH="$STAGING_PATH/$APP_NAME.app"
+          /usr/bin/ditto "$APP_ARCHIVE_PATH" "$STAGED_APP_PATH"
+          test -d "$STAGED_APP_PATH"
+
+      - name: Notarize Application
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGED_APP_PATH="$STAGING_PATH/$APP_NAME.app"
+          NOTARY_ZIP_PATH="$STAGING_PATH/$APP_NAME-notary.zip"
+
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$STAGED_APP_PATH" "$NOTARY_ZIP_PATH"
+          xcrun notarytool submit "$NOTARY_ZIP_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$STAGED_APP_PATH"
+          xcrun spctl -a -vv "$STAGED_APP_PATH"
+          /bin/rm -f "$NOTARY_ZIP_PATH"
+
+      - name: Create Release Zip
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGED_APP_PATH="$STAGING_PATH/$APP_NAME.app"
+          ZIP_PATH="$STAGING_PATH/$APP_NAME-${{ steps.metadata.outputs.version }}.zip"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$STAGED_APP_PATH" "$ZIP_PATH"
+
+          echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+          echo "staging_path=$STAGING_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Locate Sparkle Tools
+        id: sparkle
+        shell: bash
+        run: |
+          set -euo pipefail
+          SPARKLE_GENERATE_APPCAST="$(find "$SPM_PATH/artifacts" -path '*/Sparkle/bin/generate_appcast' -print -quit)"
+          if [[ -z "$SPARKLE_GENERATE_APPCAST" ]]; then
+            echo "::error::Unable to locate Sparkle's generate_appcast tool"
+            exit 1
+          fi
+          echo "generate_appcast=$SPARKLE_GENERATE_APPCAST" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Sparkle Appcast
+        shell: bash
+        env:
+          SPARKLE_GENERATE_APPCAST: ${{ steps.sparkle.outputs.generate_appcast }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$SPARKLE_ED25519_PRIVATE_KEY" | "$SPARKLE_GENERATE_APPCAST" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/$REPOSITORY/releases/download/${{ steps.metadata.outputs.tag }}/" \
+            --full-release-notes-url "https://github.com/$REPOSITORY/releases/tag/${{ steps.metadata.outputs.tag }}" \
+            --link "https://github.com/$REPOSITORY" \
+            "$STAGING_PATH"
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.metadata.outputs.tag }}" \
+            "${{ steps.package.outputs.zip_path }}" \
+            "${{ steps.package.outputs.staging_path }}/appcast.xml" \
+            --title "${{ steps.metadata.outputs.tag }}" \
+            --generate-notes

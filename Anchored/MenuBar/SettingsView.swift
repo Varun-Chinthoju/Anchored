@@ -153,9 +153,15 @@ struct SettingsView: View {
     @State private var showAddAlert = false
     @State private var newProfileName = ""
     private let focusEngine: FocusEngine
+    private let onCheckForUpdates: (() -> Void)?
 
-    init(focusEngine: FocusEngine, initialSection: SettingsSection = .general) {
+    init(
+        focusEngine: FocusEngine,
+        initialSection: SettingsSection = .general,
+        onCheckForUpdates: (() -> Void)? = nil
+    ) {
         self.focusEngine = focusEngine
+        self.onCheckForUpdates = onCheckForUpdates
         let initialItem: SidebarItem
         switch initialSection {
         case .general:
@@ -189,7 +195,6 @@ struct SettingsView: View {
     var body: some View {
         let isPirateMode = langManager.isPirateMode
         let themeAccent = SettingsTheme.accent
-        let themeSurface = SettingsTheme.surface
         let themeSurfaceRaised = SettingsTheme.surfaceRaised
         let themeTextSecondary = SettingsTheme.textSecondary
         NavigationSplitView {
@@ -211,18 +216,23 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(themeSurfaceRaised.opacity(0.72))
-                .cornerRadius(7)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(themeSurfaceRaised.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(SettingsTheme.border.opacity(0.5), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
-                .padding(.bottom, 8)
+                .padding(.bottom, 10)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Profiles")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .tracking(1.1)
                             .foregroundColor(themeTextSecondary)
                             .padding(.horizontal, 14)
                             .padding(.top, 8)
@@ -266,7 +276,8 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
 
                         Text(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .tracking(1.1)
                             .foregroundColor(themeTextSecondary)
                             .padding(.horizontal, 14)
                             .padding(.top, 14)
@@ -278,7 +289,11 @@ struct SettingsView: View {
                                 .padding(.vertical, 6)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.18) : .clear)
-                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.28) : Color.clear, lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .contentShape(Rectangle())
                                 .onTapGesture { selectedItem = sidebarItem(for: section) }
                         }
@@ -309,7 +324,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 350)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 350)
         } detail: {
             // DETAIL PANE
             Group {
@@ -328,7 +343,10 @@ struct SettingsView: View {
                 case .captainsLog:
                     CaptainsLogSettingsPane(focusEngine: focusEngine)
                 case .about:
-                    AboutSettingsPane(isPirateMode: isPirateMode)
+                    AboutSettingsPane(
+                        isPirateMode: isPirateMode,
+                        onCheckForUpdates: onCheckForUpdates
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -383,7 +401,7 @@ struct ColoredLabelStyle: LabelStyle {
         let iconForeground = readableForeground(for: color)
         HStack(spacing: 8) {
             ZStack {
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(color)
                     .frame(width: 22, height: 22)
                 configuration.icon
@@ -391,7 +409,7 @@ struct ColoredLabelStyle: LabelStyle {
                     .foregroundColor(iconForeground)
             }
             configuration.title
-                .font(.system(size: 13))
+                .font(.system(size: 13, weight: .medium, design: .rounded))
         }
     }
 
@@ -410,11 +428,13 @@ struct SettingsPane<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(title)
-                    .font(.system(size: 20, weight: .semibold, design: .serif))
-                    .foregroundColor(SettingsTheme.accent)
-                    .padding(.bottom, 2)
+            VStack(alignment: .leading, spacing: 18) {
+                ControlRoomSectionHeader(
+                    eyebrow: "Settings",
+                    title: title,
+                    subtitle: "Tweak preferences, privacy, and profile behavior from one place.",
+                    accent: SettingsTheme.accent
+                )
                 content()
             }
             .padding(24)
@@ -432,17 +452,13 @@ struct SettingsGroup<Content: View>: View {
             content()
         }
         .background(
-            LinearGradient(
-                colors: [
-                    ControlRoomTheme.cardTop,
-                    ControlRoomTheme.cardBottom
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            ControlRoomTheme.cardBottom.opacity(0.84)
         )
-        .cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(SettingsTheme.border.opacity(0.7), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -464,11 +480,11 @@ struct SettingsRow<Content: View>: View {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label)
-                        .font(.system(size: 13))
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundColor(SettingsTheme.textPrimary)
                     if let desc = description {
                         Text(desc)
-                            .font(.system(size: 11))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundColor(SettingsTheme.textSecondary)
                     }
                 }
@@ -477,9 +493,11 @@ struct SettingsRow<Content: View>: View {
                     .labelsHidden()
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
             if showDivider {
-                Divider().padding(.leading, 16).overlay(SettingsTheme.border.opacity(0.55))
+                Divider()
+                    .padding(.leading, 16)
+                    .overlay(SettingsTheme.border.opacity(0.45))
             }
         }
     }
@@ -645,8 +663,6 @@ struct GeneralSettingsPane: View {
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.showCountdownPill)
-                            .disabled(prefs.commitmentLockEnabled)
-                            .opacity(prefs.commitmentLockEnabled ? 0.45 : 1)
                     }
 
                     SettingsRow(
@@ -935,10 +951,20 @@ struct GeneralSettingsPane: View {
                 SettingsGroup {
                     SettingsRow(
                         label: settingsCopy("Commitment Lock", pirate: "Commitment Lock", isPirateMode: isPirateMode),
-                        description: settingsCopy("Locks the app on, keeps launch at login and the warning pill enabled, and blocks normal quitting until you unlock it. macOS uninstall is still outside the app's control.", pirate: "Locks the app on, keeps launch at login and the warning pill enabled, and blocks normal quitting until you unlock it. macOS uninstall is still outside the app's control.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Keeps launch at login and protected focus features enabled. You can always quit Anchored from the menu bar.", pirate: "Keeps launch at login and protected focus features enabled. Ye can always quit Anchored from the menu bar.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
-                        Toggle("", isOn: $prefs.commitmentLockEnabled)
+                        if prefs.commitmentLockEnabled {
+                            Button {
+                                prefs.commitmentLockEnabled = false
+                            } label: {
+                                Label(settingsCopy("Unlock", pirate: "Unlock", isPirateMode: isPirateMode), systemImage: "lock.open.fill")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(.borderless)
+                        } else {
+                            Toggle("", isOn: $prefs.commitmentLockEnabled)
+                        }
                     }
 
                     SettingsRow(
@@ -1419,7 +1445,7 @@ struct PrivacySettingsPane: View {
     }
 
     private var oldestAccessibilityLabel: String {
-        if let date = oldestDate {
+        if oldestDate != nil {
             return "Oldest record \(formattedOldestDate)"
         }
         return "No history"
@@ -2107,7 +2133,9 @@ struct CaptainsLogSettingsPane: View {
 
 struct AboutSettingsPane: View {
     let isPirateMode: Bool
+    let onCheckForUpdates: (() -> Void)?
     var body: some View {
+        let versionLabel = "Version \(Bundle.main.anchoredVersionString) (Build \(Bundle.main.anchoredBuildString))"
         SettingsPane(title: settingsCopy("About", pirate: "Crew Info", isPirateMode: isPirateMode)) {
             HStack(spacing: 20) {
                 Image(nsImage: NSApplication.shared.applicationIconImage ?? NSImage())
@@ -2117,7 +2145,7 @@ struct AboutSettingsPane: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Anchored")
                         .font(.system(size: 16, weight: .semibold))
-                    Text(settingsCopy("Version 1.0.0 (Build 1)", pirate: "Version 1.0.0 (Build 1)", isPirateMode: isPirateMode))
+                    Text(settingsCopy(versionLabel, pirate: versionLabel, isPirateMode: isPirateMode))
                         .font(.system(size: 12))
                         .foregroundColor(SettingsTheme.textSecondary)
                     Text(settingsCopy("Zero-setup focus tracking for macOS, built for your workflow.", pirate: "Zero-setup focus momentum preservation for macOS, fit for the high seas.", isPirateMode: isPirateMode))
@@ -2133,7 +2161,10 @@ struct AboutSettingsPane: View {
 
             SettingsGroup {
                 SettingsRow(label: settingsCopy("Check for Updates", pirate: "Scan for Upgrades", isPirateMode: isPirateMode), showDivider: true) {
-                    Button(settingsCopy("Check Now", pirate: "Scan Now", isPirateMode: isPirateMode)) {}
+                    Button(settingsCopy("Check Now", pirate: "Scan Now", isPirateMode: isPirateMode)) {
+                        onCheckForUpdates?()
+                    }
+                    .disabled(onCheckForUpdates == nil)
                         .buttonStyle(.borderless)
                         .font(.system(size: 12))
                 }
@@ -2166,6 +2197,16 @@ private func emptyState(_ text: String) -> some View {
 
 private func settingsCopy(_ standard: String, pirate: String, isPirateMode: Bool) -> String {
     isPirateMode ? pirate : standard
+}
+
+private extension Bundle {
+    var anchoredVersionString: String {
+        object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    }
+
+    var anchoredBuildString: String {
+        object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    }
 }
 
 private func makeSettingsStatus(_ status: String, isPirateMode: Bool) -> String {

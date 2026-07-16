@@ -5,36 +5,47 @@ struct OnboardingBackground: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    PirateTheme.canvas,
-                    PirateTheme.surface.opacity(0.95)
+                    Color(hex: 0x231F1D),
+                    PirateTheme.surface.opacity(0.96),
+                    Color(hex: 0x171412)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             .edgesIgnoringSafeArea(.all)
             
-            // Glowing ambient layers tied to the active theme.
             GeometryReader { geo in
                 ZStack {
                     Circle()
-                        .fill(PirateTheme.ambientGlow.opacity(0.75))
-                        .frame(width: 550, height: 550)
-                        .blur(radius: 100)
-                        .position(x: 100, y: 100)
+                        .fill(PirateTheme.ambientGlow.opacity(0.22))
+                        .frame(width: 460, height: 460)
+                        .blur(radius: 92)
+                        .position(x: 120, y: 120)
 
                     Circle()
-                        .fill(PirateTheme.surfaceRaised.opacity(0.45))
-                        .frame(width: 600, height: 600)
+                        .fill(PirateTheme.surfaceRaised.opacity(0.16))
+                        .frame(width: 520, height: 520)
                         .blur(radius: 110)
-                        .position(x: geo.size.width - 150, y: geo.size.height - 150)
+                        .position(x: geo.size.width - 140, y: geo.size.height - 140)
 
                     Circle()
-                        .fill(PirateTheme.surfaceSubtle.opacity(0.8))
-                        .frame(width: 450, height: 450)
-                        .blur(radius: 90)
-                        .position(x: geo.size.width - 250, y: 250)
+                        .fill(PirateTheme.surfaceSubtle.opacity(0.22))
+                        .frame(width: 420, height: 420)
+                        .blur(radius: 84)
+                        .position(x: geo.size.width - 220, y: 220)
                 }
             }
+
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.1),
+                    Color.clear,
+                    Color.black.opacity(0.2)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .blendMode(.multiply)
         }
     }
 }
@@ -102,7 +113,6 @@ struct GlowingText: View {
                     endPoint: .trailing
                 )
             )
-            .shadow(color: colors.first?.opacity(0.4) ?? .clear, radius: 8, x: 0, y: 0)
     }
 }
 

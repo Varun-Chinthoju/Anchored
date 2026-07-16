@@ -166,6 +166,13 @@ final class FocusEngine {
     private var focusPromptTimer: Timer?
     private var scheduleTransitionTimer: Timer?
     private var hasPromptedForCurrentFocusRun = false
+    private var lastReturnToWorkGeneration: Int?
+
+    private func notifyReturnToWorkOncePerContext() {
+        guard lastReturnToWorkGeneration != contextGeneration else { return }
+        lastReturnToWorkGeneration = contextGeneration
+        delegate?.didReturnToWork()
+    }
     
     // Doomscroll loop breaker
     private var doomscrollTimer: Timer?
@@ -487,7 +494,7 @@ final class FocusEngine {
             if isDimming {
                 isDimming = false
                 pausedDate = nil
-                delegate?.didReturnToWork()
+                notifyReturnToWorkOncePerContext()
             }
 
             if activeSession != nil {
@@ -858,7 +865,7 @@ final class FocusEngine {
             let needsUIUpdate = distractionStartDate != nil && !isDimming
             resumeSessionIfNeeded()
             if needsUIUpdate {
-                delegate?.didReturnToWork()
+                notifyReturnToWorkOncePerContext()
             }
             cancelDistractionTimer()
             distractionStartDate = nil
@@ -1006,7 +1013,7 @@ final class FocusEngine {
                 // Cancel warning/dimming
                 if isDimming {
                     isDimming = false
-                    delegate?.didReturnToWork()
+                    notifyReturnToWorkOncePerContext()
                 }
                 cancelDistractionTimer()
                 distractionStartDate = nil
@@ -1313,20 +1320,18 @@ final class FocusEngine {
             print("📈 [Focus Context] bundleID=\(bundleID) appName=\(context.localizedName) domain=\(url?.host ?? "nil") focus=true titleLen=\(title.count)")
             
             if activeSession != nil {
-                if distractionStartDate != nil && !isDimming {
-                    RuntimeTrace.event("focus_context_held_until_dimming", fields: [
-                        "bundleID": bundleID,
-                        "generation": String(contextGeneration)
-                    ])
-                } else if shouldImmediatelyResumeSession(for: actualSnapshot, decision: decision) {
+                if shouldImmediatelyResumeSession(for: actualSnapshot, decision: decision) {
+                    // Returning to a confirmed focus app ends the grace period
+                    // immediately. Do not leave a stale timer armed while the
+                    // user is back in the app they are trying to work in.
+                    let wasDimming = isDimming
                     lastWorkAppBundleID = bundleID
-                    let needsUIUpdate = (distractionStartDate != nil && !isDimming)
                     resumeSessionIfNeeded()
-                    if needsUIUpdate {
-                        delegate?.didReturnToWork()
-                    }
                     cancelDistractionTimer()
                     distractionStartDate = nil
+                    if !wasDimming {
+                        notifyReturnToWorkOncePerContext()
+                    }
                 }
             } else {
                 lastWorkAppBundleID = bundleID
@@ -1542,7 +1547,7 @@ final class FocusEngine {
         if isDimming {
             resumeSessionIfNeeded()
         } else {
-            delegate?.didReturnToWork()
+            notifyReturnToWorkOncePerContext()
         }
     }
 
@@ -1750,7 +1755,7 @@ final class FocusEngine {
                 scheduleSessionTimer(duration: remaining)
             }
             
-            delegate?.didReturnToWork()
+            notifyReturnToWorkOncePerContext()
         }
     }
 
@@ -2262,8 +2267,11 @@ final class FocusEngine {
         
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
         
-        // Present Permission Gate immediately for testing if accessibility is not yet granted
-        if !AXIsProcessTrusted() {
+        // The gate is an onboarding milestone, not a modal requirement after every session.
+        // Keep it deferred until the user has completed ten sessions so an unavailable
+        // Accessibility permission can never interrupt ordinary focus work.
+        let completedSessionCount = sessionStore.allEvents().filter { $0.type == .sessionEnd }.count
+        if completedSessionCount >= 10, !AXIsProcessTrusted() {
             delegate?.didRequestPermissionGate()
         }
     }
@@ -2440,7 +2448,13 @@ final class FocusEngine {
     }
     
     internal func distractionTimerExpired(distractionBundleID: String) {
-        guard lifecyclePauseStartedAt == nil else { return }
+        // Timer invalidation is not enough: a callback that was already queued may
+        // still arrive after the user returned to the recorded work app.
+        guard lifecyclePauseStartedAt == nil,
+              activeSession != nil,
+              !isDimming,
+              self.distractionBundleID == distractionBundleID,
+              currentApp != lastWorkAppBundleID else { return }
         isDimming = true
         RuntimeTrace.event("distraction_timer_expired", fields: ["bundleID": distractionBundleID])
         pausedDate = Date()

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct PermissionStepView: View {
@@ -16,7 +17,7 @@ struct PermissionStepView: View {
             VStack(alignment: .leading, spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(PirateTheme.gold.opacity(0.10))
+                        .fill(PirateTheme.gold.opacity(0.12))
                         .frame(width: 80, height: 80)
                     
                     SafeSystemImage(systemName: "scope", size: 32)
@@ -25,14 +26,14 @@ struct PermissionStepView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
                         text: t("perm_title"),
-                        font: .system(size: 36, weight: .bold, design: .serif),
+                        font: .system(size: 32, weight: .semibold, design: .rounded),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
                     
                     Text("Enable permissions to unlock URL-level awareness and local visual AI check capabilities. All data stays 100% private on your device.")
-                        .font(.system(size: 14, design: .serif))
+                        .font(.system(size: 14, design: .rounded))
                         .foregroundColor(PirateTheme.parchment.opacity(0.8))
-                        .lineSpacing(4)
+                        .lineSpacing(3)
                 }
                 
                 Spacer()
@@ -52,10 +53,10 @@ struct PermissionStepView: View {
                         
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Accessibility Permission")
-                                .font(.system(size: 14, weight: .bold, design: .serif))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment)
                             Text("Detects browser tabs and distraction URLs.")
-                                .font(.system(size: 11, design: .serif))
+                                .font(.system(size: 11, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment.opacity(0.6))
                         }
                         
@@ -67,7 +68,7 @@ struct PermissionStepView: View {
                                 triggerAXRequest()
                             }) {
                                 Text("Enable")
-                                    .font(.system(size: 11, weight: .bold, design: .serif))
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                                     .foregroundColor(PirateTheme.darkWood)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 4)
@@ -77,17 +78,17 @@ struct PermissionStepView: View {
                             .buttonStyle(.plain)
                         } else {
                             Text("Enabled")
-                                .font(.system(size: 11, weight: .bold, design: .serif))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.gold)
                         }
                     }
                     .padding(16)
                     .background(PirateTheme.darkWood.opacity(0.3))
-                    .cornerRadius(10)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(isAXGranted ? PirateTheme.gold.opacity(0.2) : PirateTheme.gold.opacity(0.08), lineWidth: 1)
                     )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     
                     // Screen Recording Row
                     HStack(spacing: 16) {
@@ -97,10 +98,10 @@ struct PermissionStepView: View {
                         
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Screen Recording Permission")
-                                .font(.system(size: 14, weight: .bold, design: .serif))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment)
                             Text("Enables local visual checks (AI and Vision fallbacks).")
-                                .font(.system(size: 11, design: .serif))
+                                .font(.system(size: 11, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment.opacity(0.6))
                         }
                         
@@ -112,7 +113,7 @@ struct PermissionStepView: View {
                                 triggerScreenRequest()
                             }) {
                                 Text("Enable")
-                                    .font(.system(size: 11, weight: .bold, design: .serif))
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                                     .foregroundColor(PirateTheme.darkWood)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 4)
@@ -122,26 +123,26 @@ struct PermissionStepView: View {
                             .buttonStyle(.plain)
                         } else {
                             Text("Enabled")
-                                .font(.system(size: 11, weight: .bold, design: .serif))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundColor(PirateTheme.gold)
                         }
                     }
                     .padding(16)
                     .background(PirateTheme.darkWood.opacity(0.3))
-                    .cornerRadius(10)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(isScreenGranted ? PirateTheme.gold.opacity(0.2) : PirateTheme.gold.opacity(0.08), lineWidth: 1)
                     )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity)
                 .background(PirateTheme.darkWood.opacity(0.45))
-                .cornerRadius(16)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(PirateTheme.gold.opacity(0.15), lineWidth: 1.5)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 
                 // Action Buttons
                 VStack(spacing: 12) {
@@ -155,7 +156,7 @@ struct PermissionStepView: View {
                                 Text(t("perm_btn_continue"))
                                 Image(systemName: "arrow.right")
                             }
-                            .font(.system(size: 14, weight: .bold, design: .serif))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.darkWood)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
@@ -177,12 +178,27 @@ struct PermissionStepView: View {
                             onNext()
                         }) {
                             Text("Skip For Now (AI and browser distraction checking will be limited)")
-                                .font(.system(size: 11, weight: .medium, design: .serif))
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
                                 .foregroundColor(PirateTheme.parchment.opacity(0.5))
                                 .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)
                     }
+
+                    Button(action: {
+                        NSApplication.shared.terminate(nil)
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "power")
+                            Text("Quit Anchored")
+                        }
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundColor(PirateTheme.parchment.opacity(0.72))
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Quit so you can finish granting macOS permissions, then reopen Anchored.")
                 }
                 
                 Spacer()

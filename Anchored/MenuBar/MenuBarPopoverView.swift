@@ -42,77 +42,83 @@ struct MenuBarPopoverView: View {
     
     var body: some View {
         VStack(spacing: 16) {
-            // Header
-            HStack {
-                Text("⚓ Anchored")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                
-                Spacer()
-                
-                Menu {
-                    ForEach(profileManager.profiles) { profile in
-                        Button(action: {
-                            profileManager.switchProfile(to: profile.name)
-                        }) {
-                            if profile.id == profileManager.activeProfile.id {
-                                Text("✓ \(profile.name)")
-                            } else {
-                                Text(profile.name)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Anchored")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .foregroundColor(themeTextPrimary)
+                    Text("A compact control surface for the session you are in right now.")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(themeTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    Menu {
+                        ForEach(profileManager.profiles) { profile in
+                            Button(action: {
+                                profileManager.switchProfile(to: profile.name)
+                            }) {
+                                if profile.id == profileManager.activeProfile.id {
+                                    Text("✓ \(profile.name)")
+                                } else {
+                                    Text(profile.name)
+                                }
                             }
                         }
-                    }
-                } label: {
-                    let split = profileManager.activeProfile.name.splitEmojiAndText()
-                    HStack(spacing: 4) {
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 12))
-                        if let emoji = split.emoji {
-                            HStack(alignment: .center, spacing: 2) {
-                                Text(emoji)
-                                    .font(.system(size: 12))
-                                Text(split.text)
+                    } label: {
+                        let split = profileManager.activeProfile.name.splitEmojiAndText()
+                        HStack(spacing: 5) {
+                            Image(systemName: "person.crop.circle")
+                                .font(.system(size: 12))
+                            if let emoji = split.emoji {
+                                HStack(alignment: .center, spacing: 2) {
+                                    Text(emoji)
+                                        .font(.system(size: 11))
+                                    Text(split.text)
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                }
+                            } else {
+                                Text(profileManager.activeProfile.name)
                                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                             }
-                        } else {
-                            Text(profileManager.activeProfile.name)
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
                         }
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8))
+                        .foregroundColor(themeTextPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(themeSurfaceSubtle.opacity(0.85))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(themeBorder.opacity(0.55), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(themeSurfaceSubtle)
-                    .cornerRadius(8)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                
-                if viewModel.activeSession != nil {
-                    HStack(spacing: 4) {
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+
+                    HStack(spacing: 6) {
                         Circle()
-                            .fill(themeAccent)
-                            .frame(width: 8, height: 8)
-                        Text("Active")
+                            .fill(viewModel.activeSession != nil ? themeAccent : themeTextSecondary.opacity(0.5))
+                            .frame(width: 7, height: 7)
+                        Text(viewModel.activeSession != nil ? "Session active" : "Idle")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundColor(themeAccent)
+                            .foregroundColor(viewModel.activeSession != nil ? themeAccent : themeTextSecondary)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(themeAccent.opacity(0.15))
-                    .cornerRadius(12)
-                } else {
-                    Text("Idle")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(themeTextSecondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(themeSurfaceRaised.opacity(0.45))
-                        .cornerRadius(12)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(themeSurfaceRaised.opacity(0.42))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(themeBorder.opacity(0.4), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 2)
             
             // Session Status Card
             VStack(spacing: 0) {
@@ -200,65 +206,61 @@ struct MenuBarPopoverView: View {
                     }
                     .padding(.vertical, 16)
                     .padding(.horizontal, 12)
-                    .background(
-                        LinearGradient(
-                            colors: [ControlRoomTheme.cardTop.opacity(0.9), ControlRoomTheme.cardBottom.opacity(0.9)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .cornerRadius(12)
+                    .background(themeSurface.opacity(0.9))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(themeBorder.opacity(0.9), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(themeBorder.opacity(0.72), lineWidth: 1)
                     )
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 } else {
                     if showStartForm {
                         StartSessionFormView(viewModel: viewModel, isPresented: $showStartForm)
                     } else {
-                        VStack(spacing: 8) {
-                            Image(systemName: "bolt.shield")
-                                .font(.system(size: 28))
-                                .foregroundColor(themeTextSecondary)
-                            
-                            Text("Ready to Anchor")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            
-                            Text("Focused time is tracked automatically.\nWork in a productive app to trigger a focus block.")
-                                .font(.system(size: 11))
-                                .foregroundColor(themeTextSecondary)
-                                .multilineTextAlignment(.center)
-                                .lineSpacing(2)
-                            
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "bolt.shield")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(themeAccent)
+                                    .frame(width: 32, height: 32)
+                                    .background(themeAccent.opacity(0.12))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .stroke(themeAccent.opacity(0.2), lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("Ready to Anchor")
+                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        .foregroundColor(themeTextPrimary)
+                                    Text("Start a session manually, or let the engine anchor one when focus thresholds are met.")
+                                        .font(.system(size: 11, design: .rounded))
+                                        .foregroundColor(themeTextSecondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+
                             Button(action: {
                                 showStartForm = true
                             }) {
-                                Text("Start Focus Session...")
+                                Text("Start Focus Session")
                                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                                     .foregroundColor(themeTextPrimary)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 6)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
                                     .background(themeAccent)
-                                    .cornerRadius(6)
+                                    .cornerRadius(8)
                             }
                             .buttonStyle(.plain)
-                            .padding(.top, 8)
                         }
-                        .padding(.vertical, 20)
+                        .padding(.vertical, 18)
                         .padding(.horizontal, 16)
                         .frame(maxWidth: .infinity)
-                        .background(
-                            LinearGradient(
-                                colors: [ControlRoomTheme.cardTop.opacity(0.85), ControlRoomTheme.cardBottom.opacity(0.85)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .cornerRadius(12)
+                        .background(themeSurface.opacity(0.9))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(themeBorder.opacity(0.9), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(themeBorder.opacity(0.72), lineWidth: 1)
                         )
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                 }
             }
@@ -294,8 +296,9 @@ struct MenuBarPopoverView: View {
             // Recent History List
             VStack(alignment: .leading, spacing: 8) {
                 Text("Recent Sessions")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundColor(themeTextSecondary)
+                    .tracking(1.1)
                     .padding(.horizontal, 4)
                 
                 VStack(spacing: 8) {
@@ -580,30 +583,37 @@ struct StatCard: View {
     let icon: String
     
     var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(PirateTheme.gold)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(PirateTheme.gold)
+                    .frame(width: 24, height: 24)
+                    .background(PirateTheme.gold.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(PirateTheme.border.opacity(0.45), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Spacer()
+            }
+
             Text(value)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-            Text(title)
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundColor(PirateTheme.parchment)
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .tracking(1.0)
                 .foregroundColor(PirateTheme.textSecondary)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(
-            LinearGradient(
-                colors: [ControlRoomTheme.cardTop.opacity(0.85), ControlRoomTheme.cardBottom.opacity(0.85)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .cornerRadius(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(PirateTheme.darkWood.opacity(0.34))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(PirateTheme.border.opacity(0.9), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(PirateTheme.border.opacity(0.7), lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -653,10 +663,12 @@ struct StartSessionFormView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Start Focus Session")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(themeTextPrimary)
-                .padding(.bottom, 2)
+            ControlRoomSectionHeader(
+                eyebrow: "Session",
+                title: "Start Focus Session",
+                subtitle: "Choose a duration, category, and optional goal before you go.",
+                accent: themeAccent
+            )
             
             // Duration Selection
             VStack(alignment: .leading, spacing: 4) {
@@ -734,12 +746,16 @@ struct StartSessionFormView: View {
                     isPresented = false
                 }) {
                     Text("Cancel")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundColor(themeTextPrimary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(themeSurfaceRaised.opacity(0.5))
-                        .cornerRadius(6)
+                        .padding(.vertical, 9)
+                        .background(themeSurfaceRaised.opacity(0.42))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(themeBorder.opacity(0.55), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 
@@ -761,30 +777,26 @@ struct StartSessionFormView: View {
                     isPresented = false
                 }) {
                     Text("Start")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundColor(themeTextPrimary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 9)
                         .background(themeAccent)
-                        .cornerRadius(6)
+                        .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
             }
             .padding(.top, 4)
         }
-        .padding(12)
+        .padding(14)
         .background(
-            LinearGradient(
-                colors: [ControlRoomTheme.cardTop.opacity(0.95), ControlRoomTheme.cardBottom.opacity(0.95)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            themeSurface.opacity(0.92)
         )
-        .cornerRadius(12)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(themeBorder.opacity(0.9), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(themeBorder.opacity(0.72), lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accentColor(themeAccent)
         .tint(themeAccent)
     }
