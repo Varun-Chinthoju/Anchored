@@ -12,9 +12,13 @@ final class FocusEngineTests: XCTestCase {
     private var sessionStore: SessionStore!
     private var mockDelegate: MockFocusEngineDelegate!
     private var mockOCRProvider: MockOCRProvider!
-    private var distractionTimerScheduler: TestDistractionTimerScheduler!
-    private var breakReturnTimerScheduler: TestDistractionTimerScheduler!
-    private var doomscrollTimerScheduler: TestDistractionTimerScheduler!
+    private var breakReviewChecker: RecordingBreakReviewChecker!
+    private var sessionTimerScheduler: TestOneShotTimerScheduler!
+    private var distractionTimerScheduler: TestOneShotTimerScheduler!
+    private var breakTimerScheduler: TestOneShotTimerScheduler!
+    private var breakReturnTimerScheduler: TestOneShotTimerScheduler!
+    private var doomscrollTimerScheduler: TestOneShotTimerScheduler!
+    private var focusPromptTimerScheduler: TestOneShotTimerScheduler!
     private var engine: FocusEngine!
     private var tempStoreURL: URL!
     
@@ -38,9 +42,13 @@ final class FocusEngineTests: XCTestCase {
         mockActivityMonitor = MockActivityMonitor()
         mockDelegate = MockFocusEngineDelegate()
         mockOCRProvider = MockOCRProvider()
-        distractionTimerScheduler = TestDistractionTimerScheduler()
-        breakReturnTimerScheduler = TestDistractionTimerScheduler()
-        doomscrollTimerScheduler = TestDistractionTimerScheduler()
+        breakReviewChecker = RecordingBreakReviewChecker()
+        sessionTimerScheduler = TestOneShotTimerScheduler()
+        distractionTimerScheduler = TestOneShotTimerScheduler()
+        breakTimerScheduler = TestOneShotTimerScheduler()
+        breakReturnTimerScheduler = TestOneShotTimerScheduler()
+        doomscrollTimerScheduler = TestOneShotTimerScheduler()
+        focusPromptTimerScheduler = TestOneShotTimerScheduler()
         // Initialize FocusEngine (default threshold = 10 minutes) with fake providers to avoid Vision overhead
         engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
@@ -51,9 +59,13 @@ final class FocusEngineTests: XCTestCase {
             preferencesManager: testPreferences,
             ocrProvider: mockOCRProvider,
             visualChecker: MockVisualChecker(),
+            breakReviewChecker: breakReviewChecker,
+            sessionTimerScheduler: sessionTimerScheduler,
+            breakTimerScheduler: breakTimerScheduler,
             distractionTimerScheduler: distractionTimerScheduler,
             breakReturnGraceTimerScheduler: breakReturnTimerScheduler,
-            doomscrollTimerScheduler: doomscrollTimerScheduler
+            doomscrollTimerScheduler: doomscrollTimerScheduler,
+            focusPromptTimerScheduler: focusPromptTimerScheduler
         )
         engine.delegate = mockDelegate
         
@@ -68,9 +80,13 @@ final class FocusEngineTests: XCTestCase {
         testPreferences = nil
         profileManager = nil
         distractionListManager = nil
+        breakReviewChecker = nil
         distractionTimerScheduler = nil
+        sessionTimerScheduler = nil
+        breakTimerScheduler = nil
         breakReturnTimerScheduler = nil
         doomscrollTimerScheduler = nil
+        focusPromptTimerScheduler = nil
         if let suiteName {
             testDefaults.removePersistentDomain(forName: suiteName)
         }
@@ -83,7 +99,7 @@ final class FocusEngineTests: XCTestCase {
         super.tearDown()
     }
 
-    private func prepareAcceptedBreak() {
+    private func prepareAcceptedBreak(now: Date = Date()) {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.anchorSession(duration: 3600)
         if let session = engine.activeSession {
@@ -96,7 +112,7 @@ final class FocusEngineTests: XCTestCase {
             )
         }
 
-        _ = engine.requestBreak(intention: "Take a short walk")
+        _ = engine.requestBreak(intention: "Take a short walk", now: now, bypassMinimum: true)
         XCTAssertEqual(engine.breakState, .breakActive)
     }
 
@@ -104,10 +120,32 @@ final class FocusEngineTests: XCTestCase {
     private func startBreakReturnGrace(
         via intermediateBundleID: String = "com.spotify.client",
         returningTo focusBundleID: String = "com.apple.dt.Xcode"
-    ) throws -> TestDistractionTimerScheduler.PendingTimer {
+    ) throws -> TestOneShotTimerScheduler.PendingTimer {
         mockActivityMonitor.simulateContextChange(bundleID: intermediateBundleID)
         mockActivityMonitor.simulateContextChange(bundleID: focusBundleID)
         return try XCTUnwrap(breakReturnTimerScheduler.scheduledTimers.last)
+    }
+
+    @discardableResult
+    private func startBreakTimer(now: Date = Date()) throws -> TestOneShotTimerScheduler.PendingTimer {
+        prepareAcceptedBreak(now: now)
+        return try XCTUnwrap(breakTimerScheduler.scheduledTimers.last)
+    }
+
+    @discardableResult
+    private func startFocusPromptRun(bundleID: String = "com.apple.dt.Xcode") throws -> TestOneShotTimerScheduler.PendingTimer {
+        mockActivityMonitor.simulateContextChange(bundleID: bundleID)
+        return try XCTUnwrap(focusPromptTimerScheduler.scheduledTimers.last)
+    }
+
+    @discardableResult
+    private func startSessionTimer(
+        duration: TimeInterval = 0.05,
+        bundleID: String = "com.apple.dt.Xcode"
+    ) throws -> TestOneShotTimerScheduler.PendingTimer {
+        mockActivityMonitor.simulateContextChange(bundleID: bundleID)
+        engine.anchorSession(duration: duration)
+        return try XCTUnwrap(sessionTimerScheduler.scheduledTimers.last)
     }
 
     private func makeDate(hour: Int, minute: Int, second: Int = 0) -> Date {
@@ -127,7 +165,7 @@ final class FocusEngineTests: XCTestCase {
         title: String = "",
         url: URL? = nil,
         threshold: TimeInterval = 0.0
-    ) throws -> TestDistractionTimerScheduler.PendingTimer {
+    ) throws -> TestOneShotTimerScheduler.PendingTimer {
         testPreferences.doomscrollThreshold = threshold
         mockActivityMonitor.simulateContextChange(bundleID: bundleID, url: url, title: title)
         return try XCTUnwrap(doomscrollTimerScheduler.scheduledTimers.last)
@@ -196,9 +234,8 @@ final class FocusEngineTests: XCTestCase {
 
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         XCTAssertNotNil(engine.workSessionStart)
-        
-        // Sleep to exceed threshold
-        Thread.sleep(forTimeInterval: 0.15)
+
+        engine.workSessionStart = Date().addingTimeInterval(-0.15)
         
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
         
@@ -209,21 +246,133 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
     }
 
-    func testFocusPromptTimerAutoStartsSessionUsesConfiguredThreshold() {
-        engine.focusThreshold = 120
-        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
-        engine.workSessionStart = Date().addingTimeInterval(-119)
+    func testFocusPromptTimerAutoStartsSessionUsesConfiguredThreshold() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun()
 
-        engine.focusPromptTimerExpired()
-
-        XCTAssertNil(engine.activeSession)
-
-        engine.workSessionStart = Date().addingTimeInterval(-121)
-        engine.focusPromptTimerExpired()
+        engine.workSessionStart = Date().addingTimeInterval(-0.2)
+        promptTimer.fire()
 
         XCTAssertNotNil(engine.activeSession)
         XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
         XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
+        XCTAssertTrue(promptTimer.isCancelled)
+    }
+
+    func testLeavingBeforeFocusPromptExpiryPreventsAutoStart() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+
+        XCTAssertTrue(promptTimer.isCancelled)
+        promptTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
+    }
+
+    func testReturningAgainCreatesNewFocusPromptGeneration() throws {
+        engine.focusThreshold = 0.1
+        let firstTimer = try startFocusPromptRun()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+        let secondTimer = try startFocusPromptRun()
+
+        engine.workSessionStart = Date().addingTimeInterval(-0.2)
+
+        XCTAssertTrue(firstTimer.isCancelled)
+        XCTAssertFalse(secondTimer.isCancelled)
+
+        firstTimer.fireIgnoringCancellation()
+        XCTAssertNil(engine.activeSession)
+
+        secondTimer.fire()
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
+    }
+
+    func testStaleFocusPromptCallbackFromEarlierRunCannotStartLaterRun() throws {
+        engine.focusThreshold = 0.1
+        let firstTimer = try startFocusPromptRun()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+        _ = try startFocusPromptRun()
+        engine.workSessionStart = Date().addingTimeInterval(-0.2)
+
+        firstTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+    }
+
+    func testSessionStartInvalidatesPendingFocusPromptCallback() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun()
+
+        engine.anchorSession(duration: 1500)
+
+        XCTAssertTrue(promptTimer.isCancelled)
+        promptTimer.fireIgnoringCancellation()
+
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .anchored)
+    }
+
+    func testWorkspacePauseInvalidatesPendingFocusPromptCallback() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun()
+
+        engine.pauseFocusAccountingForWorkspaceLifecycle(now: Date())
+
+        XCTAssertTrue(promptTimer.isCancelled)
+        promptTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .watching)
+    }
+
+    func testDisablingFocusPromptsInvalidatesPendingFocusPromptCallback() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun()
+
+        engine.focusPromptsEnabled = false
+
+        XCTAssertTrue(promptTimer.isCancelled)
+        promptTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertNotNil(engine.workSessionStart)
+    }
+
+    func testStopInvalidatesPendingFocusPromptCallback() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun()
+
+        engine.stop()
+
+        XCTAssertTrue(promptTimer.isCancelled)
+        promptTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertNotNil(engine.workSessionStart)
+    }
+
+    func testFocusPromptTimerStopsOnScheduleChange() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun()
+        let now = Date()
+        testPreferences.focusSchedule = scheduleExcludingCurrentMinute(now: now)
+
+        XCTAssertTrue(promptTimer.isCancelled)
+        promptTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertFalse(engine.isFocusScheduleActive)
     }
 
     func testScheduleChangeSuppressesAutomaticFocusTrackingOutsideWindow() {
@@ -659,6 +808,152 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.refusedBreaks, 1)
     }
 
+    func testCommittedBreakExpiresNormallyAndPreservesFocusedTime() throws {
+        prepareAcceptedBreak()
+        let focusedBeforeBreak = engine.currentSessionFocusedTime()
+        let timer = try XCTUnwrap(breakTimerScheduler.scheduledTimers.last)
+
+        timer.fire()
+
+        XCTAssertEqual(engine.breakState, .breakReview)
+        XCTAssertNotNil(engine.activeBreakCommitment)
+        XCTAssertEqual(engine.currentSessionFocusedTime(), focusedBeforeBreak, accuracy: 0.2)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+        XCTAssertEqual(breakReviewChecker.invocations.count, 1)
+        let invocation = try XCTUnwrap(breakReviewChecker.invocations.last)
+        XCTAssertEqual(invocation.input?.sessionID, invocation.expectedIdentity?.sessionID)
+        XCTAssertEqual(invocation.input?.contextGeneration, invocation.expectedIdentity?.contextGeneration)
+    }
+
+    func testManuallyEndingBreakInvalidatesPendingBreakTimer() throws {
+        let timer = try startBreakTimer()
+        engine.resumeAfterBreakReview()
+
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+
+        timer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+    }
+
+    func testEndingSessionInvalidatesPendingBreakTimer() throws {
+        let timer = try startBreakTimer()
+
+        engine.endSession(action: .dismissed)
+
+        timer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertNil(engine.breakState)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+
+    func testStoppingEngineInvalidatesPendingBreakTimer() throws {
+        let timer = try startBreakTimer()
+
+        engine.stop()
+
+        timer.fireIgnoringCancellation()
+
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertNil(engine.breakState)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+
+    func testSleepOrLockDuringBreakInvalidatesPendingBreakTimer() throws {
+        let timer = try startBreakTimer()
+        let pausedAt = Date()
+
+        engine.pauseFocusAccountingForWorkspaceLifecycle(now: pausedAt)
+
+        XCTAssertTrue(timer.isCancelled)
+        timer.fireIgnoringCancellation()
+        XCTAssertEqual(engine.breakState, .breakActive)
+
+        engine.resumeFocusAccountingForWorkspaceLifecycle(now: pausedAt.addingTimeInterval(30))
+        let resumedTimer = try XCTUnwrap(breakTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(breakTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertFalse(resumedTimer.isCancelled)
+    }
+
+    func testStartingAnotherBreakInvalidatesTheFirstBreakTimer() throws {
+        let firstTimer = try startBreakTimer()
+
+        engine.resumeAfterBreakReview()
+        _ = engine.requestBreak(intention: "Take another walk", now: Date(), bypassMinimum: true)
+
+        let secondTimer = try XCTUnwrap(breakTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(breakTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertTrue(firstTimer.isCancelled)
+        XCTAssertFalse(secondTimer.isCancelled)
+    }
+
+    func testStaleCallbackFromAnEarlierBreakCannotAffectLaterBreak() throws {
+        let firstTimer = try startBreakTimer()
+
+        engine.resumeAfterBreakReview()
+        _ = engine.requestBreak(intention: "Take another walk", now: Date(), bypassMinimum: true)
+
+        firstTimer.fireIgnoringCancellation()
+
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertNotNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.returnsToWork, 3)
+    }
+
+    func testStaleCallbackFromAnOldSessionCannotAffectNewSession() throws {
+        let firstTimer = try startBreakTimer()
+
+        engine.endSession(action: .dismissed)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 3600)
+        if let session = engine.activeSession {
+            engine.activeSession = ActiveSession(
+                startDate: session.startDate.addingTimeInterval(-1800),
+                anchoredDuration: session.anchoredDuration,
+                appName: session.appName,
+                category: session.category,
+                goal: session.goal
+            )
+        }
+        _ = engine.requestBreak(intention: "New break", now: Date(), bypassMinimum: true)
+
+        firstTimer.fireIgnoringCancellation()
+
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertNotNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+    }
+
+    func testBreakReviewUsesCurrentSessionAndContextGeneration() throws {
+        let timer = try startBreakTimer()
+        let originalInvocationCount = breakReviewChecker.invocations.count
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode", title: "Refined title")
+        let expectedIdentity = ContextSnapshot(
+            bundleIdentifier: try XCTUnwrap(engine.currentApp),
+            localizedName: "Xcode",
+            url: engine.currentURL,
+            title: engine.currentTitle,
+            source: .application
+        ).identity
+
+        timer.fire()
+
+        let invocation = try XCTUnwrap(breakReviewChecker.invocations.last)
+        XCTAssertGreaterThan(breakReviewChecker.invocations.count, originalInvocationCount)
+        XCTAssertEqual(invocation.input?.sessionID, invocation.expectedIdentity?.sessionID)
+        XCTAssertEqual(invocation.input?.identity, expectedIdentity)
+        XCTAssertEqual(invocation.input?.contextGeneration, invocation.expectedIdentity.map { $0.contextGeneration + 1 })
+    }
+
     func testAcceptedBreakPausesFocusAccountingAndReachesReviewWithoutDimming() {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.anchorSession(duration: 3600)
@@ -678,10 +973,13 @@ final class FocusEngineTests: XCTestCase {
         guard case .accepted = decision else {
             return XCTFail("Expected an accepted break")
         }
+        guard let timer = breakTimerScheduler.scheduledTimers.last else {
+            return XCTFail("Expected a scheduled break timer")
+        }
         XCTAssertEqual(engine.breakState, .breakActive)
         XCTAssertEqual(engine.currentSessionFocusedTime(), beforeBreak, accuracy: 0.2)
 
-        engine.breakTimerExpired()
+        timer.fire()
 
         XCTAssertEqual(engine.breakState, .breakReview)
         XCTAssertEqual(mockDelegate.breakReviews.last?.result.outcome, .mismatch)
@@ -1087,19 +1385,12 @@ final class FocusEngineTests: XCTestCase {
     
     // MARK: - Session Expiration & Termination
     
-    func testSessionTimerExpirationAutoEndsSession() {
-        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
-        
-        // Anchor for 0.05 seconds
-        engine.anchorSession(duration: 0.05)
+    func testSessionTimerExpirationAutoEndsSession() throws {
+        let timer = try startSessionTimer(duration: 0.05)
+
         XCTAssertEqual(engine.state, .anchored)
-        
-        // Wait for session timer to expire
-        let expectation = XCTestExpectation(description: "Wait for session timer expiration")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 0.5)
+
+        timer.fire()
         
         XCTAssertNil(engine.activeSession)
         XCTAssertNil(engine.workSessionStart)
@@ -1107,9 +1398,94 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.endedSessions, 1)
         
         let events = loadEventsFromDisk()
-        XCTAssertEqual(events.count, 2) // sessionStart + sessionEnd
+        XCTAssertEqual(events.filter { $0.type == .sessionEnd }.count, 1)
         XCTAssertEqual(events.last?.type, .sessionEnd)
         XCTAssertEqual(events.last?.action, .timeout)
+    }
+
+    func testManualEndSessionInvalidatesPendingSessionTimer() throws {
+        let timer = try startSessionTimer(duration: 0.05)
+
+        engine.endSession(action: .dismissed)
+
+        XCTAssertTrue(timer.isCancelled)
+        timer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertEqual(mockDelegate.endedSessions, 1)
+
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.filter { $0.type == .sessionEnd }.count, 1)
+        XCTAssertEqual(events.last?.action, .dismissed)
+    }
+
+    func testOldSessionTimerCannotEndNewSession() throws {
+        let oldTimer = try startSessionTimer(duration: 0.05)
+
+        engine.endSession(action: .dismissed)
+        let newTimer = try startSessionTimer(duration: 0.1)
+
+        oldTimer.fireIgnoringCancellation()
+
+        XCTAssertEqual(engine.state, .anchored)
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertTrue(oldTimer.isCancelled)
+        XCTAssertFalse(newTimer.isCancelled)
+        XCTAssertEqual(newTimer.interval, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(mockDelegate.endedSessions, 1)
+    }
+
+    func testBreakStartInvalidatesPendingSessionTimer() throws {
+        let timer = try startSessionTimer(duration: 0.05)
+
+        _ = engine.requestBreak(intention: "Take a short walk", now: Date(), bypassMinimum: true)
+
+        XCTAssertTrue(timer.isCancelled)
+        timer.fireIgnoringCancellation()
+
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertEqual(mockDelegate.endedSessions, 0)
+    }
+
+    func testWorkspacePauseAndResumeReschedulesSessionTimer() throws {
+        let timer = try startSessionTimer(duration: 0.05)
+        let pauseStartedAt = Date()
+
+        engine.pauseFocusAccountingForWorkspaceLifecycle(now: pauseStartedAt)
+
+        XCTAssertTrue(timer.isCancelled)
+        timer.fireIgnoringCancellation()
+        XCTAssertNotNil(engine.activeSession)
+
+        engine.resumeFocusAccountingForWorkspaceLifecycle(now: pauseStartedAt)
+        let resumedTimer = try XCTUnwrap(sessionTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(sessionTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertFalse(resumedTimer.isCancelled)
+        XCTAssertEqual(resumedTimer.interval, 0.05, accuracy: 0.02)
+
+        resumedTimer.fire()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertEqual(mockDelegate.endedSessions, 1)
+        let events = loadEventsFromDisk()
+        XCTAssertEqual(events.filter { $0.type == .sessionEnd }.count, 1)
+    }
+
+    func testStoppingEngineInvalidatesPendingSessionTimer() throws {
+        let timer = try startSessionTimer(duration: 0.05)
+
+        engine.stop()
+
+        XCTAssertTrue(timer.isCancelled)
+        timer.fireIgnoringCancellation()
+
+        XCTAssertNotNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .anchored)
+        XCTAssertEqual(mockDelegate.endedSessions, 0)
     }
     
     func testManualEndSessionTerminatesSessionWithDismissedAction() {
@@ -2722,8 +3098,21 @@ struct MockVisualChecker: VisualProductivityChecking {
     }
 }
 
-final class TestDistractionTimerScheduler: DistractionTimerScheduling {
-    final class PendingTimer: DistractionTimerHandle {
+final class RecordingBreakReviewChecker: BreakReviewChecking {
+    private let wrapped = ConservativeBreakReviewChecker()
+    private(set) var invocations: [(input: BreakReviewInput?, expectedIdentity: BreakReviewIdentity?)] = []
+
+    func evaluate(
+        input: BreakReviewInput?,
+        expectedIdentity: BreakReviewIdentity?
+    ) -> BreakReviewResult {
+        invocations.append((input: input, expectedIdentity: expectedIdentity))
+        return wrapped.evaluate(input: input, expectedIdentity: expectedIdentity)
+    }
+}
+
+final class TestOneShotTimerScheduler: OneShotTimerScheduling {
+    final class PendingTimer: OneShotTimerHandle {
         let interval: TimeInterval
         private let action: () -> Void
         private(set) var isCancelled = false
@@ -2749,7 +3138,7 @@ final class TestDistractionTimerScheduler: DistractionTimerScheduling {
 
     private(set) var scheduledTimers: [PendingTimer] = []
 
-    func schedule(after interval: TimeInterval, action: @escaping () -> Void) -> DistractionTimerHandle {
+    func schedule(after interval: TimeInterval, action: @escaping () -> Void) -> OneShotTimerHandle {
         let timer = PendingTimer(interval: interval, action: action)
         scheduledTimers.append(timer)
         return timer

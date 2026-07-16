@@ -84,9 +84,12 @@ final class FocusEngine {
     private let intentClassifier: IntentClassifying
     private let classificationOutcomeStore: ClassificationOutcomeRecording
     private let breakReviewChecker: BreakReviewChecking
-    private let distractionTimerScheduler: DistractionTimerScheduling
-    private let breakReturnGraceTimerScheduler: DistractionTimerScheduling
-    private let doomscrollTimerScheduler: DistractionTimerScheduling
+    private let sessionTimerScheduler: OneShotTimerScheduling
+    private let breakTimerScheduler: OneShotTimerScheduling
+    private let distractionTimerScheduler: OneShotTimerScheduling
+    private let breakReturnGraceTimerScheduler: OneShotTimerScheduling
+    private let doomscrollTimerScheduler: OneShotTimerScheduling
+    private let focusPromptTimerScheduler: OneShotTimerScheduling
     private var preferencesCancellables = Set<AnyCancellable>()
     
     /// The delegate to receive state transition callbacks.
@@ -166,17 +169,22 @@ final class FocusEngine {
     var distractionCountdownThreshold: TimeInterval = 30.0
     
     // Timers
-    private var distractionTimer: DistractionTimerHandle?
+    private var distractionTimer: OneShotTimerHandle?
     private var distractionTimerGeneration: Int = 0
     private var activeDistractionTimerGeneration: Int?
-    private var breakReturnGraceTimer: DistractionTimerHandle?
+    private var breakReturnGraceTimer: OneShotTimerHandle?
     private var breakReturnGraceGeneration: Int = 0
     private var activeBreakReturnGraceGeneration: Int?
     private var breakReturnGraceSessionID: UUID?
     private var breakReturnGraceContextGeneration: Int?
     private var breakReturnGraceContextIdentity: ContextIdentity?
-    private var sessionTimer: Timer?
-    private var focusPromptTimer: Timer?
+    private var sessionTimer: OneShotTimerHandle?
+    private var sessionTimerGeneration: Int = 0
+    private var activeSessionTimerGeneration: Int?
+    private var sessionTimerExpiration: Date?
+    private var focusPromptTimer: OneShotTimerHandle?
+    private var focusPromptTimerGeneration: Int = 0
+    private var activeFocusPromptTimerGeneration: Int?
     private var scheduleTransitionTimer: Timer?
     private var hasPromptedForCurrentFocusRun = false
     private var lastReturnToWorkGeneration: Int?
@@ -188,7 +196,7 @@ final class FocusEngine {
     }
     
     // Doomscroll loop breaker
-    private var doomscrollTimer: DistractionTimerHandle?
+    private var doomscrollTimer: OneShotTimerHandle?
     /// The bundle ID of the app the user started doomscrolling in.
     private(set) var doomscrollingBundleID: String?
     private var doomscrollTimerGeneration: Int = 0
@@ -214,7 +222,9 @@ final class FocusEngine {
     /// The current memory-only break lifecycle, if a break is in flight.
     private(set) var breakState: CommitmentState?
     private(set) var activeBreakCommitment: BreakCommitment?
-    private var breakTimer: Timer?
+    private var breakTimer: OneShotTimerHandle?
+    private var breakTimerGeneration: Int = 0
+    private var activeBreakTimerGeneration: Int?
     private var breakStartedAt: Date?
     private(set) var breakReturnGraceStartedAt: Date?
     private var hasSeenNonFocusContextSinceBreakStarted = false
@@ -263,9 +273,12 @@ final class FocusEngine {
         intentClassifier: IntentClassifying? = nil,
         classificationOutcomeStore: ClassificationOutcomeRecording? = nil,
         breakReviewChecker: BreakReviewChecking = ConservativeBreakReviewChecker(),
-        distractionTimerScheduler: DistractionTimerScheduling = LiveDistractionTimerScheduler(),
-        breakReturnGraceTimerScheduler: DistractionTimerScheduling = LiveDistractionTimerScheduler(),
-        doomscrollTimerScheduler: DistractionTimerScheduling = LiveDistractionTimerScheduler()
+        sessionTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
+        breakTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
+        distractionTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
+        breakReturnGraceTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
+        doomscrollTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
+        focusPromptTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler()
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
@@ -286,9 +299,12 @@ final class FocusEngine {
         self.intentClassifier = intentClassifier ?? LocalIntentClassifier()
         self.classificationOutcomeStore = classificationOutcomeStore ?? ClassificationOutcomeStore.shared
         self.breakReviewChecker = breakReviewChecker
+        self.sessionTimerScheduler = sessionTimerScheduler
+        self.breakTimerScheduler = breakTimerScheduler
         self.distractionTimerScheduler = distractionTimerScheduler
         self.breakReturnGraceTimerScheduler = breakReturnGraceTimerScheduler
         self.doomscrollTimerScheduler = doomscrollTimerScheduler
+        self.focusPromptTimerScheduler = focusPromptTimerScheduler
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
             self?.handleContextChange(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title, snapshot: snapshot)
@@ -1989,39 +2005,11 @@ final class FocusEngine {
     }
 
     internal func breakTimerExpired() {
-        guard lifecyclePauseStartedAt == nil,
-              let commitment = activeBreakCommitment else { return }
-        cancelBreakTimer()
-        breakState = .breakReview
-
-        let input: BreakReviewInput?
-        if let currentApp {
-            let snapshotIdentity = ContextSnapshot(
-                bundleIdentifier: currentApp,
-                localizedName: getAppName(for: currentApp),
-                url: currentURL,
-                title: currentTitle,
-                source: .application
-            ).identity
-            input = BreakReviewInput(
-                sessionID: commitment.sessionID,
-                identity: snapshotIdentity,
-                contextGeneration: UInt64(contextGeneration),
-                decision: currentClassification
-            )
-        } else {
-            input = nil
-        }
-
-        let result = breakReviewChecker.evaluate(input: input, expectedIdentity: commitment.reviewIdentity)
-        delegate?.didRequestBreakReview(intention: commitment.intention, result: result)
-
-        if result.mayStartExistingCountdown, let bundleID = currentApp {
-            distractionStartDate = Date()
-            delegate?.didDetectDistraction(bundleID: bundleID)
-            scheduleDistractionTimer(distractionBundleID: bundleID)
-        }
-        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
+        breakTimerExpired(
+            generation: activeBreakTimerGeneration,
+            sessionID: activeBreakCommitment?.sessionID,
+            now: Date()
+        )
     }
 
     private var sessionIdentity: UUID {
@@ -2051,14 +2039,36 @@ final class FocusEngine {
     }
 
     private func cancelBreakTimer() {
-        breakTimer?.invalidate()
+        breakTimer?.cancel()
         breakTimer = nil
+        activeBreakTimerGeneration = nil
     }
 
     private func scheduleBreakTimer(duration: TimeInterval) {
         cancelBreakTimer()
-        breakTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-            self?.breakTimerExpired()
+        guard let commitment = activeBreakCommitment else { return }
+
+        breakTimerGeneration += 1
+        let generation = breakTimerGeneration
+        activeBreakTimerGeneration = generation
+        let scheduledExpiration = breakStartedAt?.addingTimeInterval(duration) ?? Date().addingTimeInterval(duration)
+
+        if duration <= 0 {
+            breakTimerExpired(
+                generation: generation,
+                sessionID: commitment.sessionID,
+                now: scheduledExpiration
+            )
+            return
+        }
+
+        let sessionID = commitment.sessionID
+        breakTimer = breakTimerScheduler.schedule(after: duration) { [weak self] in
+            self?.breakTimerExpired(
+                generation: generation,
+                sessionID: sessionID,
+                now: scheduledExpiration
+            )
         }
     }
 
@@ -2170,6 +2180,55 @@ final class FocusEngine {
 
         cancelBreakReturnGraceTimer()
         resumeAfterBreakReview(now: now)
+    }
+
+    private func breakTimerExpired(
+        generation scheduledGeneration: Int?,
+        sessionID: UUID?,
+        now: Date
+    ) {
+        guard lifecyclePauseStartedAt == nil,
+              breakState == .breakActive,
+              activeSession != nil,
+              let commitment = activeBreakCommitment,
+              activeBreakTimerGeneration == scheduledGeneration,
+              commitment.sessionID == sessionID,
+              let startedAt = breakStartedAt,
+              now.timeIntervalSince(startedAt) >= CommitmentPolicy.breakDuration else {
+            return
+        }
+
+        cancelBreakTimer()
+        breakState = .breakReview
+
+        let input: BreakReviewInput?
+        if let currentApp {
+            let snapshotIdentity = ContextSnapshot(
+                bundleIdentifier: currentApp,
+                localizedName: getAppName(for: currentApp),
+                url: currentURL,
+                title: currentTitle,
+                source: .application
+            ).identity
+            input = BreakReviewInput(
+                sessionID: commitment.sessionID,
+                identity: snapshotIdentity,
+                contextGeneration: UInt64(contextGeneration),
+                decision: currentClassification
+            )
+        } else {
+            input = nil
+        }
+
+        let result = breakReviewChecker.evaluate(input: input, expectedIdentity: commitment.reviewIdentity)
+        delegate?.didRequestBreakReview(intention: commitment.intention, result: result)
+
+        if result.mayStartExistingCountdown, let bundleID = currentApp {
+            distractionStartDate = Date()
+            delegate?.didDetectDistraction(bundleID: bundleID)
+            scheduleDistractionTimer(distractionBundleID: bundleID)
+        }
+        NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
     }
     
     /// Applies a user correction as an explicit profile rule.
@@ -2437,14 +2496,18 @@ final class FocusEngine {
         }
 
         let remaining = max(0, focusThreshold - Date().timeIntervalSince(start))
-        focusPromptTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
-            self?.focusPromptTimerExpired()
+        focusPromptTimerGeneration += 1
+        let generation = focusPromptTimerGeneration
+        activeFocusPromptTimerGeneration = generation
+        focusPromptTimer = focusPromptTimerScheduler.schedule(after: remaining) { [weak self] in
+            self?.focusPromptTimerExpired(generation: generation, now: Date())
         }
     }
 
     private func cancelFocusPromptTimer() {
-        focusPromptTimer?.invalidate()
+        focusPromptTimer?.cancel()
         focusPromptTimer = nil
+        activeFocusPromptTimerGeneration = nil
     }
 
     private func resetFocusTracking() {
@@ -2460,6 +2523,7 @@ final class FocusEngine {
     private func requestFocusPromptIfEligible(now: Date) -> Bool {
         guard lifecyclePauseStartedAt == nil,
               isFocusScheduleActive,
+              focusPromptsEnabled,
               activeSession == nil,
               !hasPromptedForCurrentFocusRun,
               let start = workSessionStart else {
@@ -2482,15 +2546,27 @@ final class FocusEngine {
     }
 
     internal func focusPromptTimerExpired() {
+        focusPromptTimerExpired(generation: activeFocusPromptTimerGeneration, now: Date())
+    }
+
+    private func focusPromptTimerExpired(generation scheduledGeneration: Int?, now: Date) {
+        guard let scheduledGeneration,
+              activeFocusPromptTimerGeneration == scheduledGeneration else {
+            return
+        }
+
         cancelFocusPromptTimer()
         guard lifecyclePauseStartedAt == nil,
               isFocusScheduleActive,
+              focusPromptsEnabled,
+              activeSession == nil,
+              !hasPromptedForCurrentFocusRun,
               let bundleID = currentApp,
               classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle).isFocus else {
             return
         }
 
-        if !requestFocusPromptIfEligible(now: Date()) {
+        if !requestFocusPromptIfEligible(now: now) {
             scheduleFocusPromptTimer()
         }
     }
@@ -2505,18 +2581,63 @@ final class FocusEngine {
     private func scheduleSessionTimer(duration: TimeInterval) {
         cancelSessionTimer()
         guard lifecyclePauseStartedAt == nil else { return }
-        sessionTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-            self?.sessionTimerExpired()
+        guard activeSession != nil else { return }
+
+        sessionTimerGeneration += 1
+        let generation = sessionTimerGeneration
+        activeSessionTimerGeneration = generation
+        let sessionID = sessionIdentity
+        let expiration = Date().addingTimeInterval(duration)
+        sessionTimerExpiration = expiration
+
+        sessionTimer = sessionTimerScheduler.schedule(after: duration) { [weak self] in
+            self?.sessionTimerExpired(
+                generation: generation,
+                sessionID: sessionID,
+                expiration: expiration,
+                now: expiration
+            )
         }
     }
     
     private func cancelSessionTimer() {
-        sessionTimer?.invalidate()
+        sessionTimer?.cancel()
         sessionTimer = nil
+        activeSessionTimerGeneration = nil
+        sessionTimerExpiration = nil
     }
     
     internal func sessionTimerExpired() {
-        guard lifecyclePauseStartedAt == nil else { return }
+        sessionTimerExpired(
+            generation: activeSessionTimerGeneration,
+            sessionID: activeSessionIdentity,
+            expiration: sessionTimerExpiration,
+            now: Date()
+        )
+    }
+
+    private func sessionTimerExpired(
+        generation scheduledGeneration: Int?,
+        sessionID: UUID?,
+        expiration: Date?,
+        now: Date
+    ) {
+        guard lifecyclePauseStartedAt == nil,
+              activeSession != nil,
+              activeSessionIdentity == sessionID,
+              activeSessionTimerGeneration == scheduledGeneration,
+              sessionTimerExpiration == expiration,
+              let expiration,
+              now >= expiration else {
+            return
+        }
+
+        guard let session = activeSession,
+              currentSessionFocusedTime(at: now) >= session.anchoredDuration else {
+            return
+        }
+
+        cancelSessionTimer()
         endSession(action: .timeout)
     }
     
