@@ -12,12 +12,15 @@ final class FocusEngineTests: XCTestCase {
     private var sessionStore: SessionStore!
     private var mockDelegate: MockFocusEngineDelegate!
     private var mockOCRProvider: MockOCRProvider!
+    private var distractionTimerScheduler: TestDistractionTimerScheduler!
+    private var breakReturnTimerScheduler: TestDistractionTimerScheduler!
+    private var doomscrollTimerScheduler: TestDistractionTimerScheduler!
     private var engine: FocusEngine!
     private var tempStoreURL: URL!
     
     override func setUp() {
         super.setUp()
-        
+
         suiteName = "com.varun.Anchored.FocusEngineTests.\(UUID().uuidString)"
         testDefaults = UserDefaults(suiteName: suiteName)!
         testDefaults.removePersistentDomain(forName: suiteName)
@@ -35,6 +38,9 @@ final class FocusEngineTests: XCTestCase {
         mockActivityMonitor = MockActivityMonitor()
         mockDelegate = MockFocusEngineDelegate()
         mockOCRProvider = MockOCRProvider()
+        distractionTimerScheduler = TestDistractionTimerScheduler()
+        breakReturnTimerScheduler = TestDistractionTimerScheduler()
+        doomscrollTimerScheduler = TestDistractionTimerScheduler()
         // Initialize FocusEngine (default threshold = 10 minutes) with fake providers to avoid Vision overhead
         engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
@@ -44,7 +50,10 @@ final class FocusEngineTests: XCTestCase {
             focusThreshold: 600.0,
             preferencesManager: testPreferences,
             ocrProvider: mockOCRProvider,
-            visualChecker: MockVisualChecker()
+            visualChecker: MockVisualChecker(),
+            distractionTimerScheduler: distractionTimerScheduler,
+            breakReturnGraceTimerScheduler: breakReturnTimerScheduler,
+            doomscrollTimerScheduler: doomscrollTimerScheduler
         )
         engine.delegate = mockDelegate
         
@@ -59,6 +68,9 @@ final class FocusEngineTests: XCTestCase {
         testPreferences = nil
         profileManager = nil
         distractionListManager = nil
+        distractionTimerScheduler = nil
+        breakReturnTimerScheduler = nil
+        doomscrollTimerScheduler = nil
         if let suiteName {
             testDefaults.removePersistentDomain(forName: suiteName)
         }
@@ -69,6 +81,56 @@ final class FocusEngineTests: XCTestCase {
         }
         KeychainHelper.clearCachedKeys()
         super.tearDown()
+    }
+
+    private func prepareAcceptedBreak() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 3600)
+        if let session = engine.activeSession {
+            engine.activeSession = ActiveSession(
+                startDate: session.startDate.addingTimeInterval(-1800),
+                anchoredDuration: session.anchoredDuration,
+                appName: session.appName,
+                category: session.category,
+                goal: session.goal
+            )
+        }
+
+        _ = engine.requestBreak(intention: "Take a short walk")
+        XCTAssertEqual(engine.breakState, .breakActive)
+    }
+
+    @discardableResult
+    private func startBreakReturnGrace(
+        via intermediateBundleID: String = "com.spotify.client",
+        returningTo focusBundleID: String = "com.apple.dt.Xcode"
+    ) throws -> TestDistractionTimerScheduler.PendingTimer {
+        mockActivityMonitor.simulateContextChange(bundleID: intermediateBundleID)
+        mockActivityMonitor.simulateContextChange(bundleID: focusBundleID)
+        return try XCTUnwrap(breakReturnTimerScheduler.scheduledTimers.last)
+    }
+
+    private func makeDate(hour: Int, minute: Int, second: Int = 0) -> Date {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 7
+        components.day = 16
+        components.hour = hour
+        components.minute = minute
+        components.second = second
+        return Calendar.current.date(from: components)!
+    }
+
+    @discardableResult
+    private func prepareDoomscrollRun(
+        bundleID: String = "com.spotify.client",
+        title: String = "",
+        url: URL? = nil,
+        threshold: TimeInterval = 0.0
+    ) throws -> TestDistractionTimerScheduler.PendingTimer {
+        testPreferences.doomscrollThreshold = threshold
+        mockActivityMonitor.simulateContextChange(bundleID: bundleID, url: url, title: title)
+        return try XCTUnwrap(doomscrollTimerScheduler.scheduledTimers.last)
     }
     
     // MARK: - Initial State
@@ -530,12 +592,16 @@ final class FocusEngineTests: XCTestCase {
     
     // MARK: - Distraction Transitions (With Active Session)
     
-    func testDistractionAppSwitchDuringActiveSessionTriggersCountdownAndLog() {
+    func testDistractionAppSwitchDuringActiveSessionTriggersCountdownAndLog() throws {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.anchorSession(duration: 1500.0)
         
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
         
+        let scheduledTimer = try XCTUnwrap(distractionTimerScheduler.scheduledTimers.first)
+        XCTAssertEqual(distractionTimerScheduler.scheduledTimers.count, 1)
+        XCTAssertGreaterThan(scheduledTimer.interval, 0)
+
         XCTAssertEqual(mockDelegate.detectedDistractions, ["com.spotify.client"])
         
         // Verify distraction detected event logged
@@ -545,17 +611,16 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(events.last?.distractionAppBundleID, "com.spotify.client")
     }
     
-    func testReturnToWorkBeforeDistractionTimerExpiresCancelsTimer() {
+    func testReturnToWorkBeforeDistractionTimerExpiresCancelsTimer() throws {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.anchorSession(duration: 1500.0)
         
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        let scheduledTimer = try XCTUnwrap(distractionTimerScheduler.scheduledTimers.first)
         
-        // Switch back immediately (well before 0.05s)
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
-        
-        // Wait to verify timer doesn't fire and transition to dimming
-        Thread.sleep(forTimeInterval: 0.1)
+        XCTAssertTrue(scheduledTimer.isCancelled)
+        scheduledTimer.fire()
         
         XCTAssertFalse(engine.isDimming)
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
@@ -564,14 +629,15 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(events.count, 2) // sessionStart + distractionDetected (no escalationTriggered)
     }
     
-    func testDistractionTimerExpirationTriggersEscalationAndLog() {
+    func testDistractionTimerExpirationTriggersEscalationAndLog() throws {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.anchorSession(duration: 1500.0)
         
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        let scheduledTimer = try XCTUnwrap(distractionTimerScheduler.scheduledTimers.first)
         
         XCTAssertNotNil(engine.currentDistractionGraceRemaining)
-        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
+        scheduledTimer.fire()
         
         XCTAssertTrue(engine.isDimming)
         
@@ -646,42 +712,164 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNotNil(engine.activeSession)
     }
 
-    func testBreakAutoResumesAfterReturningToWorkForFifteenSeconds() throws {
-        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
-        engine.anchorSession(duration: 3600)
-        if let session = engine.activeSession {
-            engine.activeSession = ActiveSession(
-                startDate: session.startDate.addingTimeInterval(-1800),
-                anchoredDuration: session.anchoredDuration,
-                appName: session.appName,
-                category: session.category,
-                goal: session.goal
-            )
-        }
+    func testBreakAutoResumesAfterStableReturnForFifteenSeconds() throws {
+        prepareAcceptedBreak()
 
-        _ = engine.requestBreak(intention: "Take a short walk")
-        XCTAssertEqual(engine.breakState, .breakActive)
-        XCTAssertNil(engine.breakReturnGraceStartedAt)
+        let graceTimer = try startBreakReturnGrace()
+        XCTAssertEqual(breakReturnTimerScheduler.scheduledTimers.count, 1)
+        XCTAssertFalse(graceTimer.isCancelled)
 
-        // Staying on the work app should not start the auto-resume grace.
-        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
-        XCTAssertNil(engine.breakReturnGraceStartedAt)
-
-        // Leaving work and coming back should start the grace timer.
-        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
-        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
-
-        let graceStartedAt = try XCTUnwrap(engine.breakReturnGraceStartedAt)
-
-        engine.breakReturnGraceTimerExpired(now: graceStartedAt.addingTimeInterval(14.9))
-        XCTAssertEqual(engine.breakState, .breakActive)
-        XCTAssertNotNil(engine.activeBreakCommitment)
-
-        engine.breakReturnGraceTimerExpired(now: graceStartedAt.addingTimeInterval(15.1))
+        let startedAt = try XCTUnwrap(engine.breakReturnGraceStartedAt)
+        engine.breakReturnGraceTimerExpired(now: startedAt.addingTimeInterval(15.1))
 
         XCTAssertNil(engine.breakState)
         XCTAssertNil(engine.activeBreakCommitment)
-        XCTAssertGreaterThan(mockDelegate.returnsToWork, 1)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+    }
+
+    func testNeutralContextDoesNotStartBreakReturnGrace() {
+        prepareAcceptedBreak()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+
+        XCTAssertTrue(breakReturnTimerScheduler.scheduledTimers.isEmpty)
+        XCTAssertNil(engine.breakReturnGraceStartedAt)
+        XCTAssertEqual(engine.breakState, .breakActive)
+    }
+
+    func testLeavingBeforeBreakReturnGraceExpiresPreventsResume() throws {
+        prepareAcceptedBreak()
+
+        let graceTimer = try startBreakReturnGrace()
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+
+        XCTAssertTrue(graceTimer.isCancelled)
+        graceTimer.fireIgnoringCancellation()
+
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertNotNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+
+    func testReturningAgainCreatesNewBreakReturnGraceGeneration() throws {
+        prepareAcceptedBreak()
+
+        let firstTimer = try startBreakReturnGrace()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        let secondTimer = try XCTUnwrap(breakReturnTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(breakReturnTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertTrue(firstTimer.isCancelled)
+        XCTAssertFalse(secondTimer.isCancelled)
+
+        firstTimer.fireIgnoringCancellation()
+        XCTAssertEqual(engine.breakState, .breakActive)
+
+        let startedAt = try XCTUnwrap(engine.breakReturnGraceStartedAt)
+        engine.breakReturnGraceTimerExpired(now: startedAt.addingTimeInterval(15.1))
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+    }
+
+    func testSecondQualifyingContextSupersedesFirstBreakReturnCandidateSafely() throws {
+        prepareAcceptedBreak()
+
+        let firstTimer = try startBreakReturnGrace()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.Terminal")
+        let secondTimer = try XCTUnwrap(breakReturnTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(breakReturnTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertTrue(firstTimer.isCancelled)
+        XCTAssertFalse(secondTimer.isCancelled)
+
+        firstTimer.fireIgnoringCancellation()
+        XCTAssertEqual(engine.breakState, .breakActive)
+
+        let startedAt = try XCTUnwrap(engine.breakReturnGraceStartedAt)
+        engine.breakReturnGraceTimerExpired(now: startedAt.addingTimeInterval(15.1))
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+    }
+
+    func testManuallyEndingBreakInvalidatesPendingBreakReturnGraceCallback() throws {
+        prepareAcceptedBreak()
+
+        let graceTimer = try startBreakReturnGrace()
+        engine.resumeAfterBreakReview()
+
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+
+        graceTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.breakState)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+    }
+
+    func testEndingSessionInvalidatesPendingBreakReturnGraceCallback() throws {
+        prepareAcceptedBreak()
+
+        let graceTimer = try startBreakReturnGrace()
+
+        engine.endSession(action: .dismissed)
+
+        graceTimer.fireIgnoringCancellation()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertNil(engine.breakState)
+        XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+
+    func testWorkspacePauseInvalidatesPendingBreakReturnGraceCallback() throws {
+        prepareAcceptedBreak()
+
+        let graceTimer = try startBreakReturnGrace()
+        let pauseStartedAt = Date()
+
+        engine.pauseFocusAccountingForWorkspaceLifecycle(now: pauseStartedAt)
+
+        XCTAssertTrue(graceTimer.isCancelled)
+        graceTimer.fireIgnoringCancellation()
+        XCTAssertEqual(engine.breakState, .breakActive)
+
+        engine.resumeFocusAccountingForWorkspaceLifecycle(now: pauseStartedAt.addingTimeInterval(60))
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        let resumedTimer = try XCTUnwrap(breakReturnTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(breakReturnTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertFalse(resumedTimer.isCancelled)
+        let resumedStartedAt = try XCTUnwrap(engine.breakReturnGraceStartedAt)
+        engine.breakReturnGraceTimerExpired(now: resumedStartedAt.addingTimeInterval(15.1))
+
+        XCTAssertNil(engine.breakState)
+        XCTAssertNil(engine.activeBreakCommitment)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+    }
+
+    func testOldSessionBreakReturnGraceCannotResumeNewSession() throws {
+        prepareAcceptedBreak()
+
+        let oldTimer = try startBreakReturnGrace()
+        let oldSessionID = try XCTUnwrap(engine.activeBreakCommitment?.sessionID)
+
+        engine.endSession(action: .dismissed)
+
+        prepareAcceptedBreak()
+        XCTAssertNotEqual(engine.activeBreakCommitment?.sessionID, oldSessionID)
+
+        oldTimer.fireIgnoringCancellation()
+
+        XCTAssertEqual(engine.breakState, .breakActive)
+        XCTAssertEqual(mockDelegate.returnsToWork, 2)
+        XCTAssertNotNil(engine.activeBreakCommitment)
     }
 
     func testEndingSessionClearsPendingBreakAndPersistsDoneOutcomeAndSummary() {
@@ -713,18 +901,188 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
     }
 
-    func testStaleDistractionTimerCannotDimAfterReturningToWork() {
+    func testStaleDistractionTimerFromPreviousEntryDoesNotDimAfterReenteringSameApp() throws {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.anchorSession(duration: 1500.0)
 
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
-        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        let firstTimer = try XCTUnwrap(distractionTimerScheduler.scheduledTimers.first)
 
-        // Simulate a timer callback that was queued before cancellation.
-        engine.distractionTimerExpired(distractionBundleID: "com.spotify.client")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+
+        let secondTimer = try XCTUnwrap(distractionTimerScheduler.scheduledTimers.last)
+
+        XCTAssertTrue(firstTimer.isCancelled)
+        XCTAssertFalse(secondTimer.isCancelled)
+        XCTAssertEqual(distractionTimerScheduler.scheduledTimers.count, 2)
+
+        // Simulate the stale callback from the old timer arriving after the new one was scheduled.
+        firstTimer.fireIgnoringCancellation()
 
         XCTAssertFalse(engine.isDimming)
         XCTAssertEqual(mockDelegate.returnsToWork, 1)
+    }
+
+    // MARK: - Doomscroll Loop Breaker
+
+    func testDoomscrollFiresOnceAfterContinuousDistractionReachesThreshold() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        engine.doomscrollTimerExpired(now: Date().addingTimeInterval(pendingTimer.interval + 0.1))
+
+        XCTAssertEqual(mockDelegate.doomscrollingDetections.count, 1)
+        XCTAssertEqual(mockDelegate.doomscrollingDetections.first?.bundleID, "com.spotify.client")
+        XCTAssertEqual(mockDelegate.doomscrollingDetections.first?.threshold, 0.0)
+
+        engine.doomscrollTimerExpired(now: Date().addingTimeInterval(pendingTimer.interval + 1.0))
+        XCTAssertEqual(mockDelegate.doomscrollingDetections.count, 1)
+    }
+
+    func testFocusContextBeforeDoomscrollExpiryPreventsFiring() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        XCTAssertTrue(pendingTimer.isCancelled)
+        pendingTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+    }
+
+    func testNeutralContextBeforeDoomscrollExpiryPreventsFiring() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Unknown")
+
+        XCTAssertTrue(pendingTimer.isCancelled)
+        pendingTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+    }
+
+    func testBeginningActiveSessionInvalidatesPendingDoomscrollCallback() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        engine.anchorSession(duration: 1500)
+
+        XCTAssertTrue(pendingTimer.isCancelled)
+        pendingTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+        XCTAssertNotNil(engine.activeSession)
+    }
+
+    func testDisablingLoopBreakerInvalidatesPendingDoomscrollCallback() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        testPreferences.enableDoomscrollLoopBreaker = false
+
+        XCTAssertTrue(pendingTimer.isCancelled)
+        pendingTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+    }
+
+    func testMovingOutsideActiveFocusScheduleInvalidatesPendingDoomscrollCallback() throws {
+        testPreferences.focusSchedule = FocusSchedule(
+            enabled: true,
+            startMinute: 9 * 60,
+            endMinute: 17 * 60,
+            lunchBreakEnabled: false
+        )
+        engine.refreshScheduleState(now: makeDate(hour: 10, minute: 0))
+
+        let pendingTimer = try prepareDoomscrollRun()
+
+        engine.refreshScheduleState(now: makeDate(hour: 20, minute: 0))
+
+        XCTAssertTrue(pendingTimer.isCancelled)
+        pendingTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+    }
+
+    func testWorkspacePauseInvalidatesPendingDoomscrollCallback() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        engine.pauseFocusAccountingForWorkspaceLifecycle(now: Date())
+
+        XCTAssertTrue(pendingTimer.isCancelled)
+        pendingTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+    }
+
+    func testReturningToDistractionCreatesNewDoomscrollGeneration() throws {
+        let firstTimer = try prepareDoomscrollRun()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+
+        let secondTimer = try XCTUnwrap(doomscrollTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(doomscrollTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertTrue(firstTimer.isCancelled)
+        XCTAssertFalse(secondTimer.isCancelled)
+        XCTAssertTrue(firstTimer !== secondTimer)
+    }
+
+    func testStaleDoomscrollCallbackFromEarlierRunCannotFireDuringLaterRun() throws {
+        let firstTimer = try prepareDoomscrollRun()
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+        _ = try XCTUnwrap(doomscrollTimerScheduler.scheduledTimers.last)
+
+        firstTimer.fireIgnoringCancellation()
+
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+    }
+
+    func testStaleDoomscrollCallbackFromEarlierContextIdentityCannotFire() throws {
+        let firstTimer = try prepareDoomscrollRun(title: "Episode One")
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client", title: "Episode Two")
+        _ = try XCTUnwrap(doomscrollTimerScheduler.scheduledTimers.last)
+
+        firstTimer.fireIgnoringCancellation()
+
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+    }
+
+    func testChangingDoomscrollThresholdReplacesPendingTiming() throws {
+        let firstTimer = try prepareDoomscrollRun(threshold: 5.0)
+
+        testPreferences.doomscrollThreshold = 45.0
+
+        let secondTimer = try XCTUnwrap(doomscrollTimerScheduler.scheduledTimers.last)
+
+        XCTAssertEqual(doomscrollTimerScheduler.scheduledTimers.count, 2)
+        XCTAssertTrue(firstTimer.isCancelled)
+        XCTAssertFalse(secondTimer.isCancelled)
+        XCTAssertEqual(secondTimer.interval, 45.0, accuracy: 0.0001)
+
+        firstTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
+
+        engine.doomscrollTimerExpired(now: Date().addingTimeInterval(secondTimer.interval + 0.1))
+        XCTAssertEqual(mockDelegate.doomscrollingDetections.count, 1)
+        XCTAssertEqual(mockDelegate.doomscrollingDetections.first?.threshold, 45.0)
+    }
+
+    func testContinuousDoomscrollRunOnlyEmitsOneDetection() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        engine.doomscrollTimerExpired(now: Date().addingTimeInterval(pendingTimer.interval + 0.1))
+        engine.doomscrollTimerExpired(now: Date().addingTimeInterval(pendingTimer.interval + 1.0))
+        pendingTimer.fireIgnoringCancellation()
+
+        XCTAssertEqual(mockDelegate.doomscrollingDetections.count, 1)
+    }
+
+    func testStopInvalidatesPendingDoomscrollCallback() throws {
+        let pendingTimer = try prepareDoomscrollRun()
+
+        engine.stop()
+
+        XCTAssertTrue(pendingTimer.isCancelled)
+        pendingTimer.fireIgnoringCancellation()
+        XCTAssertTrue(mockDelegate.doomscrollingDetections.isEmpty)
     }
     
     // MARK: - Session Expiration & Termination
@@ -2361,6 +2719,40 @@ final class MockOCRProvider: WindowTextExtracting {
 struct MockVisualChecker: VisualProductivityChecking {
     func isProductiveVisual(profileName: String) -> Bool {
         return false
+    }
+}
+
+final class TestDistractionTimerScheduler: DistractionTimerScheduling {
+    final class PendingTimer: DistractionTimerHandle {
+        let interval: TimeInterval
+        private let action: () -> Void
+        private(set) var isCancelled = false
+
+        init(interval: TimeInterval, action: @escaping () -> Void) {
+            self.interval = interval
+            self.action = action
+        }
+
+        func cancel() {
+            isCancelled = true
+        }
+
+        func fire() {
+            guard !isCancelled else { return }
+            action()
+        }
+
+        func fireIgnoringCancellation() {
+            action()
+        }
+    }
+
+    private(set) var scheduledTimers: [PendingTimer] = []
+
+    func schedule(after interval: TimeInterval, action: @escaping () -> Void) -> DistractionTimerHandle {
+        let timer = PendingTimer(interval: interval, action: action)
+        scheduledTimers.append(timer)
+        return timer
     }
 }
 

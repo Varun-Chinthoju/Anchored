@@ -70,17 +70,33 @@ struct OnboardingView: View {
                 .frame(width: windowWidth, height: windowHeight - 120)
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: currentStep)
                 
-                // Click-anywhere helper hint (only shown for non-interactive pages)
-                if currentStep == 0 || currentStep == 1 {
-                    Text(t("how_btn")) // Standard prompt
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundColor(PirateTheme.parchment)
-                        .opacity(0.4)
-                        .padding(.bottom, 32)
-                } else {
+                HStack(alignment: .center) {
+                    if currentStep == 0 || currentStep == 1 {
+                        Text(t("how_btn")) // Standard prompt
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundColor(PirateTheme.parchment)
+                            .opacity(0.4)
+                    } else {
+                        Spacer()
+                    }
+
                     Spacer()
-                        .frame(height: 32)
+
+                    Button(action: {
+                        NSApplication.shared.terminate(nil)
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "power")
+                            Text("Quit Anchored")
+                        }
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(PirateTheme.parchment.opacity(0.82))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Quit Anchored")
                 }
+                .padding(.horizontal, 40)
+                .padding(.bottom, 28)
             }
             .frame(width: windowWidth, height: windowHeight)
         }

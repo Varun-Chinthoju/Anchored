@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import AppKit
 import ApplicationServices
@@ -83,6 +84,10 @@ final class FocusEngine {
     private let intentClassifier: IntentClassifying
     private let classificationOutcomeStore: ClassificationOutcomeRecording
     private let breakReviewChecker: BreakReviewChecking
+    private let distractionTimerScheduler: DistractionTimerScheduling
+    private let breakReturnGraceTimerScheduler: DistractionTimerScheduling
+    private let doomscrollTimerScheduler: DistractionTimerScheduling
+    private var preferencesCancellables = Set<AnyCancellable>()
     
     /// The delegate to receive state transition callbacks.
     weak var delegate: FocusEngineDelegate?
@@ -161,7 +166,15 @@ final class FocusEngine {
     var distractionCountdownThreshold: TimeInterval = 30.0
     
     // Timers
-    private var distractionTimer: Timer?
+    private var distractionTimer: DistractionTimerHandle?
+    private var distractionTimerGeneration: Int = 0
+    private var activeDistractionTimerGeneration: Int?
+    private var breakReturnGraceTimer: DistractionTimerHandle?
+    private var breakReturnGraceGeneration: Int = 0
+    private var activeBreakReturnGraceGeneration: Int?
+    private var breakReturnGraceSessionID: UUID?
+    private var breakReturnGraceContextGeneration: Int?
+    private var breakReturnGraceContextIdentity: ContextIdentity?
     private var sessionTimer: Timer?
     private var focusPromptTimer: Timer?
     private var scheduleTransitionTimer: Timer?
@@ -175,9 +188,15 @@ final class FocusEngine {
     }
     
     // Doomscroll loop breaker
-    private var doomscrollTimer: Timer?
+    private var doomscrollTimer: DistractionTimerHandle?
     /// The bundle ID of the app the user started doomscrolling in.
     private(set) var doomscrollingBundleID: String?
+    private var doomscrollTimerGeneration: Int = 0
+    private var activeDoomscrollTimerGeneration: Int?
+    private var doomscrollContextGeneration: Int?
+    private var doomscrollContextIdentity: ContextIdentity?
+    private var doomscrollThresholdAtSchedule: TimeInterval?
+    private var doomscrollStartedAt: Date?
     private(set) var hasFiredDoomscrollAlert = false
     
     // Idle tracking
@@ -197,7 +216,6 @@ final class FocusEngine {
     private(set) var activeBreakCommitment: BreakCommitment?
     private var breakTimer: Timer?
     private var breakStartedAt: Date?
-    private var breakReturnGraceTimer: Timer?
     private(set) var breakReturnGraceStartedAt: Date?
     private var hasSeenNonFocusContextSinceBreakStarted = false
     /// How long a returned work context must remain stable before a break resumes.
@@ -244,7 +262,10 @@ final class FocusEngine {
         localTextClassifier: ContextClassifying? = nil,
         intentClassifier: IntentClassifying? = nil,
         classificationOutcomeStore: ClassificationOutcomeRecording? = nil,
-        breakReviewChecker: BreakReviewChecking = ConservativeBreakReviewChecker()
+        breakReviewChecker: BreakReviewChecking = ConservativeBreakReviewChecker(),
+        distractionTimerScheduler: DistractionTimerScheduling = LiveDistractionTimerScheduler(),
+        breakReturnGraceTimerScheduler: DistractionTimerScheduling = LiveDistractionTimerScheduler(),
+        doomscrollTimerScheduler: DistractionTimerScheduling = LiveDistractionTimerScheduler()
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
@@ -265,6 +286,9 @@ final class FocusEngine {
         self.intentClassifier = intentClassifier ?? LocalIntentClassifier()
         self.classificationOutcomeStore = classificationOutcomeStore ?? ClassificationOutcomeStore.shared
         self.breakReviewChecker = breakReviewChecker
+        self.distractionTimerScheduler = distractionTimerScheduler
+        self.breakReturnGraceTimerScheduler = breakReturnGraceTimerScheduler
+        self.doomscrollTimerScheduler = doomscrollTimerScheduler
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
             self?.handleContextChange(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title, snapshot: snapshot)
@@ -288,6 +312,18 @@ final class FocusEngine {
             name: .focusScheduleDidChange,
             object: preferencesManager
         )
+        preferencesManager.$enableDoomscrollLoopBreaker
+            .dropFirst()
+            .sink { [weak self] isEnabled in
+                self?.refreshDoomscrollTimerIfNeeded(loopBreakerEnabled: isEnabled)
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$doomscrollThreshold
+            .dropFirst()
+            .sink { [weak self] threshold in
+                self?.refreshDoomscrollTimerIfNeeded(threshold: threshold)
+            }
+            .store(in: &preferencesCancellables)
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(handleWorkspaceWillSleep),
@@ -339,7 +375,8 @@ final class FocusEngine {
         cancelScheduleTransitionTimer()
         cancelIdleTimer()
         cancelBreakTimer()
-        cancelDoomscrollTimer()
+        cancelBreakReturnGraceTimer()
+        resetDoomscrollTimer()
         clearBreakState(at: Date())
     }
 
@@ -373,8 +410,8 @@ final class FocusEngine {
         cancelIdleTimer()
         cancelBreakTimer()
         cancelDeclaredActivityCheckTimer()
-        doomscrollTimer?.invalidate()
-        doomscrollTimer = nil
+        cancelBreakReturnGraceTimer()
+        cancelDoomscrollTimer()
 
         RuntimeTrace.event("focus_accounting_paused_for_workspace_lifecycle", fields: [
             "activeSession": String(activeSession != nil),
@@ -430,8 +467,8 @@ final class FocusEngine {
         if isDeclaredActivityBypassActive {
             scheduleDeclaredActivityCheckTimer()
         }
-        if let bundleID = doomscrollingBundleID, !hasFiredDoomscrollAlert {
-            scheduleDoomscrollTimer(bundleID: bundleID)
+        if doomscrollingBundleID != nil, !hasFiredDoomscrollAlert {
+            refreshDoomscrollTimerIfNeeded(observedAt: now)
         }
 
         RuntimeTrace.event("focus_accounting_resumed_after_workspace_lifecycle", fields: [
@@ -481,11 +518,7 @@ final class FocusEngine {
                 scheduleFocusPromptTimer()
             }
 
-            if let bundleID = currentApp,
-               activeSession == nil,
-               currentClassification.isDistraction {
-                scheduleDoomscrollTimer(bundleID: bundleID)
-            }
+            refreshDoomscrollTimerIfNeeded(observedAt: now)
         } else {
             cancelFocusPromptTimer()
             cancelDistractionTimer()
@@ -1309,7 +1342,7 @@ final class FocusEngine {
                 }
             } else {
                 // Distraction app detected + no session → start doomscroll timer
-                scheduleDoomscrollTimer(bundleID: bundleID)
+                refreshDoomscrollTimerIfNeeded(observedAt: now)
                 if !requestFocusPromptIfEligible(now: now) {
                     resetFocusTracking()
                 }
@@ -1335,7 +1368,7 @@ final class FocusEngine {
                 }
             } else {
                 lastWorkAppBundleID = bundleID
-                cancelDoomscrollTimer()
+                resetDoomscrollTimer()
                 if workSessionStart == nil {
                     workSessionStart = now
                     hasPromptedForCurrentFocusRun = false
@@ -1351,7 +1384,7 @@ final class FocusEngine {
                 // be transitory while the intent classifier is still settling.
             } else {
                 // Neutral context: cancel any doomscroll tracking
-                cancelDoomscrollTimer()
+                resetDoomscrollTimer()
                 // Check if the user accumulated enough focus time on the previous focus app before switching away
                 if !requestFocusPromptIfEligible(now: now) {
                     resetFocusTracking()
@@ -2030,8 +2063,12 @@ final class FocusEngine {
     }
 
     private func cancelBreakReturnGraceTimer() {
-        breakReturnGraceTimer?.invalidate()
+        breakReturnGraceTimer?.cancel()
         breakReturnGraceTimer = nil
+        activeBreakReturnGraceGeneration = nil
+        breakReturnGraceSessionID = nil
+        breakReturnGraceContextGeneration = nil
+        breakReturnGraceContextIdentity = nil
         breakReturnGraceStartedAt = nil
     }
 
@@ -2044,22 +2081,13 @@ final class FocusEngine {
 
         if decision.isFocus {
             guard hasSeenNonFocusContextSinceBreakStarted else { return }
-            guard breakReturnGraceStartedAt == nil else { return }
-
-            breakReturnGraceStartedAt = observedAt
-            let remaining = max(0, breakReturnGraceThreshold - Date().timeIntervalSince(observedAt))
-            guard remaining > 0 else {
-                breakReturnGraceTimerExpired(now: observedAt)
+            guard breakReturnGraceStartedAt == nil
+                || breakReturnGraceContextIdentity != snapshot.identity
+                || breakReturnGraceContextGeneration != contextGeneration else {
                 return
             }
 
-            breakReturnGraceTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
-                self?.breakReturnGraceTimerExpired()
-            }
-            RuntimeTrace.event("break_return_grace_started", fields: [
-                "bundleID": snapshot.bundleIdentifier,
-                "seconds": String(breakReturnGraceThreshold)
-            ])
+            scheduleBreakReturnGraceTimer(snapshot: snapshot, observedAt: observedAt)
         } else {
             hasSeenNonFocusContextSinceBreakStarted = true
             cancelBreakReturnGraceTimer()
@@ -2067,11 +2095,75 @@ final class FocusEngine {
     }
 
     internal func breakReturnGraceTimerExpired(now: Date = Date()) {
-        guard activeBreakCommitment != nil,
-              hasSeenNonFocusContextSinceBreakStarted,
-              let startedAt = breakReturnGraceStartedAt else { return }
+        breakReturnGraceTimerExpired(
+            sessionID: breakReturnGraceSessionID,
+            contextIdentity: breakReturnGraceContextIdentity,
+            contextGeneration: breakReturnGraceContextGeneration ?? contextGeneration,
+            generation: activeBreakReturnGraceGeneration ?? breakReturnGraceGeneration,
+            now: now
+        )
+    }
 
-        guard now.timeIntervalSince(startedAt) >= breakReturnGraceThreshold,
+    private func scheduleBreakReturnGraceTimer(snapshot: ContextSnapshot, observedAt: Date) {
+        cancelBreakReturnGraceTimer()
+        guard let commitment = activeBreakCommitment else { return }
+
+        breakReturnGraceGeneration += 1
+        let generation = breakReturnGraceGeneration
+        activeBreakReturnGraceGeneration = generation
+        breakReturnGraceSessionID = commitment.sessionID
+        breakReturnGraceContextGeneration = contextGeneration
+        breakReturnGraceContextIdentity = snapshot.identity
+        breakReturnGraceStartedAt = observedAt
+
+        let remaining = max(0, breakReturnGraceThreshold - Date().timeIntervalSince(observedAt))
+        guard remaining > 0 else {
+            breakReturnGraceTimerExpired(
+                sessionID: commitment.sessionID,
+                contextIdentity: snapshot.identity,
+                contextGeneration: contextGeneration,
+                generation: generation,
+                now: observedAt
+            )
+            return
+        }
+
+        let sessionID = commitment.sessionID
+        let contextIdentity = snapshot.identity
+        let capturedContextGeneration = contextGeneration
+        breakReturnGraceTimer = breakReturnGraceTimerScheduler.schedule(after: remaining) { [weak self] in
+            self?.breakReturnGraceTimerExpired(
+                sessionID: sessionID,
+                contextIdentity: contextIdentity,
+                contextGeneration: capturedContextGeneration,
+                generation: generation
+            )
+        }
+
+        RuntimeTrace.event("break_return_grace_started", fields: [
+            "bundleID": snapshot.bundleIdentifier,
+            "seconds": String(breakReturnGraceThreshold),
+            "generation": String(generation)
+        ])
+    }
+
+    private func breakReturnGraceTimerExpired(
+        sessionID: UUID?,
+        contextIdentity: ContextIdentity?,
+        contextGeneration: Int,
+        generation: Int,
+        now: Date = Date()
+    ) {
+        guard lifecyclePauseStartedAt == nil,
+              activeSession != nil,
+              activeBreakCommitment?.sessionID == sessionID,
+              hasSeenNonFocusContextSinceBreakStarted,
+              let startedAt = breakReturnGraceStartedAt,
+              breakReturnGraceSessionID == sessionID,
+              breakReturnGraceContextIdentity == contextIdentity,
+              breakReturnGraceContextGeneration == contextGeneration,
+              activeBreakReturnGraceGeneration == generation,
+              now.timeIntervalSince(startedAt) >= breakReturnGraceThreshold,
               currentClassification.isFocus else {
             return
         }
@@ -2175,6 +2267,7 @@ final class FocusEngine {
             goal: resolvedGoal
         )
         self.activeSession = session
+        resetDoomscrollTimer()
         RuntimeTrace.event("session_anchored", fields: [
             "duration": String(duration),
             "appBundleID": lastWorkAppBundleID ?? "",
@@ -2254,6 +2347,7 @@ final class FocusEngine {
         currentIntentResult = nil
         clearBreakState(at: now)
         stopDeclaredActivityBypass()
+        resetDoomscrollTimer()
         resetFocusTracking()
         isDimming = false
         distractionStartDate = nil
@@ -2430,30 +2524,42 @@ final class FocusEngine {
         cancelDistractionTimer()
         guard lifecyclePauseStartedAt == nil else { return }
         self.distractionBundleID = distractionBundleID
+        distractionTimerGeneration += 1
+        let generation = distractionTimerGeneration
+        activeDistractionTimerGeneration = generation
         let threshold = distractionGraceThreshold(for: distractionBundleID)
         let remaining = max(0, threshold - Date().timeIntervalSince(observedAt))
         guard remaining > 0 else {
-            distractionTimerExpired(distractionBundleID: distractionBundleID)
+            distractionTimerExpired(distractionBundleID: distractionBundleID, generation: generation)
             return
         }
-        distractionTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
-            self?.distractionTimerExpired(distractionBundleID: distractionBundleID)
+        distractionTimer = distractionTimerScheduler.schedule(after: remaining) { [weak self] in
+            self?.distractionTimerExpired(distractionBundleID: distractionBundleID, generation: generation)
         }
     }
     
     private func cancelDistractionTimer() {
-        distractionTimer?.invalidate()
+        distractionTimer?.cancel()
         distractionTimer = nil
         distractionBundleID = nil
+        activeDistractionTimerGeneration = nil
     }
     
     internal func distractionTimerExpired(distractionBundleID: String) {
+        distractionTimerExpired(
+            distractionBundleID: distractionBundleID,
+            generation: activeDistractionTimerGeneration ?? distractionTimerGeneration
+        )
+    }
+
+    private func distractionTimerExpired(distractionBundleID: String, generation: Int) {
         // Timer invalidation is not enough: a callback that was already queued may
         // still arrive after the user returned to the recorded work app.
         guard lifecyclePauseStartedAt == nil,
               activeSession != nil,
               !isDimming,
               self.distractionBundleID == distractionBundleID,
+              activeDistractionTimerGeneration == generation,
               currentApp != lastWorkAppBundleID else { return }
         isDimming = true
         RuntimeTrace.event("distraction_timer_expired", fields: ["bundleID": distractionBundleID])
@@ -2500,38 +2606,149 @@ final class FocusEngine {
     }
     
     // MARK: - Doomscroll Loop Breaker
-    
-    private func scheduleDoomscrollTimer(bundleID: String) {
-        guard preferencesManager.enableDoomscrollLoopBreaker else { return }
-        guard isFocusScheduleActive else { return }
-        guard doomscrollTimer == nil else { return }
-        guard lifecyclePauseStartedAt == nil else { return }
-        doomscrollingBundleID = bundleID
-        hasFiredDoomscrollAlert = false
-        let threshold = preferencesManager.doomscrollThreshold
-        RuntimeTrace.event("doomscroll_timer_scheduled", fields: ["bundleID": bundleID, "threshold": String(threshold)])
-        doomscrollTimer = Timer.scheduledTimer(withTimeInterval: threshold, repeats: false) { [weak self] _ in
-            self?.doomscrollTimerExpired()
-        }
+
+    private func currentDoomscrollSnapshot(observedAt: Date = Date()) -> ContextSnapshot? {
+        guard let bundleID = currentApp else { return nil }
+        return ContextSnapshot(
+            bundleIdentifier: bundleID,
+            localizedName: currentContext?.localizedName ?? getAppName(for: bundleID),
+            url: currentURL,
+            title: currentTitle,
+            source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                : .application,
+            observedAt: observedAt
+        )
     }
-    
-    private func cancelDoomscrollTimer() {
-        doomscrollTimer?.invalidate()
-        doomscrollTimer = nil
-        doomscrollingBundleID = nil
-        hasFiredDoomscrollAlert = false
-    }
-    
-    internal func doomscrollTimerExpired() {
-        guard lifecyclePauseStartedAt == nil,
-              let bundleID = doomscrollingBundleID,
-              activeSession == nil else {
+
+    private func refreshDoomscrollTimerIfNeeded(
+        observedAt: Date = Date(),
+        threshold: TimeInterval? = nil,
+        loopBreakerEnabled: Bool? = nil
+    ) {
+        guard currentClassification.isDistraction else {
             cancelDoomscrollTimer()
             return
         }
+        guard !hasFiredDoomscrollAlert else { return }
+        guard loopBreakerEnabled ?? preferencesManager.enableDoomscrollLoopBreaker,
+              isFocusScheduleActive,
+              lifecyclePauseStartedAt == nil,
+              activeSession == nil,
+              let snapshot = currentDoomscrollSnapshot(observedAt: observedAt) else {
+            cancelDoomscrollTimer()
+            return
+        }
+
+        scheduleDoomscrollTimer(
+            snapshot: snapshot,
+            threshold: threshold,
+            loopBreakerEnabled: loopBreakerEnabled
+        )
+    }
+
+    private func scheduleDoomscrollTimer(
+        snapshot: ContextSnapshot,
+        threshold: TimeInterval? = nil,
+        loopBreakerEnabled: Bool? = nil
+    ) {
+        cancelDoomscrollTimer()
+        let threshold = threshold ?? preferencesManager.doomscrollThreshold
+        guard loopBreakerEnabled ?? preferencesManager.enableDoomscrollLoopBreaker,
+              isFocusScheduleActive,
+              lifecyclePauseStartedAt == nil,
+              activeSession == nil else { return }
+
+        doomscrollTimerGeneration += 1
+        let generation = doomscrollTimerGeneration
+        let contextGeneration = self.contextGeneration
+        let contextIdentity = snapshot.identity
+        doomscrollingBundleID = snapshot.bundleIdentifier
+        doomscrollContextGeneration = contextGeneration
+        doomscrollContextIdentity = contextIdentity
+        doomscrollThresholdAtSchedule = threshold
+        doomscrollStartedAt = snapshot.observedAt
+        activeDoomscrollTimerGeneration = generation
+        hasFiredDoomscrollAlert = false
+        RuntimeTrace.event("doomscroll_timer_scheduled", fields: [
+            "bundleID": snapshot.bundleIdentifier,
+            "threshold": String(threshold),
+            "generation": String(generation)
+        ])
+        doomscrollTimer = doomscrollTimerScheduler.schedule(after: threshold) { [weak self] in
+            self?.doomscrollTimerExpired(
+                bundleID: snapshot.bundleIdentifier,
+                contextIdentity: contextIdentity,
+                contextGeneration: contextGeneration,
+                generation: generation,
+                threshold: threshold
+            )
+        }
+    }
+
+    private func cancelDoomscrollTimer() {
+        doomscrollTimer?.cancel()
+        doomscrollTimer = nil
+        activeDoomscrollTimerGeneration = nil
+        doomscrollingBundleID = nil
+        doomscrollContextGeneration = nil
+        doomscrollContextIdentity = nil
+        doomscrollThresholdAtSchedule = nil
+        doomscrollStartedAt = nil
+    }
+
+    private func resetDoomscrollTimer() {
+        cancelDoomscrollTimer()
+        hasFiredDoomscrollAlert = false
+    }
+
+    internal func doomscrollTimerExpired(now: Date = Date()) {
+        doomscrollTimerExpired(
+            bundleID: doomscrollingBundleID,
+            contextIdentity: doomscrollContextIdentity,
+            contextGeneration: doomscrollContextGeneration ?? contextGeneration,
+            generation: activeDoomscrollTimerGeneration ?? doomscrollTimerGeneration,
+            threshold: doomscrollThresholdAtSchedule ?? preferencesManager.doomscrollThreshold,
+            now: now
+        )
+    }
+
+    private func doomscrollTimerExpired(
+        bundleID: String?,
+        contextIdentity: ContextIdentity?,
+        contextGeneration: Int,
+        generation: Int,
+        threshold: TimeInterval,
+        now: Date = Date()
+    ) {
+        guard lifecyclePauseStartedAt == nil,
+              preferencesManager.enableDoomscrollLoopBreaker,
+              isFocusScheduleActive,
+              activeSession == nil,
+              !hasFiredDoomscrollAlert,
+              let bundleID,
+              let contextIdentity,
+              doomscrollingBundleID == bundleID,
+              doomscrollContextIdentity == contextIdentity,
+              doomscrollContextGeneration == contextGeneration,
+              activeDoomscrollTimerGeneration == generation,
+              doomscrollThresholdAtSchedule == threshold,
+              let startedAt = doomscrollStartedAt,
+              now.timeIntervalSince(startedAt) >= threshold,
+              currentClassification.isDistraction,
+              currentIdentity == contextIdentity,
+              currentApp == bundleID else {
+            return
+        }
+
         hasFiredDoomscrollAlert = true
-        let threshold = preferencesManager.doomscrollThreshold
-        RuntimeTrace.event("doomscroll_timer_expired", fields: ["bundleID": bundleID, "threshold": String(threshold)])
+        doomscrollTimer = nil
+        activeDoomscrollTimerGeneration = nil
+        RuntimeTrace.event("doomscroll_timer_expired", fields: [
+            "bundleID": bundleID,
+            "threshold": String(threshold),
+            "generation": String(generation)
+        ])
         delegate?.didDetectDoomscrolling(bundleID: bundleID, threshold: threshold)
     }
 

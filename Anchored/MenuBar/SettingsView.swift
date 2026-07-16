@@ -150,6 +150,7 @@ struct SettingsView: View {
     @ObservedObject private var prefs = PreferencesManager.shared
     @State private var selectedItem: SidebarItem
     @State private var searchQuery = ""
+    @State private var searchScrollTarget: SettingsScrollTarget?
     @State private var showAddAlert = false
     @State private var newProfileName = ""
     private let focusEngine: FocusEngine
@@ -178,140 +179,193 @@ struct SettingsView: View {
         _selectedItem = State(initialValue: initialItem)
     }
 
-    var filteredProfiles: [WorkProfile] {
-        let all = profileManager.profiles
-        guard !searchQuery.isEmpty else { return all }
-        let q = searchQuery.lowercased()
-        return all.filter { $0.name.lowercased().contains(q) }
+    private var normalizedSearchQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var filteredSections: [SettingsSection] {
-        let sections: [SettingsSection] = [.general, .privacy, .captainsLog, .about]
-        guard !searchQuery.isEmpty else { return sections }
-        let q = searchQuery.lowercased()
-        return sections.filter { $0.rawValue.lowercased().contains(q) }
+    private var isSearching: Bool {
+        !normalizedSearchQuery.isEmpty
+    }
+
+    private var searchResults: [SettingsSearchResult] {
+        SettingsSearchIndex.results(
+            query: normalizedSearchQuery,
+            isPirateMode: langManager.isPirateMode,
+            activeProfileName: profileManager.activeProfile.name
+        )
+    }
+
+    private var searchResultsView: some View {
+        SettingsSearchResultsView(
+            searchQuery: $searchQuery,
+            results: searchResults,
+            onSelect: selectSearchResult
+        )
+    }
+
+    @ViewBuilder
+    private func settingsSurface<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(minWidth: 900, idealWidth: 990, minHeight: 570, idealHeight: 630)
+            .accentColor(SettingsTheme.accent)
+            .tint(SettingsTheme.accent)
+            .background(ControlRoomShellBackground(palette: SettingsTheme.palette))
     }
 
     var body: some View {
+        settingsSurface {
+            rootContent
+        }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if isSearching {
+            searchResultsView
+        } else {
+            regularSettingsView
+        }
+    }
+
+    private var regularSettingsView: some View {
         let isPirateMode = langManager.isPirateMode
+        return NavigationSplitView {
+            settingsSidebar(isPirateMode: isPirateMode)
+        } detail: {
+            selectedSettingsPane(isPirateMode: isPirateMode)
+        }
+        .onChange(of: selectedItem) { newItem in
+            if case .profile(let id) = newItem,
+               let profile = profileManager.profiles.first(where: { $0.id == id }) {
+                profileManager.switchProfile(to: profile.name)
+            }
+        }
+        .onReceive(profileManager.$activeProfile) { newActiveProfile in
+            if case .profile = selectedItem {
+                selectedItem = .profile(newActiveProfile.id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func settingsSidebar(isPirateMode: Bool) -> some View {
         let themeAccent = SettingsTheme.accent
         let themeSurfaceRaised = SettingsTheme.surfaceRaised
         let themeTextSecondary = SettingsTheme.textSecondary
-        NavigationSplitView {
-            // SIDEBAR
-            VStack(spacing: 0) {
-                // Search
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(themeTextSecondary)
-                        .font(.system(size: 12))
-                    TextField(settingsCopy("Search", pirate: "Search the charts", isPirateMode: isPirateMode), text: $searchQuery)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                    if !searchQuery.isEmpty {
-                        Button { searchQuery = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(themeTextSecondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(themeSurfaceRaised.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(SettingsTheme.border.opacity(0.5), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Profiles")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .tracking(1.1)
+        return VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(themeTextSecondary)
+                    .font(.system(size: 12))
+                TextField(settingsCopy("Search", pirate: "Search the charts", isPirateMode: isPirateMode), text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                if !searchQuery.isEmpty {
+                    Button { searchQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
                             .foregroundColor(themeTextSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.top, 8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(themeSurfaceRaised.opacity(0.6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(SettingsTheme.border.opacity(0.5), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
 
-                        ForEach(filteredProfiles) { profile in
-                            ProfileRowView(
-                                profile: profile,
-                                isActive: profile.id == profileManager.activeProfile.id,
-                                isPirateMode: isPirateMode,
-                                onDelete: { deleteProfile(profile) },
-                                onMakeActive: { makeProfileActive(profile) },
-                                canDelete: profileManager.profiles.count > 1
-                            )
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Profiles")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .tracking(1.1)
+                        .foregroundColor(themeTextSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+
+                    ForEach(profileManager.profiles) { profile in
+                        ProfileRowView(
+                            profile: profile,
+                            isActive: profile.id == profileManager.activeProfile.id,
+                            isPirateMode: isPirateMode,
+                            onDelete: { deleteProfile(profile) },
+                            onMakeActive: { makeProfileActive(profile) },
+                            canDelete: profileManager.profiles.count > 1
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(selectedItem == .profile(profile.id) ? themeAccent.opacity(0.18) : .clear)
+                        .cornerRadius(6)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedItem = .profile(profile.id) }
+                    }
+
+                    Button {
+                        newProfileName = ""
+                        showAddAlert = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(SettingsTheme.darkWood)
+                                .padding(4)
+                                .background(SettingsTheme.accent)
+                                .clipShape(Circle())
+                            Text("Add Profile")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(SettingsTheme.accent)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .tracking(1.1)
+                        .foregroundColor(themeTextSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 14)
+
+                    ForEach([SettingsSection.general, SettingsSection.privacy, SettingsSection.captainsLog, SettingsSection.about]) { section in
+                        Label(section.displayName(isPirateMode: isPirateMode), systemImage: section.iconName)
+                            .labelStyle(ColoredLabelStyle(color: section.iconColor))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(selectedItem == .profile(profile.id) ? themeAccent.opacity(0.18) : .clear)
-                            .cornerRadius(6)
+                            .background(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.18) : .clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.28) : Color.clear, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .contentShape(Rectangle())
-                            .onTapGesture { selectedItem = .profile(profile.id) }
-                        }
-
-                        Button {
-                            newProfileName = ""
-                            showAddAlert = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(SettingsTheme.darkWood)
-                                    .padding(4)
-                                    .background(SettingsTheme.accent)
-                                    .clipShape(Circle())
-                                Text("Add Profile")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(SettingsTheme.accent)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.plain)
-
-                        Text(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .tracking(1.1)
-                            .foregroundColor(themeTextSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.top, 14)
-
-                        ForEach(filteredSections) { section in
-                            Label(section.displayName(isPirateMode: isPirateMode), systemImage: section.iconName)
-                                .labelStyle(ColoredLabelStyle(color: section.iconColor))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.18) : .clear)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(selectedItem == sidebarItem(for: section) ? themeAccent.opacity(0.28) : Color.clear, lineWidth: 1)
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .contentShape(Rectangle())
-                                .onTapGesture { selectedItem = sidebarItem(for: section) }
-                        }
+                            .onTapGesture { selectedItem = sidebarItem(for: section) }
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 12)
                 }
-                .background(
-                    LinearGradient(
-                        colors: [
-                            ControlRoomTheme.shellTop,
-                            ControlRoomTheme.shellBottom
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .padding(.horizontal, 6)
+                .padding(.bottom, 12)
             }
+            .background(
+                LinearGradient(
+                    colors: [
+                        ControlRoomTheme.shellTop,
+                        ControlRoomTheme.shellBottom
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
             .alert("New Profile", isPresented: $showAddAlert) {
                 TextField("Profile Name", text: $newProfileName)
                 Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) { }
@@ -324,49 +378,55 @@ struct SettingsView: View {
                     }
                 }
             }
-                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 350)
-        } detail: {
-            // DETAIL PANE
-            Group {
-                switch selectedItem {
-                case .profile(let id):
-                    if let profile = profileManager.profiles.first(where: { $0.id == id }) {
-                        ProfileAppsSettingsPane(isPirateMode: isPirateMode, profileManager: profileManager, profile: profile)
-                    } else {
-                        Text("Select or create a work profile.")
-                            .foregroundColor(themeTextSecondary)
-                    }
-                case .general:
-                    GeneralSettingsPane(isPirateMode: isPirateMode)
-                case .privacy:
-                    PrivacySettingsPane(isPirateMode: isPirateMode)
-                case .captainsLog:
-                    CaptainsLogSettingsPane(focusEngine: focusEngine)
-                case .about:
-                    AboutSettingsPane(
+            .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 440)
+        }
+    }
+
+    @ViewBuilder
+    private func selectedSettingsPane(isPirateMode: Bool) -> some View {
+        let themeTextSecondary = SettingsTheme.textSecondary
+
+        return Group {
+            switch selectedItem {
+            case .profile(let id):
+                if let profile = profileManager.profiles.first(where: { $0.id == id }) {
+                    ProfileAppsSettingsPane(
                         isPirateMode: isPirateMode,
-                        onCheckForUpdates: onCheckForUpdates
+                        profileManager: profileManager,
+                        profile: profile,
+                        scrollTarget: $searchScrollTarget
                     )
+                } else {
+                    Text("Select or create a work profile.")
+                        .foregroundColor(themeTextSecondary)
                 }
+            case .general:
+                GeneralSettingsPane(
+                    isPirateMode: isPirateMode,
+                    scrollTarget: $searchScrollTarget
+                )
+            case .privacy:
+                PrivacySettingsPane(
+                    isPirateMode: isPirateMode,
+                    scrollTarget: $searchScrollTarget
+                )
+            case .captainsLog:
+                CaptainsLogSettingsPane(focusEngine: focusEngine)
+            case .about:
+                AboutSettingsPane(
+                    isPirateMode: isPirateMode,
+                    onCheckForUpdates: onCheckForUpdates,
+                    scrollTarget: $searchScrollTarget
+                )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 990, height: 630)
-        .accentColor(themeAccent)
-        .tint(themeAccent)
-        .background(ControlRoomShellBackground(palette: SettingsTheme.palette))
-        .onChange(of: selectedItem) { newItem in
-            if case .profile(let id) = newItem,
-               let profile = profileManager.profiles.first(where: { $0.id == id }) {
-                profileManager.switchProfile(to: profile.name)
-            }
-        }
-        .onReceive(profileManager.$activeProfile) { newActiveProfile in
-            // Switch sidebar selection if active profile changes externally (like from status bar)
-            if case .profile = selectedItem {
-                selectedItem = .profile(newActiveProfile.id)
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func selectSearchResult(_ result: SettingsSearchResult) {
+        selectedItem = result.route.sidebarItem
+        searchScrollTarget = result.route.scrollTarget
+        searchQuery = ""
     }
 
     private func deleteProfile(_ profile: WorkProfile) {
@@ -424,23 +484,52 @@ struct ColoredLabelStyle: LabelStyle {
 
 struct SettingsPane<Content: View>: View {
     let title: String
+    @Binding var scrollTarget: SettingsScrollTarget?
     @ViewBuilder let content: () -> Content
 
+    init(
+        title: String,
+        scrollTarget: Binding<SettingsScrollTarget?> = .constant(nil),
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self._scrollTarget = scrollTarget
+        self.content = content
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                ControlRoomSectionHeader(
-                    eyebrow: "Settings",
-                    title: title,
-                    subtitle: "Tweak preferences, privacy, and profile behavior from one place.",
-                    accent: SettingsTheme.accent
-                )
-                content()
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    ControlRoomSectionHeader(
+                        eyebrow: "Settings",
+                        title: title,
+                        subtitle: "Tweak preferences, privacy, and profile behavior from one place.",
+                        accent: SettingsTheme.accent
+                    )
+                    content()
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .onAppear {
+                scrollToPendingTarget(using: proxy)
+            }
+            .onChange(of: scrollTarget) { _ in
+                scrollToPendingTarget(using: proxy)
+            }
+            .background(ControlRoomShellBackground(palette: SettingsTheme.palette))
         }
-        .background(ControlRoomShellBackground(palette: SettingsTheme.palette))
+    }
+
+    private func scrollToPendingTarget(using proxy: ScrollViewProxy) {
+        guard let target = scrollTarget else { return }
+        proxy.scrollTo(target, anchor: .top)
+        DispatchQueue.main.async {
+            if scrollTarget == target {
+                scrollTarget = nil
+            }
+        }
     }
 }
 
@@ -507,6 +596,7 @@ struct SettingsRow<Content: View>: View {
 
 struct GeneralSettingsPane: View {
     let isPirateMode: Bool
+    @Binding var scrollTarget: SettingsScrollTarget?
     @StateObject private var prefs = PreferencesManager.shared
     @ObservedObject private var langManager = LanguageManager.shared
 
@@ -607,7 +697,10 @@ struct GeneralSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPane(title: settingsCopy("General", pirate: "Rigging", isPirateMode: isPirateMode)) {
+        SettingsPane(
+            title: settingsCopy("General", pirate: "Rigging", isPirateMode: isPirateMode),
+            scrollTarget: $scrollTarget
+        ) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Focus Behavior", pirate: "Voyage Behavior", isPirateMode: isPirateMode))
                     .font(.system(size: 11, weight: .semibold))
@@ -708,6 +801,7 @@ struct GeneralSettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.generalFocusBehavior)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Focus Schedule", pirate: "Voyage Schedule", isPirateMode: isPirateMode))
@@ -817,6 +911,7 @@ struct GeneralSettingsPane: View {
                     .foregroundColor(SettingsTheme.textSecondary)
                     .padding(.horizontal, 4)
             }
+            .id(SettingsScrollTarget.generalFocusSchedule)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Doomscroll Loop Breaker", pirate: "Loop Breaker", isPirateMode: isPirateMode))
@@ -859,6 +954,7 @@ struct GeneralSettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.generalDoomscroll)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Session Review", pirate: "Voyage Review", isPirateMode: isPirateMode))
@@ -905,6 +1001,7 @@ struct GeneralSettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.generalSessionReview)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Language & Mode", pirate: "Tongue & Navigation", isPirateMode: isPirateMode))
@@ -941,6 +1038,7 @@ struct GeneralSettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.generalLanguageMode)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode))
@@ -1097,6 +1195,7 @@ struct GeneralSettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.generalSystem)
         }
         .onAppear {
             loadApiKey()
@@ -1114,6 +1213,7 @@ struct GeneralSettingsPane: View {
 
 struct PrivacySettingsPane: View {
     let isPirateMode: Bool
+    @Binding var scrollTarget: SettingsScrollTarget?
     @StateObject private var prefs = PreferencesManager.shared
 
     @State private var observationCount: Int?
@@ -1134,7 +1234,10 @@ struct PrivacySettingsPane: View {
     private let retentionOptions = [1, 7, 30, 90, 365]
 
     var body: some View {
-        SettingsPane(title: settingsCopy("Privacy & Data", pirate: "Privacy & Data", isPirateMode: isPirateMode)) {
+        SettingsPane(
+            title: settingsCopy("Privacy & Data", pirate: "Privacy & Data", isPirateMode: isPirateMode),
+            scrollTarget: $scrollTarget
+        ) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Context History", pirate: "Context History", isPirateMode: isPirateMode))
                     .font(.system(size: 11, weight: .semibold))
@@ -1189,6 +1292,7 @@ struct PrivacySettingsPane: View {
                     .padding(.top, 2)
                 }
             }
+            .id(SettingsScrollTarget.privacyContextHistory)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Local Storage", pirate: "Local Hold", isPirateMode: isPirateMode))
@@ -1287,6 +1391,7 @@ struct PrivacySettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.privacyLocalStorage)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Session Summaries", pirate: "Voyage Summaries", isPirateMode: isPirateMode))
@@ -1308,6 +1413,7 @@ struct PrivacySettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.privacySessionSummaries)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Classification Feedback", pirate: "Classification Feedback", isPirateMode: isPirateMode))
@@ -1352,6 +1458,7 @@ struct PrivacySettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.privacyClassificationFeedback)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Cloud AI", pirate: "Cloud Winds", isPirateMode: isPirateMode))
@@ -1369,6 +1476,7 @@ struct PrivacySettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.privacyCloudAI)
         }
         .onAppear {
             refreshStats()
@@ -1573,6 +1681,7 @@ struct ProfileAppsSettingsPane: View {
     let isPirateMode: Bool
     @ObservedObject var profileManager: ProfileManager
     let profile: WorkProfile
+    @Binding var scrollTarget: SettingsScrollTarget?
 
     @State private var allowedSuggestions: [(bundleID: String, name: String)] = []
     @State private var suggestions: [(bundleID: String, name: String)] = []
@@ -1594,36 +1703,39 @@ struct ProfileAppsSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPane(title: "\(profile.name) Profile") {
-            ProfileConfigurationSummary(
-                allowedCount: profile.allowedApps.count,
-                distractionCount: profile.distractionApps.count,
-                domainCount: profile.allowedDomains.count + profile.distractionDomains.count
-            )
-
-            // Rename Profile Section
+        SettingsPane(title: "\(profile.name) Profile", scrollTarget: $scrollTarget) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Profile Name")
-                    .font(.system(size: 11, weight: .semibold))
+                ProfileConfigurationSummary(
+                    allowedCount: profile.allowedApps.count,
+                    distractionCount: profile.distractionApps.count,
+                    domainCount: profile.allowedDomains.count + profile.distractionDomains.count
+                )
+
+                // Rename Profile Section
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Profile Name")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(SettingsTheme.textSecondary)
+
+                    TextField("Profile Name", text: Binding(
+                        get: { profile.name },
+                        set: { newName in
+                            guard !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                            var updated = profile
+                            updated.name = newName
+                            profileManager.updateProfile(updated)
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13))
+                    .frame(maxWidth: 300)
+                }
+
+                Text("Choose the productive apps and distracting apps or websites for this profile. Explicit app and domain lists remain the source of truth for enforcement.")
+                    .font(.system(size: 12))
                     .foregroundColor(SettingsTheme.textSecondary)
-
-                TextField("Profile Name", text: Binding(
-                    get: { profile.name },
-                    set: { newName in
-                        guard !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                        var updated = profile
-                        updated.name = newName
-                        profileManager.updateProfile(updated)
-                    }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13))
-                .frame(maxWidth: 300)
             }
-
-            Text("Choose the productive apps and distracting apps or websites for this profile. Explicit app and domain lists remain the source of truth for enforcement.")
-                .font(.system(size: 12))
-                .foregroundColor(SettingsTheme.textSecondary)
+            .id(SettingsScrollTarget.profileOverview)
 
             // Allowed Apps
             VStack(alignment: .leading, spacing: 6) {
@@ -1676,6 +1788,7 @@ struct ProfileAppsSettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.profileAllowedApps)
 
             // Suggestions
             let allowedListSuggestions = filteredAllowedSuggestions
@@ -1714,6 +1827,7 @@ struct ProfileAppsSettingsPane: View {
                             }
                         }
                     }
+                    .id(SettingsScrollTarget.profileAllowedSuggestions)
                 }
             }
 
@@ -1768,6 +1882,7 @@ struct ProfileAppsSettingsPane: View {
                     }
                 }
             }
+            .id(SettingsScrollTarget.profileDistractionApps)
 
             Divider()
                 .padding(.vertical, 8)
@@ -2134,9 +2249,13 @@ struct CaptainsLogSettingsPane: View {
 struct AboutSettingsPane: View {
     let isPirateMode: Bool
     let onCheckForUpdates: (() -> Void)?
+    @Binding var scrollTarget: SettingsScrollTarget?
     var body: some View {
         let versionLabel = "Version \(Bundle.main.anchoredVersionString) (Build \(Bundle.main.anchoredBuildString))"
-        SettingsPane(title: settingsCopy("About", pirate: "Crew Info", isPirateMode: isPirateMode)) {
+        SettingsPane(
+            title: settingsCopy("About", pirate: "Crew Info", isPirateMode: isPirateMode),
+            scrollTarget: $scrollTarget
+        ) {
             HStack(spacing: 20) {
                 Image(nsImage: NSApplication.shared.applicationIconImage ?? NSImage())
                     .resizable()
@@ -2158,6 +2277,7 @@ struct AboutSettingsPane: View {
             .background(SettingsTheme.surface.opacity(0.78))
             .cornerRadius(10)
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(SettingsTheme.border, lineWidth: 1))
+            .id(SettingsScrollTarget.aboutOverview)
 
             SettingsGroup {
                 SettingsRow(label: settingsCopy("Check for Updates", pirate: "Scan for Upgrades", isPirateMode: isPirateMode), showDivider: true) {
@@ -2174,6 +2294,7 @@ struct AboutSettingsPane: View {
                         .foregroundColor(SettingsTheme.accent)
                 }
             }
+            .id(SettingsScrollTarget.aboutActions)
 
             Text("© 2026 Anchored. All rights reserved.")
                 .font(.system(size: 11))

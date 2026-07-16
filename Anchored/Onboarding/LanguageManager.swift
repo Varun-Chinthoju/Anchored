@@ -131,6 +131,13 @@ class LanguageManager: ObservableObject {
             return translations[key]?[language] ?? translations[key]?[.english] ?? key
         }
     }
+
+    func translatePlain(_ key: String, for language: AppLanguage) -> String {
+        if language == .pirate {
+            return translations[key]?[.pirate] ?? translations[key]?[.english] ?? key
+        }
+        return translations[key]?[language] ?? translations[key]?[.english] ?? key
+    }
     
     private func makePirate(_ text: String, for language: AppLanguage) -> String {
         guard !text.isEmpty,

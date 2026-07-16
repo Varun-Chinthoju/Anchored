@@ -25,7 +25,7 @@ struct PermissionStepView: View {
                 
                 VStack(alignment: .leading, spacing: 12) {
                     GlowingText(
-                        text: t("perm_title"),
+                        text: langManager.translatePlain("perm_title", for: .english),
                         font: .system(size: 32, weight: .semibold, design: .rounded),
                         colors: [PirateTheme.gold, PirateTheme.parchment]
                     )
@@ -153,7 +153,7 @@ struct PermissionStepView: View {
                             onNext()
                         }) {
                             HStack {
-                                Text(t("perm_btn_continue"))
+                                Text(langManager.translatePlain("perm_btn_continue", for: .english))
                                 Image(systemName: "arrow.right")
                             }
                             .font(.system(size: 14, weight: .semibold, design: .rounded))

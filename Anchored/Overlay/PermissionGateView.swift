@@ -3,6 +3,7 @@ import SwiftUI
 public struct PermissionGateView: View {
     let onGrant: () -> Void
     let onDismiss: () -> Void
+    @ObservedObject private var langManager = LanguageManager.shared
     
     private var themeAccent: Color {
         PirateTheme.gold
@@ -72,7 +73,7 @@ public struct PermissionGateView: View {
                 Spacer()
                 
                 Button(action: onGrant) {
-                    Text("Grant Spyglass Access")
+                    Text(langManager.translatePlain("perm_btn_grant", for: .english))
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(themeSurface)
                         .padding(.horizontal, 18)
@@ -82,6 +83,21 @@ public struct PermissionGateView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Button(action: {
+                NSApplication.shared.terminate(nil)
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "power")
+                    Text("Quit Anchored")
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(themeTextSecondary.opacity(0.8))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+            .help("Quit Anchored")
         }
         .padding(24)
         .frame(width: 480)

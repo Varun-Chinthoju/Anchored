@@ -10,7 +10,7 @@ class SettingsWindow: NSWindow {
     ) {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 990, height: 630),
-            styleMask: [.titled, .closable, .miniaturizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )

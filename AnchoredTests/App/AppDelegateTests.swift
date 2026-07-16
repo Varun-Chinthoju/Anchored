@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import Anchored
 
 final class AppDelegateTests: XCTestCase {
@@ -63,5 +64,9 @@ final class AppDelegateTests: XCTestCase {
         providedPath = "/Applications/Anchored-Updated.app"
         XCTAssertTrue(appDelegate.shouldShowOnboardingFlow(defaults: defaults))
         XCTAssertFalse(defaults.bool(forKey: "hasCompletedOnboarding"))
+    }
+
+    func testApplicationShouldTerminateAllowsQuit() {
+        XCTAssertEqual(makeSUT().applicationShouldTerminate(NSApplication.shared), .terminateNow)
     }
 }

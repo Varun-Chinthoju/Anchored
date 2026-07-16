@@ -28,6 +28,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Supported educational browser videos stay neutral unless an explicit rule or stronger intent signal says otherwise.
 - Session-start and dim-return surfaces now auto-suggest a session goal plus profile/category from the current context, so a user can start or resume without typing a summary when the current window/title is clear enough.
 - A persisted focus schedule gate now controls automatic focus behavior by time of day. It supports a work window plus optional lunch break, keeps manual sessions available at any time, and exposes outside-hours status in the menu bar so the app can stay quiet during lunch or after hours.
+- The distraction countdown, committed-break return grace, and doomscroll threshold timer now use injected `DistractionTimerScheduling` seams in `Anchored/Engine/DistractionTimerScheduler.swift`; each scheduled callback carries generation/session/context checks so stale callbacks from a prior entry or superseded candidate cannot dim, resume, or emit doomscroll behavior against newer state. All three paths can now be cancelled and expired deterministically in tests without wall-clock sleeps. The other engine timers still use the direct `Timer` path for now.
 - Wave 3 adds `LocalTextClassifier` behind `PreferencesManager.enableLocalTextClassification` (off by default). It receives a sanitized `ContextSnapshot` plus transient on-device visible text from OCR off-main and scores that real context entirely on-device; when enabled, high-confidence productive results may promote the current neutral context. If disabled, local text classification is skipped.
 - Wave 4 constrains cloud classification to categorical `CloudClassificationInput` values and structured `ClassificationResult` responses; it never sends OCR, screenshots, raw titles, full URLs, browsing history, typed content, or raw interaction data. Visual analysis is an experimental, disabled-by-default final fallback after local text and cloud resolution, running entirely via macOS native Vision APIs (OCR and Image Classification) and completely free of expensive external python/SmolVLM subprocesses.
 - The application includes privacy controls to toggle the experimental visual fallback (`PreferencesManager.enableImageClassification`) and the local on-device text check (`enableLocalTextClassification`) during onboarding and in settings; the offline classifier no longer depends on an always-on Ollama-style server.
@@ -214,6 +215,7 @@ Responsibilities:
 - passes an opt-in, memory-only `InteractionSummary` to the resolver; the bounded modifier cannot override explicit rules
 - runs the opt-in local text classifier off-main against a sanitized snapshot plus transient visible OCR text; generation/current-context checks protect the promotion callback
 - schedules the optional pipeline in order: local text, then cloud structured evidence, then the explicitly enabled visual fallback; generation checks discard stale results and only a productive result can promote the current neutral context to focus through the resolver
+- uses `DistractionTimerScheduling` for the distraction countdown, committed-break return grace, and doomscroll threshold paths; `Anchored/Engine/DistractionTimerScheduler.swift` owns the live one-shot `Timer` wrapper while tests inject manual schedulers to fire or cancel the pending callbacks deterministically, and the engine tags each scheduled timer with generation plus session/context identity checks so stale callbacks are ignored even if the same bundle re-enters or a later return supersedes the first candidate
 - gives music and podcast apps a longer grace window before dimming, so productive work is harder to interrupt while media playback stays open briefly
 - auto-suggests the next session goal plus profile/category from the current context so the menu-bar start sheet and dim-return sheet can prefill the user-facing labels
 - auto-anchors the current focus run once the focus threshold is met, using the configured automatic session duration, instead of showing the old start prompt
@@ -229,6 +231,7 @@ Injection seams (Task 9):
 
 - `WindowTextExtracting` / `LiveOCRProvider`: Vision `CGWindowListCreateImage` + `VNRecognizeTextRequest` off-main, injected into FocusEngine. Tests inject `MockOCRProvider` returning configurable visible text for local text classification.
 - `VisualProductivityChecking` / `LiveVisualProductivityChecker` wrapping `SmartImageClassifier.isProductiveVisual` (now without XCTest sniffing). Tests inject `MockVisualChecker` returning false.
+- `DistractionTimerScheduling` / `LiveDistractionTimerScheduler`: one-shot timer seam used by the distraction countdown, committed-break return grace, and doomscroll threshold paths; production keeps the main run loop behavior while tests inject manual handles.
 - `activityMonitor: ActivityMonitor`, `distractionListManager`, `sessionStore`, `profileManager`, `preferencesManager` all injected
 - Cloud: `CloudClassifier(preferences:)` with optional `URLSession` injection, no `NSClassFromString` for MockURLProtocol
 
@@ -663,7 +666,7 @@ These come from both the code and repo rules. Future changes should preserve the
 
 ## Current Weak Spots
 
-- `FocusEngine` owns significant timer/state logic; now has injected seams `WindowTextExtracting`/`VisualProductivityChecking` + `PreferencesManager`/`ProfileManager`, but still singleton-heavy via `ProfileManager.activeProfile` and `NSWorkspace.shared` direct calls in some classifiers.
+- `FocusEngine` owns significant timer/state logic; now has an injected distraction-countdown timer seam plus `WindowTextExtracting`/`VisualProductivityChecking` and `PreferencesManager`/`ProfileManager`, but still singleton-heavy via `ProfileManager.activeProfile` and `NSWorkspace.shared` direct calls in some classifiers.
 - `SessionStore` vs `SQLiteSessionStore` split not obvious from names; now both have async wrappers + main warnings, but legacy sync wrappers still exist for compatibility.
 - `AppDelegate` is composition root with many singletons; now wired with `FreshInstallChecking`, `ContextHistoryStore.shared`, prefs publishers for history enable/retention, but `DistractionListManager.shared` and `ProfileManager.shared` still global.
 - `DashboardWindow.swift` still compiles for compat but not opened by `MenuBarController`.
@@ -672,7 +675,7 @@ These come from both the code and repo rules. Future changes should preserve the
 - `InstalledAppSuggestionProvider` and `DistractionListManager` cache application scans to avoid synchronous filesystem traversal on opening Settings.
 - Remaining singleton mutation in tests: `KeychainHelper.mockKeys` and `KeychainHelper` in-memory cache are global, `UserDefaults` suite isolated but `NSWorkspace.shared` still real in visual checker unless mocked.
 - Dashboard `TopDistractionsView`/`WeeklyHistoryView` stateless; parent panels now handle Loadable but could still use direct `SessionStore.shared` in some previews.
-- `FocusEngine` remains responsible for timers, session logging, break-return grace, and overlay delegate calls; `SessionTimerCoordinator` and `SessionEventRecorder` are still future extractions. The `ContextClassifying`/`ClassificationResult` on-device ML seam remains separate from the active visual provider.
+- `FocusEngine` remains responsible for the session timer, focus prompt timer, declared-activity timer, break-return grace, doomscroll timer, session logging, and overlay delegate calls; the distraction countdown, break-return grace, and doomscroll timer now have scheduler seams, but `SessionTimerCoordinator` and `SessionEventRecorder` are still future extractions. The `ContextClassifying`/`ClassificationResult` on-device ML seam remains separate from the active visual provider.
 - The new fog treatment, mission-warning phase, and delayed dim-center reveal are timing-sensitive and should still be smoke-tested in the installed app after overlay changes.
 - The doomscroll loop breaker is still threshold-based and broad; the 30-minute default is less aggressive, but long-form video and music tabs should keep getting smoke-tested because the policy is intentionally heuristic.
 - The permission milestone and commitment-lock escape paths are safety-sensitive; test the pre-dim return-to-work flow, the ten-session threshold, and quitting while the permission gate is visible.
@@ -774,6 +777,7 @@ Read:
 - `docs/architecture/anchored-architecture.md`
 - `Anchored/Engine/FocusEngine.swift`
 - `Anchored/Engine/FocusIntentClassifier.swift`
+- `Anchored/Engine/DistractionTimerScheduler.swift`
 - `Anchored/Models/FocusIntent.swift`
 - `Anchored/Engine/ShadowTrackingEngine.swift`
 - `Anchored/Storage/InstalledAppSuggestionProvider.swift`
