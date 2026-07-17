@@ -13,6 +13,7 @@ final class FocusEngineTests: XCTestCase {
     private var mockDelegate: MockFocusEngineDelegate!
     private var mockOCRProvider: MockOCRProvider!
     private var breakReviewChecker: RecordingBreakReviewChecker!
+    private var diagnosticsRecorder: TestDiagnosticsRecorder!
     private var sessionTimerScheduler: TestOneShotTimerScheduler!
     private var distractionTimerScheduler: TestOneShotTimerScheduler!
     private var breakTimerScheduler: TestOneShotTimerScheduler!
@@ -43,6 +44,7 @@ final class FocusEngineTests: XCTestCase {
         mockDelegate = MockFocusEngineDelegate()
         mockOCRProvider = MockOCRProvider()
         breakReviewChecker = RecordingBreakReviewChecker()
+        diagnosticsRecorder = TestDiagnosticsRecorder()
         sessionTimerScheduler = TestOneShotTimerScheduler()
         distractionTimerScheduler = TestOneShotTimerScheduler()
         breakTimerScheduler = TestOneShotTimerScheduler()
@@ -65,7 +67,8 @@ final class FocusEngineTests: XCTestCase {
             distractionTimerScheduler: distractionTimerScheduler,
             breakReturnGraceTimerScheduler: breakReturnTimerScheduler,
             doomscrollTimerScheduler: doomscrollTimerScheduler,
-            focusPromptTimerScheduler: focusPromptTimerScheduler
+            focusPromptTimerScheduler: focusPromptTimerScheduler,
+            diagnosticsRecorder: diagnosticsRecorder
         )
         engine.delegate = mockDelegate
         
@@ -81,6 +84,7 @@ final class FocusEngineTests: XCTestCase {
         profileManager = nil
         distractionListManager = nil
         breakReviewChecker = nil
+        diagnosticsRecorder = nil
         distractionTimerScheduler = nil
         sessionTimerScheduler = nil
         breakTimerScheduler = nil
@@ -257,6 +261,21 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
         XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
         XCTAssertTrue(promptTimer.isCancelled)
+    }
+
+    func testDiagnosticsRecorderCapturesSessionAndTimerEvents() {
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 0.05)
+
+        XCTAssertTrue(diagnosticsRecorder.messages.contains("stateTransition from=watching to=anchored reason=sessionStarted"))
+        XCTAssertTrue(diagnosticsRecorder.messages.contains(where: { $0.contains("sessionLifecycle action=started") }))
+        XCTAssertTrue(diagnosticsRecorder.messages.contains(where: { $0.contains("timerScheduled kind=sessionExpiry") }))
+
+        engine.endSession(action: .dismissed)
+
+        XCTAssertTrue(diagnosticsRecorder.messages.contains(where: { $0.contains("timerCancelled kind=sessionExpiry reason=sessionEnded") }))
+        XCTAssertTrue(diagnosticsRecorder.messages.contains(where: { $0.contains("sessionLifecycle action=ended") }))
+        XCTAssertTrue(diagnosticsRecorder.messages.contains("stateTransition from=anchored to=idle reason=sessionEnded"))
     }
 
     func testLeavingBeforeFocusPromptExpiryPreventsAutoStart() throws {
@@ -3108,6 +3127,70 @@ final class RecordingBreakReviewChecker: BreakReviewChecking {
     ) -> BreakReviewResult {
         invocations.append((input: input, expectedIdentity: expectedIdentity))
         return wrapped.evaluate(input: input, expectedIdentity: expectedIdentity)
+    }
+}
+
+final class TestDiagnosticsRecorder: DiagnosticsRecording {
+    private(set) var messages: [String] = []
+
+    func recordEngineStateTransition(from: SessionState, to: SessionState, reason: DiagnosticEngineTransitionReason) {
+        messages.append("stateTransition from=\(from.rawValue) to=\(to.rawValue) reason=\(reason.rawValue)")
+    }
+
+    func recordSessionLifecycle(action: DiagnosticSessionAction, duration: TimeInterval?, bundleID: String?) {
+        var fields = ["action=\(action.rawValue)"]
+        if let duration {
+            fields.append("duration=\(String(format: "%.1f", duration))")
+        }
+        if let bundleID {
+            fields.append("bundleID=\(bundleID)")
+        }
+        messages.append("sessionLifecycle \(fields.joined(separator: " "))")
+    }
+
+    func recordTimerScheduled(kind: DiagnosticTimerKind, delay: TimeInterval, generation: Int) {
+        messages.append("timerScheduled kind=\(kind.rawValue) delay=\(String(format: "%.1f", delay)) generation=\(generation)")
+    }
+
+    func recordTimerCancelled(kind: DiagnosticTimerKind, reason: DiagnosticTimerCancellationReason, generation: Int?) {
+        var fields = ["kind=\(kind.rawValue)", "reason=\(reason.rawValue)"]
+        if let generation {
+            fields.append("generation=\(generation)")
+        }
+        messages.append("timerCancelled \(fields.joined(separator: " "))")
+    }
+
+    func recordTimerRejected(kind: DiagnosticTimerKind, reason: DiagnosticTimerRejectionReason, generation: Int?) {
+        var fields = ["kind=\(kind.rawValue)", "reason=\(reason.rawValue)"]
+        if let generation {
+            fields.append("generation=\(generation)")
+        }
+        messages.append("timerRejected \(fields.joined(separator: " "))")
+    }
+
+    func recordClassificationDecision(
+        source: ClassificationSource,
+        decision: ClassificationLabel,
+        reason: ClassificationReason,
+        confidence: Double
+    ) {
+        messages.append("classificationDecision source=\(source.rawValue) decision=\(decision.rawValue) reason=\(reason.rawValue) confidence=\(String(format: "%.2f", confidence))")
+    }
+
+    func recordWorkspaceLifecycle(action: DiagnosticWorkspaceAction, pauseSeconds: TimeInterval?) {
+        var fields = ["action=\(action.rawValue)"]
+        if let pauseSeconds {
+            fields.append("pauseSeconds=\(String(format: "%.1f", pauseSeconds))")
+        }
+        messages.append("workspaceLifecycle \(fields.joined(separator: " "))")
+    }
+
+    func recordPermissionState(permission: DiagnosticPermissionKind, granted: Bool) {
+        messages.append("permissionState permission=\(permission.rawValue) state=\(granted ? DiagnosticPermissionState.granted.rawValue : DiagnosticPermissionState.denied.rawValue)")
+    }
+
+    func recordSanitizedError(category: DiagnosticErrorCategory) {
+        messages.append("sanitizedError category=\(category.rawValue)")
     }
 }
 

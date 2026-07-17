@@ -42,7 +42,8 @@ EOF
     ;;
 esac
 
-DERIVED_DATA_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/anchored-${BUILD_CONFIGURATION,,}-derived-data.XXXXXX")"
+BUILD_CONFIGURATION_LOWER="$(printf '%s' "$BUILD_CONFIGURATION" | tr '[:upper:]' '[:lower:]')"
+DERIVED_DATA_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/anchored-${BUILD_CONFIGURATION_LOWER}-derived-data.XXXXXX")"
 BUILT_APP="$DERIVED_DATA_DIR/Build/Products/$BUILD_CONFIGURATION/$APP_NAME.app"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true

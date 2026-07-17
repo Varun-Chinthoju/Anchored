@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Combine
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -33,6 +34,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         appSwitchMonitor = AppSwitchMonitor()
         let prefs = PreferencesManager.shared
+        let diagnostics = DiagnosticsCenter.shared
+
+        diagnostics.recordPermissionState(permission: .accessibility, granted: AXIsProcessTrusted())
+        diagnostics.recordPermissionState(permission: .screenRecording, granted: CGPreflightScreenCaptureAccess())
 
         RuntimeTrace.event("standard_flow_start", fields: [
             "focusThreshold": String(prefs.effectiveFocusThreshold),
@@ -187,7 +192,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func setupMainMenu() {
         let mainMenu = NSMenu()
-        let prefs = PreferencesManager.shared
         
         // 1. App Menu ("Anchored")
         let appMenu = NSMenu(title: "Anchored")

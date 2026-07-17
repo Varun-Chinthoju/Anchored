@@ -30,6 +30,17 @@ final class SettingsSearchSupportTests: XCTestCase {
         XCTAssertTrue(results.allSatisfy { $0.paneTitle == "Privacy & Data" || $0.title == "Privacy" })
     }
 
+    func testDiagnosticQueryReturnsCopyDiagnosticReport() {
+        let results = SettingsSearchIndex.results(
+            query: "diagnostic",
+            isPirateMode: false,
+            activeProfileName: "Focus"
+        )
+
+        XCTAssertTrue(results.contains(where: { $0.title == "Copy Diagnostic Report" }))
+        XCTAssertTrue(results.contains(where: { $0.route.scrollTarget == .privacyDiagnostics }))
+    }
+
     func testScheduleQueryReturnsScheduleSettingsOnly() {
         let results = SettingsSearchIndex.results(
             query: "schedule",

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ApplicationServices
 
 private enum SettingsTheme {
     static var palette: ThemePalette {
@@ -299,7 +300,7 @@ struct SettingsView: View {
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
-        .navigationSplitViewColumnWidth(min: 280, ideal: 330, max: 480)
+        .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 360)
         .alert("New Profile", isPresented: $showAddAlert) {
             TextField("Profile Name", text: $newProfileName)
             Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) { }
@@ -1409,6 +1410,27 @@ struct PrivacySettingsPane: View {
                 }
             }
             .id(SettingsScrollTarget.privacyCloudAI)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(settingsCopy("Diagnostics", pirate: "Diagnostics", isPirateMode: isPirateMode))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .padding(.leading, 2)
+
+                SettingsGroup {
+                    SettingsRow(
+                        label: settingsCopy("Copy Diagnostic Report", pirate: "Copy Diagnostic Report", isPirateMode: isPirateMode),
+                        description: settingsCopy("Copies a sanitized report to the clipboard for support.", pirate: "Copies a sanitized report to the clipboard for support.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        Button(settingsCopy("Copy", pirate: "Copy", isPirateMode: isPirateMode)) {
+                            copyDiagnosticReport()
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+            .id(SettingsScrollTarget.privacyDiagnostics)
         }
         .onAppear {
             refreshStats()
@@ -1469,6 +1491,45 @@ struct PrivacySettingsPane: View {
         } message: {
             Text(settingsCopy("This permanently deletes written summaries only. Session analytics and durations remain intact.", pirate: "This deletes written notes only. Voyage tallies remain intact.", isPirateMode: isPirateMode))
         }
+    }
+
+    private func copyDiagnosticReport() {
+        let header = DiagnosticReportHeader(
+            generatedAt: Date(),
+            appVersion: Bundle.main.anchoredVersionString,
+            buildVersion: Bundle.main.anchoredBuildString,
+            macOSVersion: macOSVersionString(),
+            databaseMigrationVersion: "\(SQLiteDatabaseMigrations.currentVersion)",
+            accessibilityPermissionGranted: AXIsProcessTrusted(),
+            screenRecordingPermissionGranted: CGPreflightScreenCaptureAccess(),
+            enabledSubsystems: enabledSubsystems()
+        )
+        _ = DiagnosticsCenter.shared.copyDiagnosticReport(header: header)
+    }
+
+    private func enabledSubsystems() -> [String] {
+        var subsystems = ["engine", "timers", "workspace", "permissions"]
+
+        if prefs.focusScheduleEnabled {
+            subsystems.append("schedule")
+        }
+        if prefs.enableDoomscrollLoopBreaker {
+            subsystems.append("doomscroll")
+        }
+        if prefs.enableImageClassification || prefs.enableCloudClassification || prefs.enableLocalTextClassification {
+            subsystems.append("classification")
+        }
+        if prefs.contextHistoryEnabled || prefs.classificationFeedbackEnabled || prefs.interactionSummaryEnabled || prefs.sessionSummaryPromptEnabled || prefs.weeklyReviewNotificationsEnabled {
+            subsystems.append("session")
+        }
+
+        var seen = Set<String>()
+        return subsystems.filter { seen.insert($0).inserted }
+    }
+
+    private func macOSVersionString() -> String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }
 
     private var formattedOldestDate: String {

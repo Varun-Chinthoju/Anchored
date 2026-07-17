@@ -12,6 +12,7 @@ enum SettingsScrollTarget: Hashable {
     case privacySessionSummaries
     case privacyClassificationFeedback
     case privacyCloudAI
+    case privacyDiagnostics
     case profileOverview
     case profileAllowedApps
     case profileAllowedSuggestions
@@ -508,6 +509,14 @@ enum SettingsSearchIndex {
                 detail: settingsCopy("When enabled, context may be sent to your selected cloud provider for classification. Disable to keep all analysis on-device.", pirate: "When on, context may be sent to cloud winds. Keep off for local-only analysis.", isPirateMode: isPirateMode),
                 aliases: ["cloud", "ai", "privacy"],
                 route: .privacy(.privacyCloudAI)
+            ),
+            result(
+                paneTitle: "Privacy & Data",
+                sectionTitle: settingsCopy("Diagnostics", pirate: "Diagnostics", isPirateMode: isPirateMode),
+                title: settingsCopy("Copy Diagnostic Report", pirate: "Copy Diagnostic Report", isPirateMode: isPirateMode),
+                detail: settingsCopy("Copies a sanitized report to the clipboard for support.", pirate: "Copies a sanitized report to the clipboard for support.", isPirateMode: isPirateMode),
+                aliases: ["diagnostic", "report", "copy", "clipboard"],
+                route: .privacy(.privacyDiagnostics)
             ),
 
             // Profile

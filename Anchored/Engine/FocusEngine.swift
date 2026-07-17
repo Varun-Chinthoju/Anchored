@@ -90,6 +90,7 @@ final class FocusEngine {
     private let breakReturnGraceTimerScheduler: OneShotTimerScheduling
     private let doomscrollTimerScheduler: OneShotTimerScheduling
     private let focusPromptTimerScheduler: OneShotTimerScheduling
+    private let diagnosticsRecorder: DiagnosticsRecording
     private var preferencesCancellables = Set<AnyCancellable>()
     
     /// The delegate to receive state transition callbacks.
@@ -194,6 +195,15 @@ final class FocusEngine {
         lastReturnToWorkGeneration = contextGeneration
         delegate?.didReturnToWork()
     }
+
+    private func recordClassificationDecision(_ decision: ClassificationDecision) {
+        diagnosticsRecorder.recordClassificationDecision(
+            source: decision.source,
+            decision: decision.label,
+            reason: decision.reason,
+            confidence: decision.confidence
+        )
+    }
     
     // Doomscroll loop breaker
     private var doomscrollTimer: OneShotTimerHandle?
@@ -278,7 +288,8 @@ final class FocusEngine {
         distractionTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
         breakReturnGraceTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
         doomscrollTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
-        focusPromptTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler()
+        focusPromptTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
+        diagnosticsRecorder: DiagnosticsRecording = DiagnosticsCenter.shared
     ) {
         self.activityMonitor = activityMonitor
         self.distractionListManager = distractionListManager
@@ -305,6 +316,7 @@ final class FocusEngine {
         self.breakReturnGraceTimerScheduler = breakReturnGraceTimerScheduler
         self.doomscrollTimerScheduler = doomscrollTimerScheduler
         self.focusPromptTimerScheduler = focusPromptTimerScheduler
+        self.diagnosticsRecorder = diagnosticsRecorder
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
             self?.handleContextChange(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title, snapshot: snapshot)
@@ -385,7 +397,7 @@ final class FocusEngine {
     func stop() {
         RuntimeTrace.event("focus_engine_stop")
         activityMonitor.stop()
-        cancelSessionTimer()
+        cancelSessionTimer(reason: .engineStopped)
         cancelDistractionTimer()
         cancelFocusPromptTimer()
         cancelScheduleTransitionTimer()
@@ -420,7 +432,7 @@ final class FocusEngine {
         guard lifecyclePauseStartedAt == nil else { return }
         lifecyclePauseStartedAt = now
 
-        cancelSessionTimer()
+        cancelSessionTimer(reason: .workspacePaused)
         cancelDistractionTimer()
         cancelFocusPromptTimer()
         cancelIdleTimer()
@@ -429,6 +441,7 @@ final class FocusEngine {
         cancelBreakReturnGraceTimer()
         cancelDoomscrollTimer()
 
+        diagnosticsRecorder.recordWorkspaceLifecycle(action: .paused, pauseSeconds: nil)
         RuntimeTrace.event("focus_accounting_paused_for_workspace_lifecycle", fields: [
             "activeSession": String(activeSession != nil),
             "watching": String(workSessionStart != nil)
@@ -490,6 +503,7 @@ final class FocusEngine {
         RuntimeTrace.event("focus_accounting_resumed_after_workspace_lifecycle", fields: [
             "pauseSeconds": String(pauseDuration)
         ])
+        diagnosticsRecorder.recordWorkspaceLifecycle(action: .resumed, pauseSeconds: pauseDuration)
     }
 
     private func resumeFocusAccountingIfActive() {
@@ -768,6 +782,7 @@ final class FocusEngine {
                         if isCurrentlyActive {
                             self.applyPromotedFocus(bundleID: bundleID)
                             self.currentClassification = promotedDecision
+                            self.recordClassificationDecision(promotedDecision)
                             NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
                             self.persistClassificationOutcome(
                                 snapshot: ContextSnapshot(
@@ -880,6 +895,7 @@ final class FocusEngine {
                         if isCurrentlyActive {
                             self.applyPromotedFocus(bundleID: bundleID)
                             self.currentClassification = promotedDecision
+                            self.recordClassificationDecision(promotedDecision)
                             NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
                             self.persistClassificationOutcome(
                                 snapshot: ContextSnapshot(
@@ -951,6 +967,7 @@ final class FocusEngine {
         }
 
         currentClassification = promotedDecision
+        recordClassificationDecision(promotedDecision)
         classificationCache[identity] = promotedDecision
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
@@ -997,6 +1014,7 @@ final class FocusEngine {
             title: currentTitle
         )
         currentClassification = decision
+        recordClassificationDecision(decision)
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
         persistClassificationOutcome(
             snapshot: currentSnapshot,
@@ -1101,6 +1119,7 @@ final class FocusEngine {
             title: currentTitle
         )
         currentClassification = decision
+        recordClassificationDecision(decision)
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
         persistClassificationOutcome(
             snapshot: currentSnapshot,
@@ -1242,6 +1261,7 @@ final class FocusEngine {
         }
 
         currentClassification = decision
+        recordClassificationDecision(decision)
         RuntimeTrace.event("context_decision", fields: [
             "bundleID": bundleID,
             "generation": String(contextGeneration),
@@ -1510,6 +1530,7 @@ final class FocusEngine {
         )
 
         currentClassification = mappedDecision
+        recordClassificationDecision(mappedDecision)
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
         switch result.relation {
@@ -1749,6 +1770,7 @@ final class FocusEngine {
                         if isCurrentlyActive {
                             self.applyPromotedFocus(bundleID: snapshot.bundleIdentifier)
                             self.currentClassification = promotedDecision
+                            self.recordClassificationDecision(promotedDecision)
                             NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
                             self.persistClassificationOutcome(
                                 snapshot: snapshot,
@@ -1833,7 +1855,7 @@ final class FocusEngine {
             breakStartedAt = now
             hasSeenNonFocusContextSinceBreakStarted = false
             cancelBreakReturnGraceTimer()
-            cancelSessionTimer()
+            cancelSessionTimer(reason: .breakStarted)
             cancelDistractionTimer()
             distractionStartDate = nil
             isDimming = false
@@ -1876,7 +1898,7 @@ final class FocusEngine {
         let bundleID = currentApp ?? lastWorkAppBundleID ?? ""
         let appName = getAppName(for: bundleID)
         isDimming = true
-        cancelSessionTimer()
+        cancelSessionTimer(reason: .manualAction)
         cancelDistractionTimer()
         distractionStartDate = Date()
         distractionBundleID = bundleID.isEmpty ? nil : bundleID
@@ -2240,6 +2262,7 @@ final class FocusEngine {
         // ProfileManager broadcasts the profile change synchronously. Re-read
         // the current context so callers observe the correction immediately.
         currentClassification = classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle)
+        recordClassificationDecision(currentClassification)
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
         let correctedLabel: ClassificationLabel = correction == .allowApp
@@ -2283,6 +2306,7 @@ final class FocusEngine {
         let explicitGoal = Self.cleanedSuggestedLabel(goal)
         let resolvedGoal = explicitGoal ?? suggestedSessionGoal()
         let focusedAppName = resolvedSessionAppName(fallbackCategory: resolvedProfileName)
+        let fromState = state
 
         activeSessionIdentity = UUID()
         excludedBreakDuration = 0
@@ -2355,6 +2379,8 @@ final class FocusEngine {
         )
         print("⚓️ [Session Started] AppName: \(focusedAppName) | Duration: \(duration)s | Goal: \(resolvedGoal ?? "None")")
         sessionStore.log(event)
+        diagnosticsRecorder.recordEngineStateTransition(from: fromState, to: .anchored, reason: .sessionStarted)
+        diagnosticsRecorder.recordSessionLifecycle(action: .started, duration: duration, bundleID: lastWorkAppBundleID ?? currentApp)
         
         // Schedule session end timer (accounting for retroactive time)
         let remaining = max(0, duration - now.timeIntervalSince(start))
@@ -2380,6 +2406,7 @@ final class FocusEngine {
         summary: String? = nil
     ) {
         guard let session = activeSession else { return }
+        let fromState = state
         
         cancelIdleTimer()
 
@@ -2398,6 +2425,7 @@ final class FocusEngine {
         )
         print("🛑 [Session Ended] AppName: \(session.appName) | Duration: \(duration)s | Action: \(action.rawValue)")
         sessionStore.log(event)
+        diagnosticsRecorder.recordSessionLifecycle(action: .ended, duration: duration, bundleID: lastWorkAppBundleID ?? currentApp)
         
         // Clean up state
         activeSession = nil
@@ -2412,11 +2440,12 @@ final class FocusEngine {
         distractionStartDate = nil
         pausedDate = nil
         
-        cancelSessionTimer()
+        cancelSessionTimer(reason: .sessionEnded)
         cancelDistractionTimer()
         
         // Notify delegate
         delegate?.sessionDidEnd()
+        diagnosticsRecorder.recordEngineStateTransition(from: fromState, to: .idle, reason: .sessionEnded)
         
         NotificationCenter.default.post(name: .focusEngineStateDidChange, object: self)
         
@@ -2511,11 +2540,15 @@ final class FocusEngine {
     }
 
     private func resetFocusTracking() {
+        let fromState = state
         cancelFocusPromptTimer()
         workSessionStart = nil
         hasPromptedForCurrentFocusRun = false
         activeFocusIntent = nil
         currentIntentResult = nil
+        if fromState != .idle {
+            diagnosticsRecorder.recordEngineStateTransition(from: fromState, to: .idle, reason: .trackingReset)
+        }
     }
 
     /// Starts a session automatically once the configured focus threshold is met.
@@ -2579,7 +2612,7 @@ final class FocusEngine {
     }
     
     private func scheduleSessionTimer(duration: TimeInterval) {
-        cancelSessionTimer()
+        cancelSessionTimer(reason: .rescheduled)
         guard lifecyclePauseStartedAt == nil else { return }
         guard activeSession != nil else { return }
 
@@ -2598,9 +2631,17 @@ final class FocusEngine {
                 now: expiration
             )
         }
+        diagnosticsRecorder.recordTimerScheduled(kind: .sessionExpiry, delay: duration, generation: generation)
     }
     
-    private func cancelSessionTimer() {
+    private func cancelSessionTimer(reason: DiagnosticTimerCancellationReason? = nil) {
+        if let reason, sessionTimer != nil {
+            diagnosticsRecorder.recordTimerCancelled(
+                kind: .sessionExpiry,
+                reason: reason,
+                generation: activeSessionTimerGeneration
+            )
+        }
         sessionTimer?.cancel()
         sessionTimer = nil
         activeSessionTimerGeneration = nil
@@ -2622,22 +2663,42 @@ final class FocusEngine {
         expiration: Date?,
         now: Date
     ) {
-        guard lifecyclePauseStartedAt == nil,
-              activeSession != nil,
-              activeSessionIdentity == sessionID,
-              activeSessionTimerGeneration == scheduledGeneration,
-              sessionTimerExpiration == expiration,
-              let expiration,
-              now >= expiration else {
+        guard lifecyclePauseStartedAt == nil else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .workspacePaused, generation: scheduledGeneration)
+            return
+        }
+        guard let session = activeSession else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .sessionEnded, generation: scheduledGeneration)
+            return
+        }
+        guard activeSessionIdentity == sessionID else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .sessionMismatch, generation: scheduledGeneration)
+            return
+        }
+        guard activeSessionTimerGeneration == scheduledGeneration else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .generationMismatch, generation: scheduledGeneration)
+            return
+        }
+        guard sessionTimerExpiration == expiration else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .expirationMismatch, generation: scheduledGeneration)
+            return
+        }
+        guard let expiration else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .expirationMismatch, generation: scheduledGeneration)
+            return
+        }
+        guard now >= expiration else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .expiredTooEarly, generation: scheduledGeneration)
+            return
+        }
+        guard currentSessionFocusedTime(at: now) >= session.anchoredDuration else {
+            diagnosticsRecorder.recordTimerRejected(kind: .sessionExpiry, reason: .staleContext, generation: scheduledGeneration)
             return
         }
 
-        guard let session = activeSession,
-              currentSessionFocusedTime(at: now) >= session.anchoredDuration else {
-            return
-        }
-
-        cancelSessionTimer()
+        sessionTimer = nil
+        activeSessionTimerGeneration = nil
+        sessionTimerExpiration = nil
         endSession(action: .timeout)
     }
     

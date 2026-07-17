@@ -2,6 +2,8 @@ import Foundation
 import GRDB
 
 enum SQLiteDatabaseMigrations {
+    static let currentVersion = 7
+
     static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
