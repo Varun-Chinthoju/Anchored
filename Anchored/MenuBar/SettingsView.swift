@@ -19,6 +19,19 @@ private enum SettingsTheme {
     static var textPrimary: Color { palette.textPrimaryColor }
     static var textSecondary: Color { palette.textSecondaryColor }
     static var bronze: Color { palette.bronzeColor }
+    static var sidebarSelectionFill: LinearGradient {
+        LinearGradient(
+            colors: [
+                bronze.opacity(0.20),
+                accent.opacity(0.16)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+    static var sidebarSelectionBorder: Color { bronze.opacity(0.42) }
+    static var sidebarSelectionIconBackground: Color { accent.opacity(0.24) }
+    static var sidebarSelectionBadgeBackground: Color { bronze.opacity(0.18) }
 }
 
 // MARK: - Section Enum
@@ -27,7 +40,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case general = "General"
     case privacy = "Privacy & Data"
     case distractions = "Distraction List"
-    case captainsLog = "Captain's Log"
+    case captainsLog = "Analytics"
     case about = "About"
 
     var id: String { rawValue }
@@ -41,7 +54,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .distractions:
             return isPirateMode ? "Siren List" : "Distraction List"
         case .captainsLog:
-            return "Captain's Log"
+            return "Analytics"
         case .about:
             return isPirateMode ? "Crew Info" : "About"
         }
@@ -52,7 +65,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general:      return "helm"
         case .privacy:      return "lock.shield.fill"
         case .distractions: return "shield.fill"
-        case .captainsLog:  return "book.closed.fill"
+        case .captainsLog:  return "chart.bar.fill"
         case .about:        return "info.circle.fill"
         }
     }
@@ -60,9 +73,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var iconColor: Color {
         switch self {
         case .general:      return SettingsTheme.accent
-        case .privacy:      return Color(red: 0.3, green: 0.6, blue: 0.9)
+        case .privacy:      return SettingsTheme.accentShadow
         case .distractions: return SettingsTheme.bronze
-        case .captainsLog:  return SettingsTheme.accentShadow
+        case .captainsLog:  return SettingsTheme.bronze
         case .about:        return SettingsTheme.accent.opacity(0.85)
         }
     }
@@ -81,6 +94,7 @@ enum SidebarItem: Hashable {
 struct ProfileRowView: View {
     let profile: WorkProfile
     let isActive: Bool
+    let isSelected: Bool
     let isPirateMode: Bool
     let onDelete: () -> Void
     let onMakeActive: () -> Void
@@ -89,7 +103,7 @@ struct ProfileRowView: View {
     private var iconName: String {
         let lower = profile.name.lowercased()
         if lower.contains("code") || lower.contains("coding") || lower.contains("dev") {
-            return "curlybraces"
+            return "curlybraces.square.fill"
         } else if lower.contains("write") || lower.contains("writing") || lower.contains("edit") {
             return "doc.text.fill"
         } else if lower.contains("video") || lower.contains("movie") || lower.contains("film") {
@@ -101,33 +115,57 @@ struct ProfileRowView: View {
 
     var body: some View {
         let themeAccent = SettingsTheme.accent
+        let themeBronze = SettingsTheme.bronze
         let split = profile.name.splitEmojiAndText()
-        HStack {
-            Image(systemName: iconName)
-                .font(.system(size: 12))
-                .foregroundColor(isActive ? themeAccent : SettingsTheme.textSecondary)
-                .frame(width: 16, alignment: .center)
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? SettingsTheme.sidebarSelectionIconBackground : themeAccent.opacity(0.96))
+                    .frame(width: 22, height: 22)
+                Image(systemName: iconName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isSelected ? SettingsTheme.textPrimary : readableForeground(for: themeAccent))
+            }
+
             if let emoji = split.emoji {
                 HStack(alignment: .center, spacing: 4) {
                     Text(emoji)
                         .font(.system(size: 14))
                     Text(split.text)
-                        .font(.system(size: 13))
+                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                        .foregroundColor(SettingsTheme.textPrimary)
                 }
             } else {
                 Text(profile.name)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .foregroundColor(SettingsTheme.textPrimary)
             }
+
             Spacer()
             if isActive {
-                Text(settingsCopy("Active", pirate: "Afloat", isPirateMode: isPirateMode))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(themeAccent)
+                Text(settingsCopy("Current profile", pirate: "Current profile", isPirateMode: isPirateMode))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(themeBronze)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(themeAccent.opacity(0.15))
+                    .background(SettingsTheme.sidebarSelectionBadgeBackground)
                     .cornerRadius(4)
+                    .padding(.trailing, 4)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(SettingsTheme.sidebarSelectionFill)
+            }
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(SettingsTheme.sidebarSelectionBorder, lineWidth: 1)
             }
         }
         .contextMenu {
@@ -142,6 +180,12 @@ struct ProfileRowView: View {
                 }
             }
         }
+    }
+
+    private func readableForeground(for color: Color) -> Color {
+        let resolved = color.nsColor.usingColorSpace(.deviceRGB) ?? NSColor.white
+        let luminance = 0.2126 * resolved.redComponent + 0.7152 * resolved.greenComponent + 0.0722 * resolved.blueComponent
+        return luminance > 0.62 ? .black : .white
     }
 }
 
@@ -208,7 +252,7 @@ struct SettingsView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
-            .frame(minWidth: 900, idealWidth: 990, minHeight: 570, idealHeight: 630)
+            .frame(minWidth: 860, idealWidth: 940, minHeight: 570, idealHeight: 630)
             .accentColor(SettingsTheme.accent)
             .tint(SettingsTheme.accent)
     }
@@ -255,52 +299,94 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func settingsSidebar(isPirateMode: Bool) -> some View {
-        let themeTextSecondary = SettingsTheme.textSecondary
+        let sections: [SettingsSection] = [.general, .privacy, .captainsLog, .about]
 
-        return List(selection: $selectedItem) {
-            Section {
-                ForEach(profileManager.profiles) { profile in
-                    ProfileRowView(
-                        profile: profile,
-                        isActive: profile.id == profileManager.activeProfile.id,
-                        isPirateMode: isPirateMode,
-                        onDelete: { deleteProfile(profile) },
-                        onMakeActive: { makeProfileActive(profile) },
-                        canDelete: profileManager.profiles.count > 1
-                    )
-                    .tag(SidebarItem.profile(profile.id))
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    sidebarSectionHeader("Profiles")
+
+                    VStack(spacing: 6) {
+                        ForEach(profileManager.profiles) { profile in
+                            let item = SidebarItem.profile(profile.id)
+                            Button {
+                                selectedItem = item
+                            } label: {
+                                ProfileRowView(
+                                    profile: profile,
+                                    isActive: profile.id == profileManager.activeProfile.id,
+                                    isSelected: selectedItem == item,
+                                    isPirateMode: isPirateMode,
+                                    onDelete: { deleteProfile(profile) },
+                                    onMakeActive: { makeProfileActive(profile) },
+                                    canDelete: profileManager.profiles.count > 1
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Button {
+                            newProfileName = ""
+                            showAddAlert = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .fill(SettingsTheme.accent.opacity(0.16))
+                                        .frame(width: 22, height: 22)
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(SettingsTheme.bronze)
+                                }
+                                Text("Add Profile")
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(SettingsTheme.textPrimary)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
 
-                Button {
-                    newProfileName = ""
-                    showAddAlert = true
-                } label: {
-                    Label("Add Profile", systemImage: "plus")
+                VStack(alignment: .leading, spacing: 8) {
+                    sidebarSectionHeader(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
+
+                    VStack(spacing: 6) {
+                        ForEach(sections, id: \.self) { section in
+                            let item = sidebarItem(for: section)
+                            Button {
+                                selectedItem = item
+                            } label: {
+                                SidebarSettingsRow(
+                                    title: section.displayName(isPirateMode: isPirateMode),
+                                    systemImage: section.iconName,
+                                    color: section.iconColor,
+                                    isSelected: selectedItem == item
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-            } header: {
-                Text("Profiles")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(1.1)
-                    .foregroundColor(themeTextSecondary)
             }
-
-            Section {
-                ForEach([SettingsSection.general, SettingsSection.privacy, SettingsSection.captainsLog, SettingsSection.about]) { section in
-                    Label(section.displayName(isPirateMode: isPirateMode), systemImage: section.iconName)
-                        .labelStyle(ColoredLabelStyle(color: section.iconColor))
-                        .tag(sidebarItem(for: section))
-                }
-            } header: {
-                Text(settingsCopy("Settings", pirate: "Rigging Settings", isPirateMode: isPirateMode))
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(1.1)
-                    .foregroundColor(themeTextSecondary)
-            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 360)
+        .background(
+            LinearGradient(
+                colors: [
+                    SettingsTheme.canvas.opacity(0.94),
+                    SettingsTheme.surface.opacity(0.82)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 325)
         .alert("New Profile", isPresented: $showAddAlert) {
             TextField("Profile Name", text: $newProfileName)
             Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) { }
@@ -319,7 +405,7 @@ struct SettingsView: View {
     private func selectedSettingsPane(isPirateMode: Bool) -> some View {
         let themeTextSecondary = SettingsTheme.textSecondary
 
-        return Group {
+        Group {
             switch selectedItem {
             case .profile(let id):
                 if let profile = profileManager.profiles.first(where: { $0.id == id }) {
@@ -384,6 +470,63 @@ struct SettingsView: View {
         case .about:        return .about
         }
     }
+
+    @ViewBuilder
+    private func sidebarSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .tracking(1.1)
+            .foregroundColor(SettingsTheme.textSecondary)
+            .padding(.leading, 2)
+    }
+
+}
+
+private struct SidebarSettingsRow: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? SettingsTheme.sidebarSelectionIconBackground : color)
+                    .frame(width: 22, height: 22)
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isSelected ? SettingsTheme.textPrimary : readableForeground(for: color))
+            }
+
+            Text(title)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium, design: .rounded))
+                .foregroundColor(SettingsTheme.textPrimary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(SettingsTheme.sidebarSelectionFill)
+            }
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(SettingsTheme.sidebarSelectionBorder, lineWidth: 1)
+            }
+        }
+    }
+
+    private func readableForeground(for color: Color) -> Color {
+        let resolved = color.nsColor.usingColorSpace(.deviceRGB) ?? NSColor.white
+        let luminance = 0.2126 * resolved.redComponent + 0.7152 * resolved.greenComponent + 0.0722 * resolved.blueComponent
+        return luminance > 0.62 ? .black : .white
+    }
 }
 
 // MARK: - Label Style
@@ -417,33 +560,62 @@ struct ColoredLabelStyle: LabelStyle {
 
 struct SettingsPane<Content: View>: View {
     let title: String
+    let subtitle: String
+    let contextLabel: String?
     @Binding var scrollTarget: SettingsScrollTarget?
     @ViewBuilder let content: () -> Content
 
     init(
         title: String,
+        subtitle: String = "Tweak preferences, privacy, and profile behavior from one place.",
+        contextLabel: String? = nil,
         scrollTarget: Binding<SettingsScrollTarget?> = .constant(nil),
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
+        self.subtitle = subtitle
+        self.contextLabel = contextLabel
         self._scrollTarget = scrollTarget
         self.content = content
     }
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    ControlRoomSectionHeader(
-                        eyebrow: "Settings",
-                        title: title,
-                        subtitle: "Tweak preferences, privacy, and profile behavior from one place.",
-                        accent: SettingsTheme.accent
-                    )
+            ScrollView(showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(title)
+                                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+
+                            if let contextLabel {
+                                Text(contextLabel)
+                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                    .tracking(0.9)
+                                    .foregroundColor(SettingsTheme.textSecondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(SettingsTheme.surfaceRaised.opacity(0.78))
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(SettingsTheme.border.opacity(0.7), lineWidth: 1)
+                                    )
+                                    .clipShape(Capsule())
+                            }
+
+                            Spacer(minLength: 0)
+                        }
+
+                        Text(subtitle)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     content()
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(22)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onAppear {
                 scrollToPendingTarget(using: proxy)
@@ -564,10 +736,10 @@ struct GeneralSettingsPane: View {
         }
         
         if secs == 0 {
-            return "\(mins) min"
-        } else {
-            return "\(mins)m \(secs)s"
+            return "\(mins)m"
         }
+
+        return "\(mins)m \(secs)s"
     }
 
     private func loadApiKey() {
@@ -632,6 +804,7 @@ struct GeneralSettingsPane: View {
     var body: some View {
         SettingsPane(
             title: settingsCopy("General", pirate: "Rigging", isPirateMode: isPirateMode),
+            contextLabel: settingsCopy("Applies to all profiles", pirate: "Applies to all profiles", isPirateMode: isPirateMode),
             scrollTarget: $scrollTarget
         ) {
             VStack(alignment: .leading, spacing: 6) {
@@ -643,10 +816,10 @@ struct GeneralSettingsPane: View {
                 SettingsGroup {
                     SettingsRow(
                         label: settingsCopy("Focus Threshold", pirate: "Voyage Threshold", isPirateMode: isPirateMode),
-                        description: settingsCopy("How long you must focus before the session starts.", pirate: "How long ye must sail before dropping anchor.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Start a focus session after continuously working for this long.", pirate: "Start a focus session after continuously workin' fer this long.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             Slider(value: Binding(
                                 get: { prefs.focusThreshold },
                                 set: { newValue in
@@ -654,20 +827,21 @@ struct GeneralSettingsPane: View {
                                     prefs.focusThreshold = max(30, min(3600, rounded))
                                 }
                             ), in: 30...3600)
-                                .frame(width: 250)
+                                .frame(width: 238)
                             Text(formatDuration(prefs.focusThreshold))
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .monospacedDigit()
                                 .foregroundColor(SettingsTheme.textSecondary)
-                                .frame(width: 100, alignment: .trailing)
+                                .frame(width: 88, alignment: .trailing)
                         }
                     }
 
                     SettingsRow(
                         label: settingsCopy("Distraction Warning Countdown", pirate: "Siren Warning Countdown", isPirateMode: isPirateMode),
-                        description: settingsCopy("Seconds allowed on a distraction app before the screen dims.", pirate: "Seconds on a distraction app before the fog dims yer screen.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Wait this long before dimming after a distraction is detected.", pirate: "Wait this long before dimming after a distraction is detected.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             Slider(value: Binding(
                                 get: { Double(prefs.countdownDuration) },
                                 set: { newValue in
@@ -675,11 +849,12 @@ struct GeneralSettingsPane: View {
                                     prefs.countdownDuration = max(0, min(60, rounded))
                                 }
                             ), in: 0...60)
-                                .frame(width: 250)
+                                .frame(width: 238)
                             Text(formatDuration(Double(prefs.countdownDuration)))
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .monospacedDigit()
                                 .foregroundColor(SettingsTheme.textSecondary)
-                                .frame(width: 100, alignment: .trailing)
+                                .frame(width: 88, alignment: .trailing)
                         }
                     }
 
@@ -696,7 +871,7 @@ struct GeneralSettingsPane: View {
                         description: settingsCopy("How dark the screen gets when distraction dimming is active.", pirate: "How thick the fog rolls in when distracted.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             Slider(value: Binding(
                                 get: { prefs.dimOpacity },
                                 set: { newValue in
@@ -704,20 +879,21 @@ struct GeneralSettingsPane: View {
                                     prefs.dimOpacity = max(0.1, min(0.95, rounded))
                                 }
                             ), in: 0.1...0.95)
-                                .frame(width: 250)
+                                .frame(width: 238)
                             Text(String(format: "%.0f%%", prefs.dimOpacity * 100))
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .monospacedDigit()
                                 .foregroundColor(SettingsTheme.textSecondary)
-                                .frame(width: 100, alignment: .trailing)
+                                .frame(width: 88, alignment: .trailing)
                         }
                     }
 
                     SettingsRow(
                         label: settingsCopy("Dim Transition Duration", pirate: "Fog Roll-in Duration", isPirateMode: isPirateMode),
-                        description: settingsCopy("The time it takes to reach full screen dimming.", pirate: "How fast the fog takes over yer screens.", isPirateMode: isPirateMode),
+                        description: settingsCopy("How quickly the dim overlay reaches its selected level.", pirate: "How quickly the dim overlay reaches its selected level.", isPirateMode: isPirateMode),
                         showDivider: false
                     ) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             Slider(value: Binding(
                                 get: { prefs.dimTransitionDuration },
                                 set: { newValue in
@@ -725,11 +901,12 @@ struct GeneralSettingsPane: View {
                                     prefs.dimTransitionDuration = max(0.0, min(30.0, rounded))
                                 }
                             ), in: 0.0...30.0)
-                                .frame(width: 250)
+                                .frame(width: 238)
                             Text(prefs.dimTransitionDuration == 0 ? settingsCopy("Instant", pirate: "Poff 💨", isPirateMode: isPirateMode) : String(format: "%.1fs", prefs.dimTransitionDuration))
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .monospacedDigit()
                                 .foregroundColor(SettingsTheme.textSecondary)
-                                .frame(width: 100, alignment: .trailing)
+                                .frame(width: 88, alignment: .trailing)
                         }
                     }
                 }
@@ -767,7 +944,7 @@ struct GeneralSettingsPane: View {
                         .labelsHidden()
                         .frame(width: 140)
                         .disabled(!prefs.focusScheduleEnabled)
-                        .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                        .opacity(prefs.focusScheduleEnabled ? 1 : 0.58)
                     }
 
                     SettingsRow(
@@ -786,7 +963,7 @@ struct GeneralSettingsPane: View {
                         .labelsHidden()
                         .frame(width: 140)
                         .disabled(!prefs.focusScheduleEnabled)
-                        .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                        .opacity(prefs.focusScheduleEnabled ? 1 : 0.58)
                     }
 
                     SettingsRow(
@@ -796,6 +973,7 @@ struct GeneralSettingsPane: View {
                     ) {
                         Toggle("", isOn: $prefs.focusScheduleLunchBreakEnabled)
                             .disabled(!prefs.focusScheduleEnabled)
+                            .opacity(prefs.focusScheduleEnabled ? 1 : 0.48)
                     }
 
                     if prefs.focusScheduleLunchBreakEnabled {
@@ -815,7 +993,7 @@ struct GeneralSettingsPane: View {
                             .labelsHidden()
                             .frame(width: 140)
                             .disabled(!prefs.focusScheduleEnabled)
-                            .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                            .opacity(prefs.focusScheduleEnabled ? 1 : 0.58)
                         }
 
                         SettingsRow(
@@ -834,7 +1012,7 @@ struct GeneralSettingsPane: View {
                             .labelsHidden()
                             .frame(width: 140)
                             .disabled(!prefs.focusScheduleEnabled)
-                            .opacity(prefs.focusScheduleEnabled ? 1 : 0.4)
+                            .opacity(prefs.focusScheduleEnabled ? 1 : 0.58)
                         }
                     }
                 }
@@ -860,7 +1038,7 @@ struct GeneralSettingsPane: View {
                     ) {
                         Toggle("", isOn: $prefs.enableDoomscrollLoopBreaker)
                             .disabled(prefs.commitmentLockEnabled)
-                            .opacity(prefs.commitmentLockEnabled ? 0.45 : 1)
+                            .opacity(prefs.commitmentLockEnabled ? 0.55 : 1)
                     }
 
                     SettingsRow(
@@ -868,7 +1046,7 @@ struct GeneralSettingsPane: View {
                         description: settingsCopy("How long you can scroll a distraction app before the loop-breaker alert appears.", pirate: "How long ye can scroll before the loop-breaker warning fires.", isPirateMode: isPirateMode),
                         showDivider: false
                     ) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             Slider(value: Binding(
                                 get: { prefs.doomscrollThreshold },
                                 set: { newValue in
@@ -876,13 +1054,14 @@ struct GeneralSettingsPane: View {
                                     prefs.doomscrollThreshold = max(60, min(3600, rounded))
                                 }
                             ), in: 60...3600)
-                                .frame(width: 250)
+                                .frame(width: 238)
                                 .disabled(!prefs.enableDoomscrollLoopBreaker)
                                 .opacity(prefs.enableDoomscrollLoopBreaker ? 1 : 0.4)
                             Text(formatDuration(prefs.doomscrollThreshold))
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .monospacedDigit()
                                 .foregroundColor(SettingsTheme.textSecondary)
-                                .frame(width: 100, alignment: .trailing)
+                                .frame(width: 88, alignment: .trailing)
                         }
                     }
                 }
@@ -901,7 +1080,7 @@ struct GeneralSettingsPane: View {
                         description: settingsCopy("How long an automatically started session runs. This does not change the focus threshold.", pirate: "How long an automatic voyage runs. This does not change the sailing threshold.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             Slider(value: Binding(
                                 get: { prefs.automaticSessionDuration },
                                 set: { newValue in
@@ -909,11 +1088,12 @@ struct GeneralSettingsPane: View {
                                     prefs.automaticSessionDuration = max(60, min(7200, rounded))
                                 }
                             ), in: 5 * 60...120 * 60)
-                                .frame(width: 250)
+                                .frame(width: 238)
                             Text(formatDuration(prefs.automaticSessionDuration))
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .monospacedDigit()
                                 .foregroundColor(SettingsTheme.textSecondary)
-                                .frame(width: 100, alignment: .trailing)
+                                .frame(width: 88, alignment: .trailing)
                         }
                     }
 
@@ -1005,7 +1185,7 @@ struct GeneralSettingsPane: View {
                     ) {
                         Toggle("", isOn: $prefs.launchAtLogin)
                             .disabled(prefs.commitmentLockEnabled)
-                            .opacity(prefs.commitmentLockEnabled ? 0.45 : 1)
+                            .opacity(prefs.commitmentLockEnabled ? 0.55 : 1)
                     }
 
                     SettingsRow(
@@ -1169,6 +1349,7 @@ struct PrivacySettingsPane: View {
     var body: some View {
         SettingsPane(
             title: settingsCopy("Privacy & Data", pirate: "Privacy & Data", isPirateMode: isPirateMode),
+            subtitle: settingsCopy("Manage locally stored activity data, retention, and privacy controls.", pirate: "Manage locally stored activity data, retention, and privacy controls.", isPirateMode: isPirateMode),
             scrollTarget: $scrollTarget
         ) {
             VStack(alignment: .leading, spacing: 6) {
@@ -1265,12 +1446,12 @@ struct PrivacySettingsPane: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                     } else {
-                        SettingsRow(
-                            label: settingsCopy("Observation Count", pirate: "Observations Stowed", isPirateMode: isPirateMode),
-                            description: settingsCopy("Total sanitized context snapshots stored locally.", pirate: "Total sanitized sights in the hold.", isPirateMode: isPirateMode),
-                            showDivider: true
-                        ) {
-                            Text(observationCount.map { "\($0)" } ?? "0")
+                    SettingsRow(
+                        label: settingsCopy("Observation Count", pirate: "Observations Stowed", isPirateMode: isPirateMode),
+                        description: settingsCopy("Total sanitized context snapshots stored locally.", pirate: "Total sanitized sights in the hold.", isPirateMode: isPirateMode),
+                        showDivider: true
+                    ) {
+                            Text(formattedObservationCount)
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundColor(SettingsTheme.textSecondary)
                                 .accessibilityLabel("Observation count \(observationCount ?? 0)")
@@ -1289,38 +1470,19 @@ struct PrivacySettingsPane: View {
                                 .multilineTextAlignment(.trailing)
                         }
 
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(settingsCopy("Clear All History", pirate: "Clear All History", isPirateMode: isPirateMode))
-                                    .font(.system(size: 13))
-                                    .foregroundColor(SettingsTheme.textPrimary)
-                                Text(settingsCopy("Deletes all context observations. Sessions and analytics are preserved.", pirate: "Deletes all context marks. Voyages and tallies remain safe.", isPirateMode: isPirateMode))
-                                    .font(.system(size: 11))
-                                    .foregroundColor(SettingsTheme.textSecondary)
-                            }
-                            Spacer()
-                            Button(role: .destructive) {
+                        SettingsRow(
+                            label: settingsCopy("Clear History", pirate: "Clear History", isPirateMode: isPirateMode),
+                            description: settingsCopy("Deletes all context observations. Sessions and analytics are preserved.", pirate: "Deletes all context marks. Voyages and tallies remain safe.", isPirateMode: isPirateMode),
+                            showDivider: false
+                        ) {
+                            destructivePillButton(
+                                title: settingsCopy("Clear History…", pirate: "Clear History…", isPirateMode: isPirateMode),
+                                isLoading: isClearing,
+                                isDisabled: (observationCount ?? 0) == 0 || isClearing
+                            ) {
                                 showClearConfirmation = true
-                            } label: {
-                                if isClearing {
-                                    ProgressView()
-                                        .scaleEffect(0.6)
-                                        .frame(width: 14, height: 14)
-                                } else {
-                                    Text(settingsCopy("Clear All", pirate: "Clear All", isPirateMode: isPirateMode))
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4)
-                                        .background(Color.red.opacity(0.85))
-                                        .cornerRadius(5)
-                                }
                             }
-                            .buttonStyle(.plain)
-                            .disabled((observationCount ?? 0) == 0 || isClearing)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
                     }
                 }
             }
@@ -1338,11 +1500,13 @@ struct PrivacySettingsPane: View {
                         description: settingsCopy("Deletes written session summaries while preserving session duration analytics.", pirate: "Deletes written voyage notes while preserving voyage tallies.", isPirateMode: isPirateMode),
                         showDivider: false
                     ) {
-                        Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode)) {
+                        destructivePillButton(
+                            title: settingsCopy("Clear Summaries…", pirate: "Clear Summaries…", isPirateMode: isPirateMode),
+                            isLoading: isClearingSummaries,
+                            isDisabled: isClearingSummaries
+                        ) {
                             showClearSummariesConfirmation = true
                         }
-                        .buttonStyle(.borderless)
-                        .disabled(isClearingSummaries)
                     }
                 }
             }
@@ -1357,7 +1521,7 @@ struct PrivacySettingsPane: View {
                 SettingsGroup {
                     SettingsRow(
                         label: settingsCopy("Save Corrections Locally", pirate: "Save Corrections Locally", isPirateMode: isPirateMode),
-                        description: settingsCopy("Stores only app IDs, domains, labels, and correction types. Titles, full URLs, OCR, screenshots, and raw events are never stored.", pirate: "Stores only safe labels and routes. No titles, full URLs, sights, or raw events are kept.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Stores only coarse, privacy-safe correction data locally: normalized domain, page category, intent category, decision, and timestamp. Titles, full URLs, OCR, screenshots, and raw events are never saved.", pirate: "Stores only coarse, privacy-safe correction data locally: normalized domain, page category, intent category, decision, and timestamp. Titles, full URLs, OCR, screenshots, and raw events are never saved.", isPirateMode: isPirateMode),
                         showDivider: true
                     ) {
                         Toggle("", isOn: $prefs.classificationFeedbackEnabled)
@@ -1375,18 +1539,20 @@ struct PrivacySettingsPane: View {
                 SettingsGroup {
                     SettingsRow(
                         label: settingsCopy("Saved Corrections", pirate: "Saved Corrections", isPirateMode: isPirateMode),
-                        description: settingsCopy("Correction examples are automatically pruned with the selected retention period.", pirate: "Correction examples follow the selected retention horizon.", isPirateMode: isPirateMode),
+                        description: settingsCopy("Correction examples and page-scoped learning records are automatically pruned with the selected retention period.", pirate: "Correction examples and page-scoped learning records are automatically pruned with the selected retention horizon.", isPirateMode: isPirateMode),
                         showDivider: false
                     ) {
                         HStack(spacing: 8) {
                             Text("\(feedbackCount)")
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundColor(SettingsTheme.textSecondary)
-                            Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode)) {
+                            destructivePillButton(
+                                title: settingsCopy("Clear…", pirate: "Clear…", isPirateMode: isPirateMode),
+                                isLoading: isClearingFeedback,
+                                isDisabled: feedbackCount == 0 || isClearingFeedback
+                            ) {
                                 showClearFeedbackConfirmation = true
                             }
-                            .buttonStyle(.borderless)
-                            .disabled(feedbackCount == 0 || isClearingFeedback)
                         }
                     }
                 }
@@ -1461,9 +1627,9 @@ struct PrivacySettingsPane: View {
         } message: {
             Text(settingsCopy("No new context will be stored. Existing observations remain until cleared or expired by retention settings. Session analytics and streaks are unaffected and will be preserved.", pirate: "No new sights will be charted. Old marks remain till cleared or expired. Voyage tallies and streaks stay safe aboard.", isPirateMode: isPirateMode))
         }
-        .alert(settingsCopy("Clear All Context History?", pirate: "Clear All Context History?", isPirateMode: isPirateMode), isPresented: $showClearConfirmation) {
+        .alert(settingsCopy("Clear History?", pirate: "Clear History?", isPirateMode: isPirateMode), isPresented: $showClearConfirmation) {
             Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
-            Button(settingsCopy("Clear All", pirate: "Clear All", isPirateMode: isPirateMode), role: .destructive) {
+            Button(settingsCopy("Clear History", pirate: "Clear History", isPirateMode: isPirateMode), role: .destructive) {
                 performClear()
             }
         } message: {
@@ -1477,9 +1643,9 @@ struct PrivacySettingsPane: View {
         } message: {
             Text(settingsCopy("This permanently deletes locally stored correction examples. Context history and session analytics are unchanged.", pirate: "This clears stored correction examples. Context history and voyage analytics remain unchanged.", isPirateMode: isPirateMode))
         }
-        .alert(settingsCopy("Clear Saved Summaries?", pirate: "Clear Saved Summaries?", isPirateMode: isPirateMode), isPresented: $showClearSummariesConfirmation) {
+        .alert(settingsCopy("Clear Summaries?", pirate: "Clear Summaries?", isPirateMode: isPirateMode), isPresented: $showClearSummariesConfirmation) {
             Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {}
-            Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode), role: .destructive) {
+            Button(settingsCopy("Clear Summaries", pirate: "Clear Summaries", isPirateMode: isPirateMode), role: .destructive) {
                 isClearingSummaries = true
                 DispatchQueue.global(qos: .userInitiated).async {
                     try? SessionStore.shared.clearAllSessionSummaries()
@@ -1532,6 +1698,16 @@ struct PrivacySettingsPane: View {
         return "macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }
 
+    private var formattedObservationCount: String {
+        guard !isLoading, let observationCount else {
+            return "—"
+        }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = .autoupdatingCurrent
+        return formatter.string(from: NSNumber(value: observationCount)) ?? "\(observationCount)"
+    }
+
     private var formattedOldestDate: String {
         guard let date = oldestDate else {
             if (observationCount ?? 0) == 0 {
@@ -1540,6 +1716,8 @@ struct PrivacySettingsPane: View {
             return settingsCopy("Unknown", pirate: "Unknown", isPirateMode: isPirateMode)
         }
         let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
@@ -1611,6 +1789,34 @@ struct PrivacySettingsPane: View {
                 feedbackCount = count
             }
         }
+    }
+
+    @ViewBuilder
+    private func destructivePillButton(
+        title: String,
+        isLoading: Bool = false,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: .destructive, action: action) {
+            if isLoading {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white)
+                    .frame(width: 14, height: 14)
+            } else {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.red.opacity(0.85))
+                    .cornerRadius(5)
+            }
+        }
+        .buttonStyle(.plain)
+        .opacity(isDisabled ? 0.55 : 1)
+        .disabled(isDisabled)
     }
 
     private func performClearFeedback() {
@@ -2091,104 +2297,102 @@ struct AnalyticsSettingsPane: View {
 
     var body: some View {
         SettingsPane(title: "Analytics") {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    TidalWaveChartView()
-                    FleetTreeSpreadmapView()
-                    ConstellationHeatmapView()
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(settingsCopy("Time by App", pirate: "Sailing Time by Port", isPirateMode: isPirateMode))
-                            .font(.system(size: 13, weight: .bold, design: .serif))
-                            .foregroundColor(SettingsTheme.accent)
-                            .padding(.leading, 4)
+            VStack(alignment: .leading, spacing: 28) {
+                TidalWaveChartView()
+                FleetTreeSpreadmapView()
+                ConstellationHeatmapView()
 
-                        Group {
-                            switch appBreakdownState {
-                            case .idle, .loading:
-                                HStack(spacing: 8) {
-                                    ProgressView().tint(SettingsTheme.accent)
-                                    Text("Loading...")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(SettingsTheme.textSecondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 12)
-                            case .failed(let message):
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Failed to load")
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Text(message)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(SettingsTheme.textSecondary)
-                                }
-                            case .empty:
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(settingsCopy("Time by App", pirate: "Sailing Time by Port", isPirateMode: isPirateMode))
+                        .font(.system(size: 13, weight: .bold, design: .serif))
+                        .foregroundColor(SettingsTheme.accent)
+                        .padding(.leading, 4)
+
+                    Group {
+                        switch appBreakdownState {
+                        case .idle, .loading:
+                            HStack(spacing: 8) {
+                                ProgressView().tint(SettingsTheme.accent)
+                                Text("Loading...")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(SettingsTheme.textSecondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 12)
+                        case .failed(let message):
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Failed to load")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text(message)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(SettingsTheme.textSecondary)
+                            }
+                        case .empty:
+                            emptyState(settingsCopy("No logs recorded yet.", pirate: "No logs recorded yet.", isPirateMode: isPirateMode))
+                        case .loaded:
+                            if appBreakdown.isEmpty {
                                 emptyState(settingsCopy("No logs recorded yet.", pirate: "No logs recorded yet.", isPirateMode: isPirateMode))
-                            case .loaded:
-                                if appBreakdown.isEmpty {
-                                    emptyState(settingsCopy("No logs recorded yet.", pirate: "No logs recorded yet.", isPirateMode: isPirateMode))
-                                } else {
-                                    let total = totalDuration
-                                    VStack(spacing: 0) {
-                                        ForEach(appBreakdown.indices, id: \.self) { i in
-                                            let (app, duration) = appBreakdown[i]
-                                            AppBreakdownRow(app: app, duration: duration, total: total)
-                                            if i < appBreakdown.count - 1 {
-                                                Divider().padding(.leading, 16)
-                                            }
+                            } else {
+                                let total = totalDuration
+                                VStack(spacing: 0) {
+                                    ForEach(appBreakdown.indices, id: \.self) { i in
+                                        let (app, duration) = appBreakdown[i]
+                                        AppBreakdownRow(app: app, duration: duration, total: total)
+                                        if i < appBreakdown.count - 1 {
+                                            Divider().padding(.leading, 16)
                                         }
                                     }
-                                    .background(SettingsTheme.surface.opacity(0.78))
-                                    .cornerRadius(12)
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
                                 }
+                                .background(SettingsTheme.surface.opacity(0.78))
+                                .cornerRadius(12)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
                             }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(settingsCopy("Today's Sessions", pirate: "Today's Voyages", isPirateMode: isPirateMode))
-                            .font(.system(size: 13, weight: .bold, design: .serif))
-                            .foregroundColor(SettingsTheme.accent)
-                            .padding(.leading, 4)
-
-                        if vm.recentSessions.isEmpty {
-                            emptyState(settingsCopy("No sessions logged today.", pirate: "No voyages logged this sun.", isPirateMode: isPirateMode))
-                        } else {
-                            VStack(spacing: 0) {
-                                ForEach(vm.recentSessions.indices, id: \.self) { i in
-                                    let s = vm.recentSessions[i]
-                                    HStack {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(SettingsTheme.accent)
-                                            .font(.system(size: 12))
-                                        Text(s.appName)
-                                            .font(.system(size: 12, weight: .bold, design: .serif))
-                                            .foregroundColor(SettingsTheme.textPrimary)
-                                        Spacer()
-                                        Text(formatTime(s.timestamp))
-                                            .font(.system(size: 11))
-                                            .foregroundColor(SettingsTheme.textSecondary)
-                                        Text(formatDuration(Double(s.sessionDurationSeconds ?? 0)))
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundColor(SettingsTheme.textSecondary)
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 9)
-                                    if i < vm.recentSessions.count - 1 {
-                                        Divider().padding(.leading, 16)
-                                    }
-                                }
-                            }
-                            .background(SettingsTheme.surface.opacity(0.78))
-                            .cornerRadius(12)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
                         }
                     }
                 }
-                .padding(.trailing, 16)
-                .padding(.bottom, 24)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(settingsCopy("Today's Sessions", pirate: "Today's Voyages", isPirateMode: isPirateMode))
+                        .font(.system(size: 13, weight: .bold, design: .serif))
+                        .foregroundColor(SettingsTheme.accent)
+                        .padding(.leading, 4)
+
+                    if vm.recentSessions.isEmpty {
+                        emptyState(settingsCopy("No sessions logged today.", pirate: "No voyages logged this sun.", isPirateMode: isPirateMode))
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(vm.recentSessions.indices, id: \.self) { i in
+                                let s = vm.recentSessions[i]
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(SettingsTheme.accent)
+                                        .font(.system(size: 12))
+                                    Text(s.appName)
+                                        .font(.system(size: 12, weight: .bold, design: .serif))
+                                        .foregroundColor(SettingsTheme.textPrimary)
+                                    Spacer()
+                                    Text(formatTime(s.timestamp))
+                                        .font(.system(size: 11))
+                                        .foregroundColor(SettingsTheme.textSecondary)
+                                    Text(formatDuration(Double(s.sessionDurationSeconds ?? 0)))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(SettingsTheme.textSecondary)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                if i < vm.recentSessions.count - 1 {
+                                    Divider().padding(.leading, 16)
+                                }
+                            }
+                        }
+                        .background(SettingsTheme.surface.opacity(0.78))
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(SettingsTheme.border, lineWidth: 1))
+                    }
+                }
             }
+            .padding(.trailing, 16)
+            .padding(.bottom, 24)
         }
         .onAppear {
             refresh()
@@ -2222,7 +2426,7 @@ struct AnalyticsSettingsPane: View {
     }
 }
 
-// MARK: - Captain's Log
+// MARK: - Analytics
 
 struct CaptainsLogSettingsPane: View {
     let focusEngine: FocusEngine
