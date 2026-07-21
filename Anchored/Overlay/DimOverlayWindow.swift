@@ -3,6 +3,7 @@ import SwiftUI
 
 /// A borderless, click-through window covering a display screen that gradually dims the view.
 public final class DimOverlayWindow: NSWindow {
+    public static let missionMessageRevealFraction: Double = 0.30
     public let maxAlpha: CGFloat
     public let escalationDuration: TimeInterval
 

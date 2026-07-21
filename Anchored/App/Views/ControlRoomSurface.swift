@@ -60,8 +60,8 @@ struct ControlRoomSectionHeader: View {
     let accent: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
                 Text(eyebrow.uppercased())
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .tracking(1.4)

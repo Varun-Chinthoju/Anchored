@@ -38,6 +38,8 @@ public struct DimCenterView: View {
     
     public var body: some View {
         ZStack {
+            tapShield
+
             backgroundLayer
 
             VStack(alignment: .leading, spacing: 22) {
@@ -58,6 +60,15 @@ public struct DimCenterView: View {
             timer?.invalidate()
             timer = nil
         }
+    }
+
+    private var tapShield: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture {
+                // Absorb taps on decorative space so they do not fall through to the app behind the overlay.
+            }
+            .accessibilityHidden(true)
     }
 
     private var backgroundLayer: some View {

@@ -7,11 +7,19 @@ class MenuBarController: NSObject, NSMenuDelegate {
     private let sessionStore: SessionStore
     private var settingsWindow: SettingsWindow?
     private var startSessionWindow: StartSessionWindow?
+    private var pendingReviewTarget: ReviewTarget?
+
+    private struct ReviewTarget {
+        let bundleID: String
+        let localizedName: String?
+        let url: URL?
+        let title: String?
+    }
     
     init(focusEngine: FocusEngine, sessionStore: SessionStore = .shared) {
         self.focusEngine = focusEngine
         self.sessionStore = sessionStore
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         
         setupStatusItem()
@@ -53,19 +61,21 @@ class MenuBarController: NSObject, NSMenuDelegate {
     
     private func updateStatusItemIcon() {
         guard let button = statusItem.button else { return }
-        if let image = NSImage(named: "MenuBarIcon") {
-            image.isTemplate = true
-            button.image = image
-        } else {
-            button.image = NSImage(systemSymbolName: "anchor", accessibilityDescription: "Anchored")
-            button.image?.isTemplate = true
-        }
+        let icon = NSImage(systemSymbolName: "anchor.circle.fill", accessibilityDescription: "Anchored")
+            ?? NSImage(named: "MenuBarIcon")
+
+        button.image = icon
+        button.image?.isTemplate = true
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.toolTip = "Anchored"
     }
     
     // MARK: - NSMenuDelegate
-    
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        pendingReviewTarget = makeReviewTarget()
         
         // Status header
         let activeProfileName = ProfileManager.shared.activeProfile.name
@@ -111,6 +121,11 @@ class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(startSessionItem)
         }
         
+        let reviewCurrentItem = NSMenuItem(title: reviewCurrentItemTitle(), action: #selector(reviewCurrentItemAsProductiveClicked), keyEquivalent: "")
+        reviewCurrentItem.target = self
+        reviewCurrentItem.isEnabled = pendingReviewTarget != nil
+        menu.addItem(reviewCurrentItem)
+        
         let profileHeaderItem = NSMenuItem(title: "Active Profile: \(activeProfileName)", action: nil, keyEquivalent: "")
         profileHeaderItem.isEnabled = false
         menu.addItem(profileHeaderItem)
@@ -153,7 +168,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
         switchProfileItem.submenu = submenu
         menu.addItem(switchProfileItem)
         
-        let dashboardItem = NSMenuItem(title: "Open Captain's Log...", action: #selector(openDashboard), keyEquivalent: "d")
+        let dashboardItem = NSMenuItem(title: "Open Analytics...", action: #selector(openDashboard), keyEquivalent: "d")
         dashboardItem.target = self
         menu.addItem(dashboardItem)
         
@@ -180,6 +195,27 @@ class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc func forceDimClicked() {
         focusEngine.forceImmediateDim()
+    }
+
+    @objc func reviewCurrentItemAsProductiveClicked() {
+        let reviewTarget = pendingReviewTarget ?? makeReviewTarget()
+        pendingReviewTarget = nil
+
+        guard let reviewTarget, reviewTarget.bundleID != "com.varun.Anchored" else {
+            presentNoCurrentItemAlert()
+            return
+        }
+
+        focusEngine.reviewItemAsProductive(
+            bundleID: reviewTarget.bundleID,
+            localizedName: reviewTarget.localizedName,
+            url: reviewTarget.url,
+            title: reviewTarget.title
+        ) { [weak self] review in
+            DispatchQueue.main.async {
+                self?.presentProductiveReviewAlert(review: review, target: reviewTarget)
+            }
+        }
     }
     
     @objc private func editDistractionList() {
@@ -262,5 +298,117 @@ class MenuBarController: NSObject, NSMenuDelegate {
     
     @objc func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+
+    private func presentNoCurrentItemAlert() {
+        let alert = NSAlert()
+        alert.messageText = "No Current Item"
+        alert.informativeText = "Anchored does not have a visible app or window to review right now."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func makeReviewTarget() -> ReviewTarget? {
+        if let context = focusEngine.currentContext,
+           context.bundleIdentifier != "com.varun.Anchored" {
+            return ReviewTarget(
+                bundleID: context.bundleIdentifier,
+                localizedName: context.localizedName,
+                url: focusEngine.currentURL,
+                title: context.title
+            )
+        }
+
+        guard let bundleID = focusEngine.currentApp ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+              bundleID != "com.varun.Anchored" else {
+            return nil
+        }
+
+        return ReviewTarget(
+            bundleID: bundleID,
+            localizedName: focusEngine.currentContext?.localizedName,
+            url: focusEngine.currentURL,
+            title: focusEngine.currentContext?.title ?? focusEngine.currentTitle
+        )
+    }
+
+    private func presentProductiveReviewAlert(
+        review: ProductiveCorrectionReview,
+        target: ReviewTarget
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Review Current Item"
+        alert.informativeText = review.message
+
+        let choices: [(title: String, scope: ProductiveCorrectionScope)] = {
+            switch review.recommendedScope {
+            case .app:
+                return [("Mark This App as Productive", .app)]
+            case .website:
+                return [("Mark This Website as Productive", .website)]
+            case .page:
+                var options: [(title: String, scope: ProductiveCorrectionScope)] = [("This Page Is Related to My Focus", .page)]
+                if review.canUseWebsiteScope {
+                    options.append(("This Website Is Productive", .website))
+                }
+                return options
+            }
+        }()
+
+        for choice in choices {
+            alert.addButton(withTitle: choice.title)
+        }
+        alert.addButton(withTitle: "Cancel")
+
+        let response = alert.runModal()
+        let selectedScope: ProductiveCorrectionScope?
+        switch response {
+        case .alertFirstButtonReturn:
+            selectedScope = choices.first?.scope
+        case .alertSecondButtonReturn:
+            selectedScope = choices.dropFirst().first?.scope
+        default:
+            selectedScope = nil
+        }
+
+        guard let selectedScope else { return }
+
+        switch selectedScope {
+        case .app:
+            focusEngine.applyCorrection(.allowApp, bundleID: target.bundleID, url: target.url, title: target.title)
+        case .website:
+            focusEngine.applyCorrection(.allowDomain, bundleID: target.bundleID, url: target.url, title: target.title)
+        case .page:
+            let snapshot = ContextSnapshot(
+                bundleIdentifier: target.bundleID,
+                localizedName: target.localizedName ?? focusEngine.currentContext?.localizedName ?? target.bundleID,
+                url: target.url,
+                title: target.title ?? "",
+                source: BrowserStrategyFactory.isSupportedBrowser(target.bundleID)
+                    ? (target.bundleID == "com.apple.Safari" ? .safari : .chromium)
+                    : .application,
+                observedAt: Date()
+            )
+            focusEngine.applyPageScopedProductive(snapshot: snapshot)
+        }
+    }
+
+    private func reviewCurrentItemTitle() -> String {
+        guard let reviewTarget = pendingReviewTarget ?? makeReviewTarget() else {
+            return "Review Current Item"
+        }
+
+        switch ContextualSiteHeuristic.reviewScope(
+            for: reviewTarget.bundleID,
+            url: reviewTarget.url,
+            title: reviewTarget.title ?? ""
+        ) {
+        case .app:
+            return "Mark This App as Productive..."
+        case .website:
+            return "Mark This Website as Productive..."
+        case .page:
+            return "This Page Is Related to My Focus..."
+        }
     }
 }

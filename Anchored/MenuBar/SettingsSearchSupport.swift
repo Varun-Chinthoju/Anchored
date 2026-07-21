@@ -189,7 +189,7 @@ enum SettingsSearchIndex {
             "General",
             "Privacy & Data",
             "Profile",
-            "Captain's Log",
+            "Analytics",
             "About"
         ]
 
@@ -216,7 +216,7 @@ enum SettingsSearchIndex {
                 paneTitle: "General",
                 sectionTitle: settingsCopy("Focus Behavior", pirate: "Voyage Behavior", isPirateMode: isPirateMode),
                 title: settingsCopy("Focus Threshold", pirate: "Voyage Threshold", isPirateMode: isPirateMode),
-                detail: settingsCopy("How long you must focus before the session starts.", pirate: "How long ye must sail before dropping anchor.", isPirateMode: isPirateMode),
+                detail: settingsCopy("Start a focus session after continuously working for this long.", pirate: "Start a focus session after continuously workin' fer this long.", isPirateMode: isPirateMode),
                 aliases: ["focus", "threshold", "automatic focus"],
                 route: .general(.generalFocusBehavior)
             ),
@@ -224,7 +224,7 @@ enum SettingsSearchIndex {
                 paneTitle: "General",
                 sectionTitle: settingsCopy("Focus Behavior", pirate: "Voyage Behavior", isPirateMode: isPirateMode),
                 title: settingsCopy("Distraction Warning Countdown", pirate: "Siren Warning Countdown", isPirateMode: isPirateMode),
-                detail: settingsCopy("Seconds allowed on a distraction app before the screen dims.", pirate: "Seconds on a distraction app before the fog dims yer screen.", isPirateMode: isPirateMode),
+                detail: settingsCopy("Wait this long before dimming after a distraction is detected.", pirate: "Wait this long before dimming after a distraction is detected.", isPirateMode: isPirateMode),
                 aliases: ["countdown", "warning", "dim"],
                 route: .general(.generalFocusBehavior)
             ),
@@ -248,7 +248,7 @@ enum SettingsSearchIndex {
                 paneTitle: "General",
                 sectionTitle: settingsCopy("Focus Behavior", pirate: "Voyage Behavior", isPirateMode: isPirateMode),
                 title: settingsCopy("Dim Transition Duration", pirate: "Fog Roll-in Duration", isPirateMode: isPirateMode),
-                detail: settingsCopy("The time it takes to reach full screen dimming.", pirate: "How fast the fog takes over yer screens.", isPirateMode: isPirateMode),
+                detail: settingsCopy("How quickly the dim overlay reaches its selected level.", pirate: "How quickly the dim overlay reaches its selected level.", isPirateMode: isPirateMode),
                 aliases: ["transition", "dim", "animation"],
                 route: .general(.generalFocusBehavior)
             ),
@@ -400,7 +400,7 @@ enum SettingsSearchIndex {
                 paneTitle: "General",
                 sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
                 title: settingsCopy("Local Productivity Check", pirate: "Local Productivity Check", isPirateMode: isPirateMode),
-                detail: settingsCopy("Runs a fully on-device text scorer over the bundle ID, title, URL, and visible OCR text. Turning this on disables cloud AI. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a fully on-deck text scorer over the bundle, title, URL, and visible OCR text. Turning this on disables cloud AI. Only strong productive results may clear a neutral sight; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
+                detail: settingsCopy("Runs a fully on-device text scorer over the bundle ID, title, URL, and visible OCR text. Turning this on disables cloud AI. Mixed-use pages can stay contextual until repeated page-specific corrections raise confidence; blocked rules still win. Disabled by default.", pirate: "Runs a fully on-deck text scorer over the bundle, title, URL, and visible OCR text. Turning this on disables cloud AI. Mixed-use pages can stay contextual until repeated page-specific corrections raise confidence; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
                 aliases: ["local", "text", "productivity"],
                 route: .general(.generalSystem)
             ),
@@ -482,7 +482,7 @@ enum SettingsSearchIndex {
                 paneTitle: "Privacy & Data",
                 sectionTitle: settingsCopy("Classification Feedback", pirate: "Classification Feedback", isPirateMode: isPirateMode),
                 title: settingsCopy("Save Corrections Locally", pirate: "Save Corrections Locally", isPirateMode: isPirateMode),
-                detail: settingsCopy("Stores only app IDs, domains, labels, and correction types. Titles, full URLs, OCR, screenshots, and raw events are never stored.", pirate: "Stores only safe labels and routes. No titles, full URLs, sights, or raw events are kept.", isPirateMode: isPirateMode),
+                detail: settingsCopy("Stores only coarse, privacy-safe correction data: normalized domain, page category, intent category, decision, and timestamp. Titles, full URLs, OCR, screenshots, and raw events are never stored.", pirate: "Stores only coarse, privacy-safe correction data: normalized domain, page category, intent category, decision, and timestamp. Titles, full URLs, OCR, screenshots, and raw events are never stored.", isPirateMode: isPirateMode),
                 aliases: ["feedback", "corrections", "privacy"],
                 route: .privacy(.privacyClassificationFeedback)
             ),
@@ -498,7 +498,7 @@ enum SettingsSearchIndex {
                 paneTitle: "Privacy & Data",
                 sectionTitle: settingsCopy("Classification Feedback", pirate: "Classification Feedback", isPirateMode: isPirateMode),
                 title: settingsCopy("Saved Corrections", pirate: "Saved Corrections", isPirateMode: isPirateMode),
-                detail: settingsCopy("Correction examples are automatically pruned with the selected retention period.", pirate: "Correction examples follow the selected retention horizon.", isPirateMode: isPirateMode),
+                detail: settingsCopy("Correction examples and page-scoped learning records are automatically pruned with the selected retention period.", pirate: "Correction examples and page-scoped learning records are automatically pruned with the selected retention horizon.", isPirateMode: isPirateMode),
                 aliases: ["corrections", "feedback", "privacy"],
                 route: .privacy(.privacyClassificationFeedback)
             ),
@@ -561,11 +561,11 @@ enum SettingsSearchIndex {
                 route: .profile(.profileDistractionApps)
             ),
 
-            // Captain's Log
+            // Analytics
             result(
-                paneTitle: "Captain's Log",
+                paneTitle: "Analytics",
                 sectionTitle: settingsCopy("Analytics", pirate: "Analytics", isPirateMode: isPirateMode),
-                title: settingsCopy("Captain's Log", pirate: "Captain's Log", isPirateMode: isPirateMode),
+                title: settingsCopy("Analytics", pirate: "Analytics", isPirateMode: isPirateMode),
                 detail: settingsCopy("Open analytics, recent sessions, and app breakdowns.", pirate: "Open analytics, recent voyages, and app breakdowns.", isPirateMode: isPirateMode),
                 aliases: ["analytics", "dashboard", "logs", "reports"],
                 route: .captainsLog

@@ -269,8 +269,24 @@ struct MenuBarPopoverView: View {
                 decision: viewModel.currentClassification,
                 hasCurrentDomain: viewModel.focusEngine.currentURL?.host != nil,
                 hasActiveSession: viewModel.activeSession != nil,
+                hasCurrentApp: viewModel.currentAppBundleID != nil,
+                reviewActionTitle: viewModel.productiveReviewActionTitle,
+                productiveCorrectionState: viewModel.productiveCorrectionState,
+                domainRuleSuggestion: viewModel.currentDomainRuleSuggestion,
                 onCorrection: { correction in
                     viewModel.focusEngine.applyCorrection(correction)
+                },
+                onBeginProductiveCorrection: {
+                    viewModel.beginTreatCurrentAppAsProductive()
+                },
+                onChooseProductiveScope: { scope in
+                    viewModel.applyTreatAsProductive(scope: scope)
+                },
+                onCancelProductiveCorrection: {
+                    viewModel.cancelTreatAsProductive()
+                },
+                onApplyDomainRuleSuggestion: {
+                    viewModel.applyDomainRuleSuggestion()
                 }
             )
             
@@ -480,12 +496,49 @@ private struct ClassificationExplanationCard: View {
     let decision: ClassificationDecision
     let hasCurrentDomain: Bool
     let hasActiveSession: Bool
+    let hasCurrentApp: Bool
+    let reviewActionTitle: String
+    let productiveCorrectionState: ProductiveCorrectionState
+    let domainRuleSuggestion: String?
     let onCorrection: (ClassificationCorrection) -> Void
+    let onBeginProductiveCorrection: () -> Void
+    let onChooseProductiveScope: (ProductiveCorrectionScope) -> Void
+    let onCancelProductiveCorrection: () -> Void
+    let onApplyDomainRuleSuggestion: (() -> Void)?
+
+    init(
+        decision: ClassificationDecision,
+        hasCurrentDomain: Bool,
+        hasActiveSession: Bool,
+        hasCurrentApp: Bool,
+        reviewActionTitle: String,
+        productiveCorrectionState: ProductiveCorrectionState,
+        domainRuleSuggestion: String? = nil,
+        onCorrection: @escaping (ClassificationCorrection) -> Void,
+        onBeginProductiveCorrection: @escaping () -> Void,
+        onChooseProductiveScope: @escaping (ProductiveCorrectionScope) -> Void,
+        onCancelProductiveCorrection: @escaping () -> Void,
+        onApplyDomainRuleSuggestion: (() -> Void)? = nil
+    ) {
+        self.decision = decision
+        self.hasCurrentDomain = hasCurrentDomain
+        self.hasActiveSession = hasActiveSession
+        self.hasCurrentApp = hasCurrentApp
+        self.reviewActionTitle = reviewActionTitle
+        self.productiveCorrectionState = productiveCorrectionState
+        self.domainRuleSuggestion = domainRuleSuggestion
+        self.onCorrection = onCorrection
+        self.onBeginProductiveCorrection = onBeginProductiveCorrection
+        self.onChooseProductiveScope = onChooseProductiveScope
+        self.onCancelProductiveCorrection = onCancelProductiveCorrection
+        self.onApplyDomainRuleSuggestion = onApplyDomainRuleSuggestion
+    }
 
     private var labelText: String {
         switch decision.label {
         case .productive: return "Productive"
         case .distracting: return "Distracting"
+        case .contextual: return "Contextual"
         case .neutral: return "Neutral"
         }
     }
@@ -496,6 +549,8 @@ private struct ClassificationExplanationCard: View {
         case .explicitBlockRule: return "An explicit block rule matched."
         case .deterministicRule: return "A deterministic rule matched."
         case .deterministicHeuristic: return "A strong local pattern matched."
+        case .contextualMixedUse: return "This page is mixed-use, so Anchored is staying conservative."
+        case .contextualLearning: return "Repeated page-specific corrections are shaping this context."
         case .modelEvidence: return "Optional evidence supports this context."
         case .intentRelated: return "The current context matches the active task intent."
         case .intentEntertainment: return "The current context looks like entertainment."
@@ -545,6 +600,31 @@ private struct ClassificationExplanationCard: View {
             .font(.system(size: 10, weight: .medium, design: .rounded))
             .foregroundColor(PirateTheme.textSecondary)
 
+            if let suggestedDomain = domainRuleSuggestion {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(PirateTheme.gold)
+                            .font(.system(size: 11))
+                        Text("You've approved multiple pages on \(suggestedDomain).")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundColor(PirateTheme.parchment)
+                    }
+                    Button("Add \(suggestedDomain) as Allowed Website Rule") {
+                        onApplyDomainRuleSuggestion?()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                }
+                .padding(8)
+                .background(PirateTheme.gold.opacity(0.12))
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(PirateTheme.gold.opacity(0.4), lineWidth: 1)
+                )
+            }
+
             HStack(spacing: 6) {
                 correctionButton("Allow App", .allowApp)
                 correctionButton("Block App", .blockApp)
@@ -557,6 +637,22 @@ private struct ClassificationExplanationCard: View {
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Button(reviewActionTitle) {
+                    onBeginProductiveCorrection()
+                }
+                .buttonStyle(.borderedProminent)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .disabled(!hasCurrentApp)
+
+                Text("Uses OCR to suggest the safest correction scope for this item.")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundColor(PirateTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                productiveCorrectionChooser
+            }
         }
         .padding(11)
         .background(ControlRoomTheme.footer.opacity(0.72))
@@ -574,6 +670,129 @@ private struct ClassificationExplanationCard: View {
         .buttonStyle(.borderless)
         .font(.system(size: 9, weight: .semibold))
         .foregroundColor(PirateTheme.gold)
+    }
+
+    @ViewBuilder
+    private var productiveCorrectionChooser: some View {
+        switch productiveCorrectionState {
+        case .idle:
+            EmptyView()
+        case .active(let draft):
+            VStack(alignment: .leading, spacing: 8) {
+                if draft.isChecking {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(draft.message)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundColor(PirateTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    Text(draft.message)
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundColor(PirateTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(recommendedScopeLabel(for: draft.recommendedScope))
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .foregroundColor(PirateTheme.gold)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        if draft.recommendedScope == .page {
+                            Button("This Page") {
+                                onChooseProductiveScope(.page)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+
+                            if draft.canUseWebsiteScope {
+                                Button("This Website") {
+                                    onChooseProductiveScope(.website)
+                                }
+                                .buttonStyle(.bordered)
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+
+                            Button("This App") {
+                                onChooseProductiveScope(.app)
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        } else if draft.recommendedScope == .website {
+                            if draft.canUseWebsiteScope {
+                                Button("This Website") {
+                                    onChooseProductiveScope(.website)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+
+                            Button("This Page") {
+                                onChooseProductiveScope(.page)
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+
+                            Button("This App") {
+                                onChooseProductiveScope(.app)
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        } else {
+                            Button("This App") {
+                                onChooseProductiveScope(.app)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+
+                            if draft.canUseWebsiteScope {
+                                Button("This Page") {
+                                    onChooseProductiveScope(.page)
+                                }
+                                .buttonStyle(.bordered)
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+
+                                Button("This Website") {
+                                    onChooseProductiveScope(.website)
+                                }
+                                .buttonStyle(.bordered)
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            }
+                        }
+
+                        Spacer(minLength: 6)
+
+                        Button("Cancel") {
+                            onCancelProductiveCorrection()
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundColor(PirateTheme.textSecondary)
+                    }
+                }
+            }
+            .padding(8)
+            .background(PirateTheme.darkWood.opacity(0.22))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(PirateTheme.border.opacity(0.55), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private func recommendedScopeLabel(for scope: ProductiveCorrectionScope) -> String {
+        switch scope {
+        case .app:
+            return "Recommended: This App"
+        case .website:
+            return "Recommended: This Website"
+        case .page:
+            return "Recommended: This Page"
+        }
     }
 }
 

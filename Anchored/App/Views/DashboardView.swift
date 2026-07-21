@@ -76,7 +76,7 @@ enum DashboardRange: String, CaseIterable, Identifiable {
 
 enum DashboardNavItem: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
-    case logs = "Captain's Log"
+    case logs = "Analytics"
     case charts = "Focus Charts"
     case crew = "Crew & Goals"
     case routes = "Routes"
@@ -89,7 +89,7 @@ enum DashboardNavItem: String, CaseIterable, Identifiable {
         case .dashboard:
             return "square.grid.2x2.fill"
         case .logs:
-            return "book.closed.fill"
+            return "chart.bar.fill"
         case .charts:
             return "chart.xyaxis.line"
         case .crew:
@@ -449,7 +449,7 @@ struct DashboardView: View {
     private var headerRow: some View {
         HStack(alignment: .top) {
             ControlRoomSectionHeader(
-                eyebrow: "Captain's Log",
+                eyebrow: "Analytics",
                 title: "Focus history in one place",
                 subtitle: "Trends, sessions, and distractions stay in the same working surface.",
                 accent: palette.accentColor

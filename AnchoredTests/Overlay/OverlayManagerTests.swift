@@ -11,6 +11,7 @@ final class OverlayManagerTests: XCTestCase {
     private var overlayManager: OverlayManager!
     private var distractionContextCloser: MockDistractionContextCloser!
     private var tempStoreURL: URL!
+    private var previousUserActivityProvider: UserActivityProviding!
     
     override func setUp() {
         super.setUp()
@@ -25,6 +26,8 @@ final class OverlayManagerTests: XCTestCase {
         
         mockActivityMonitor = TestActivityMonitor()
         preferencesManager = PreferencesManager(defaults: testDefaults)
+        previousUserActivityProvider = UserActivityEnvironment.shared
+        UserActivityEnvironment.shared = MockUserActivityProvider()
         
         focusEngine = FocusEngine(
             activityMonitor: mockActivityMonitor,
@@ -61,6 +64,8 @@ final class OverlayManagerTests: XCTestCase {
         try? FileManager.default.removeItem(at: dbURL)
         try? FileManager.default.removeItem(at: walURL)
         try? FileManager.default.removeItem(at: shmURL)
+        UserActivityEnvironment.shared = previousUserActivityProvider
+        previousUserActivityProvider = nil
         
         super.tearDown()
     }

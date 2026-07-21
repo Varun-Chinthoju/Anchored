@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var contextHistoryStore: ContextHistoryStore?
     private var contextHistoryPipeline: ContextHistoryPipeline?
     private var classificationOutcomeStore: ClassificationOutcomeStore?
+    private var contextualLearningStore: ContextualLearningStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -54,7 +55,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             activityMonitor: appSwitchMonitor!,
             distractionListManager: listManager,
             sessionStore: .shared,
-            focusThreshold: prefs.effectiveFocusThreshold
+            focusThreshold: prefs.effectiveFocusThreshold,
+            contextualLearningStore: ContextualLearningStore.shared
         )
         engine.distractionCountdownThreshold = TimeInterval(prefs.countdownDuration)
         focusEngine = engine
@@ -101,6 +103,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         outcomeStore.performLaunchMaintenance(retentionDays: prefs.contextHistoryRetentionDays)
         classificationOutcomeStore = outcomeStore
 
+        let contextualStore = ContextualLearningStore.shared
+        contextualStore.isEnabled = prefs.classificationFeedbackEnabled
+        contextualStore.prune(retentionDays: prefs.contextHistoryRetentionDays)
+        contextualLearningStore = contextualStore
+
         prefs.$contextHistoryEnabled
             .dropFirst()
             .sink { [weak historyStore] enabled in
@@ -126,6 +133,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &preferencesCancellables)
 
+        prefs.$classificationFeedbackEnabled
+            .dropFirst()
+            .sink { [weak contextualStore] enabled in
+                contextualStore?.isEnabled = enabled
+            }
+            .store(in: &preferencesCancellables)
+
         prefs.$contextHistoryEnabled
             .dropFirst()
             .sink { [weak outcomeStore] enabled in
@@ -137,6 +151,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .dropFirst()
             .sink { [weak outcomeStore] enabled in
                 outcomeStore?.isEnabled = enabled || prefs.contextHistoryEnabled
+            }
+            .store(in: &preferencesCancellables)
+
+        prefs.$contextHistoryRetentionDays
+            .dropFirst()
+            .sink { [weak contextualStore] days in
+                contextualStore?.prune(retentionDays: days)
             }
             .store(in: &preferencesCancellables)
 
@@ -242,7 +263,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         voyageMenu.addItem(NSMenuItem.separator())
         
-        let logItem = NSMenuItem(title: "Open Captain's Log...", action: #selector(MenuBarController.openDashboard), keyEquivalent: "d")
+        let logItem = NSMenuItem(title: "Open Analytics...", action: #selector(MenuBarController.openDashboard), keyEquivalent: "d")
         logItem.target = menuBarController
         voyageMenu.addItem(logItem)
         
