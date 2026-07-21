@@ -22,12 +22,13 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - Core runtime loop: `AppSwitchMonitor -> FocusEngine -> OverlayManager/MenuBarController/SessionStore`
 - Current context model: `bundleID + optional URL + title`, surfaced as `AppContext`
 - Work profiles now persist per-profile `allowedApps` alongside distraction apps and domains
-- Focus classification runs through `DistractionEvaluator` evidence and the central `ClassificationResolver`: explicit domains outrank explicit apps, explicit apps outrank heuristics, and unknown contexts remain neutral. FocusEngine consumes one final `ClassificationDecision`; optional local/cloud/visual evidence may only promote a still-neutral context to focus after generation checks. The menu bar exposes a safe explanation and immediate app/domain corrections, while optional interaction summaries only adjust ambiguous productive evidence within a bounded cap.
+- Focus classification runs through `DistractionEvaluator` evidence and the central `ClassificationResolver`: explicit domains outrank explicit apps, explicit apps outrank heuristics, and unknown contexts remain neutral. Mixed-use browser sites (e.g. ChatGPT, Gemini, Reddit, YouTube, Discord) resolve into a contextual state rather than being auto-whitelisted or auto-blocked by default. FocusEngine consumes one final `ClassificationDecision`; optional local/cloud/visual evidence may only promote a still-neutral context to focus after generation checks, while repeated page-specific corrections can raise confidence for the exact normalized-domain + page-category + intent-category bucket through a privacy-safe learning store without modifying whole-site rules. The menu bar exposes a safe explanation and immediate app/domain corrections, while optional interaction summaries only adjust ambiguous productive evidence within a bounded cap.
+- The menu bar also exposes an explicit "Treat This as Productive" action. For contextual mixed-use sites, the primary correction path is page-scoped first, with website-wide approval only as an explicit secondary choice; `MenuBarController` snapshots the current target context when opened so page approvals survive tab changes without over-generalizing into domain-wide rules.
 - Intent-aware tracking now compares a sanitized `FocusIntent` baseline against the current `ContextSnapshot`, and the generated intent-classifier input can include transient on-device screen text when it is safe to capture. During active sessions, high-confidence entertainment/unrelated intent can start the existing countdown grace period, but it still cannot dim immediately. Committed breaks auto-resume only after the user has left work and returned to a related context for 15 seconds.
 - Commitment lock is an app-level policy guard: it forces launch-at-login and the loop breaker on, keeps both quit paths available, and now shows an explicit Unlock action in Settings instead of hiding the only escape path behind the protected controls. It adds a manual Force Dim Now command but never makes the app inescapable.
 - Supported educational browser videos stay neutral unless an explicit rule or stronger intent signal says otherwise.
 - Session-start and dim-return surfaces now auto-suggest a session goal plus profile/category from the current context, so a user can start or resume without typing a summary when the current window/title is clear enough.
-- A persisted focus schedule gate now controls automatic focus behavior by time of day. It supports a work window plus optional lunch break, keeps manual sessions available at any time, and exposes outside-hours status in the menu bar so the app can stay quiet during lunch or after hours.
+- A persisted focus schedule gate now controls automatic focus behavior by time of day. It supports a work window plus optional lunch break, keeps manual sessions available at any time, and exposes outside-hours status in the menu bar so the app can stay quiet during lunch or after hours. The engine now short-circuits automatic context/profile branches before they can start work tracking, countdowns, or auto-promotion outside the window, and wake/resume only re-arms those automatic timers while the schedule remains active.
 - The distraction countdown, committed-break duration, committed-break return grace, doomscroll threshold timer, automatic focus prompt timer, and active-session expiry timer now use injected `OneShotTimerScheduling` seams in `Anchored/Engine/OneShotTimerScheduler.swift`; each scheduled callback carries generation/session/context checks so stale callbacks from a prior entry or superseded candidate cannot dim, resume, auto-start, or end a break against newer state. These six paths can now be cancelled and expired deterministically in tests without wall-clock sleeps. The other engine timers still use the direct `Timer` path for now.
 - `DiagnosticsCenter` now keeps a bounded in-memory buffer of sanitized operational events, and the Privacy & Data pane exposes a `Copy Diagnostic Report` action that copies app version, macOS version, permission state, migration version, enabled subsystem names, and recent safe state/timer events without persisting raw titles, URLs, OCR, typed text, screenshots, browsing history, or API keys.
 - Wave 3 adds `LocalTextClassifier` behind `PreferencesManager.enableLocalTextClassification` (off by default). It receives a sanitized `ContextSnapshot` plus transient on-device visible text from OCR off-main and scores that real context entirely on-device; when enabled, high-confidence productive results may promote the current neutral context. If disabled, local text classification is skipped.
@@ -36,7 +37,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - A private in-memory classification cache (`classificationCache`) in `FocusEngine.swift` stores and reuses classification decisions for the duration of the context (active profile/allowed rule changes clear the cache), preventing redundant executions of local text, cloud, and visual fallbacks on the same context snapshot.
 - The application dynamically updates its `NSApplication` activation policy: it runs as a background-only accessory app (no Dock or Cmd+Tab app switcher icon) by default, but elevates to a regular application (showing the Dock/Cmd+Tab icon) when onboarding, settings, or focus session windows are open.
 - The onboarding focus threshold and distraction countdown remain separate: focus threshold controls session establishment, countdown duration controls the warning countdown, the warning pill can be disabled from Settings, and the user can customize the screen dim level (opacity) and dim transition duration (including support for instant/poff transitions) in PreferencesManager. Music and podcast apps get a longer distraction grace window before dimming. `DimOverlayWindow` now renders a fog-like full-screen overlay, shows the mission warning text for 30% of the dim transition, and then fades it out before `OverlayManager` reveals the dim-center panel at the same 30% point.
-- Automatic focus tracking now runs continuously in the normal runtime: `ShadowTrackingEngine` watches focus context on device, `FocusEngine` auto-anchors a session once the focus threshold is reached, and `SmartNudgeManager` only adds an optional local notification when auto-focus starts
+- Automatic focus tracking now runs continuously in the normal runtime: `ShadowTrackingEngine` watches focus context on device, `FocusEngine` only auto-anchors a session once the focus threshold is reached and the current work streak has at least two corroborating positive sources, and `SmartNudgeManager` only adds an optional local notification when auto-focus starts
 - Context history now persists sanitized observations into a dedicated `context_observations` table through `ContextHistoryPipeline` and `ContextHistoryStore`
 - `PreferencesManager.selectedThemeID` drives the active palette, with the default `baldr` theme now presented as the warm walnut, brass, and parchment `Heritage` palette
 - `PreferencesManager.focusSchedule` persists the scheduled focus window and optional lunch break as JSON in `UserDefaults`, and `focusScheduleDidChange` tells the engine when the active window flips.
@@ -44,7 +45,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
 - The entire user-facing app is now unified under the dark warm control-room aesthetic with glowing background overlays, matching the dashboard, and the user-facing Appearance chooser has been removed from Settings
 - Major architectural pressure in V2.6 resolved: context collection reliable/async, privacy-aware, test seams injection-based — `NSClassFromString` removed from production, replaced by `WindowTextExtracting`/`VisualProductivityChecking` providers in FocusEngine, `FreshInstallChecking` in AppDelegate, `useMockOnly` flag in KeychainHelper, session injection in CloudClassifier.
 - Storage now has versioned GRDB migration path v1-v4, URL/title sanitization via `ContextSanitizer`, opt-in `context_observations` with retention/pruning/count/oldest in `ContextHistoryStore`, and explicit main-thread warnings + async wrappers in `SessionStore`/`SQLiteSessionStore`.
-- Dashboard analytics primary API is async `DashboardQuerying` (fetchRangeSummary/topDistractions/earliestDate/focusTimePerHour) off-main via `performDashboardQuery` with generation-checked load states; legacy sync tuple methods deprecated with main-thread warnings. Analytics month-to-date is anchored to first session, with the all-time summary below the fold.
+- Dashboard analytics primary API is async `DashboardQuerying` (fetchRangeSummary/topDistractions/earliestDate/focusTimePerHour) off-main via `performDashboardQuery` with generation-checked load states; legacy sync tuple methods deprecated with main-thread warnings. `MenuBarViewModel` now refreshes the latest completed session together with stats so the dashboard does not freeze an empty latest-session card after the first read. Analytics month-to-date is anchored to first session, with the all-time summary below the fold, and distraction-host grouping normalizes common aliases like `www.`, `m.`, `mobile.`, `amp.`, and browser `newtab` labels before ranking.
 - `MenuBarController` routes Analytics into `SettingsWindow`; `SettingsView.swift` embeds `DashboardView.swift` without standalone sidebar; analytics, profiles, focus apps, preferences share one window.
 - Settings sidebar no longer exposes separate Stats/Hourglass or Analytics/legacy reporting destinations; Analytics is the single reporting surface; Privacy & Data pane now exists with context-history controls, classification-feedback and interaction-summary opt-ins, retention/clear controls, observation count/oldest async, and Cloud AI toggle co-located.
 - `Anchored/App/Views/ControlRoomSurface.swift` holds reusable shell/card/footer primitives; dashboard uses `ControlRoomShellBackground` warm dark, no pitch-black fallback; Appearance chooser removed.
@@ -70,7 +71,7 @@ It is intentionally opinionated and file-oriented so you do not need to search t
   - `DashboardView.swift` composes the dashboard shell and cards.
   - `ControlRoomSurface.swift` provides the shared background/card/footer primitives for the new control-room visual language.
 - `Anchored/MenuBar/`
-  - Status item, popover/menu behavior, settings window, dashboard window, start-session window.
+  - Status item, popover/menu behavior, settings window, dashboard window, start-session window, and the OCR-backed productive-verification action with browser/site snapshotting.
 - `Anchored/Engine/`
   - Focus tracking, app/browser context collection, classification resolution, history pipeline, profile logic, nudges, URL matching.
 - `Anchored/Models/`
@@ -102,12 +103,13 @@ It currently:
 1. Delegates fresh-install detection to `FreshInstallChecking` (`LiveFreshInstallChecker` with `FileManager` + `appPathProvider` closure), removing `NSClassFromString` sniffing. `shouldShowOnboardingFlow` delegates to checker; tests inject `FlagOnlyChecker`.
 2. On completion, instantiates:
    - `AppSwitchMonitor` (2.5s poll, sleep/wake/lock suspend/resume, ContextIdentity dedup)
-   - `FocusEngine` with injected `LiveOCRProvider` (`WindowTextExtracting`), `LiveVisualProductivityChecker` (`VisualProductivityChecking`), and optional `ContextClassifying` local text runtime that can consume transient visible OCR text
+   - `FocusEngine` with injected `LiveOCRProvider` (`WindowTextExtracting`), `LiveVisualProductivityChecker` (`VisualProductivityChecking`), `ContextualLearningStore.shared`, and optional `ContextClassifying` local text runtime that can consume transient visible OCR text
    - `OverlayManager`
    - `MenuBarController`
    - `ShadowTrackingEngine`
    - `SmartNudgeManager`
    - `ContextHistoryStore.shared` with `isEnabled = prefs.contextHistoryEnabled` and `performLaunchMaintenance(retentionDays:)` from prefs
+   - `ContextualLearningStore.shared` with `isEnabled = prefs.classificationFeedbackEnabled` and retention pruning from prefs
    - `ContextHistoryPipeline` listening `.focusEngineContextDidChange`
    - `ClassificationFeedbackStore.shared` with the feedback opt-in and retention maintenance wired from preferences
 3. Wires `ShadowTrackingEngine` and `SmartNudgeManager` into live focus runtime; auto-focus always active, `FocusEngine` auto-anchors the tracked focus run at threshold, and nudges only gate notification.
@@ -214,6 +216,8 @@ Responsibilities:
 - resolves `DistractionEvaluator` evidence through `ClassificationResolver`, then coordinates state transitions from the final decision; it does not own rule precedence
 - publishes the current safe `ClassificationDecision` to the menu bar and applies corrections through `ProfileManager`, recording only opt-in structured feedback
 - passes an opt-in, memory-only `InteractionSummary` to the resolver; the bounded modifier cannot override explicit rules
+- verifies the currently selected app or browser page as productive on demand by snapshotting the menu target, running transient OCR through the local text classifier, rejecting sensitive contexts and stale results, and then reusing the existing `markSessionProductive` or website-allow correction path when the result is confident enough
+- keeps mixed-use browser domains contextual by default: `ContextualSiteHeuristic` identifies pages like ChatGPT, Reddit, YouTube, and Discord; page-scoped approvals record only coarse privacy-safe domain/page/intent data; and repeated consistent page corrections can later raise confidence without creating a broad allow rule
 - runs the opt-in local text classifier off-main against a sanitized snapshot plus transient visible OCR text; generation/current-context checks protect the promotion callback
 - schedules the optional pipeline in order: local text, then cloud structured evidence, then the explicitly enabled visual fallback; generation checks discard stale results and only a productive result can promote the current neutral context to focus through the resolver
 - uses `OneShotTimerScheduling` for the distraction countdown, committed-break duration, committed-break return grace, doomscroll threshold, focus prompt, and active-session expiry paths; `Anchored/Engine/OneShotTimerScheduler.swift` owns the live one-shot `Timer` wrapper while tests inject manual schedulers to fire or cancel the pending callbacks deterministically, and the engine tags each scheduled timer with generation plus session/context identity checks so stale callbacks are ignored even if the same bundle re-enters or a later return supersedes the first candidate
@@ -223,6 +227,7 @@ Responsibilities:
 - builds a sanitized `FocusIntent` baseline from the session goal plus starting context, then runs an intent-relative local classifier that can keep distractions in the countdown grace path without letting them dim immediately
 - exposes `forceImmediateDim()` for the manual force-dim hotkey/menu action; it logs the escalation request and hands the immediate-dim request to the overlay delegate without waiting for the countdown
 - honors the persisted focus schedule gate: outside the configured window it suppresses automatic prompts, countdowns, doomscroll escalation, and shadow tracking, then restores those timers when the schedule opens again
+- short-circuits schedule-off context/profile changes before they can start new work tracking, auto-promote a focus context, or spawn distraction/doomscroll timers; the engine emits `schedule_gate_suppressed_automatic_behavior` when that happens
 - owns the committed-break duration timer: accepted breaks stay active for 2 minutes before entering break review, and the review callback is now generation-checked through the shared one-shot scheduler seam
 - owns the committed-break return grace timer: after the user leaves work and comes back, a stable related context for 15 seconds resumes the paused session through the existing break-review resume path
 - creates `sessionStart`, `distractionDetected`, `escalationTriggered`, `sessionEnd`
@@ -255,6 +260,7 @@ State invariants:
 
 - `activeSession != nil` => `.anchored`, `workSessionStart != nil && activeSession==nil` => `.watching`
 - distraction countdown/dimming only during anchored
+- schedule-off windows never start or extend automatic focus tracking, distraction grace, or doomscroll enforcement, even if the user is still inside an anchored manual session
 - committed breaks resume only after a stable related work return or explicit break-review completion; simply staying on the work app after requesting a break does not auto-resume
 - `lastWorkAppBundleID` last focus context reused for logging
 - `currentContext` latest raw, `PersistedContextObservation` sanitized copy
@@ -269,13 +275,17 @@ Files to read:
 - `Anchored/Engine/FocusIntentClassifier.swift` (local intent-relative classifier)
 - `Anchored/Engine/DistractionEvaluator.swift` (profile rules and conservative browser/app evidence producers)
 - `Anchored/Engine/ClassificationResolver.swift` (central evidence precedence and conservative final decision)
+- `Anchored/Engine/ContextualSiteHeuristic.swift` (mixed-use browser heuristics and page-scope suggestions)
 - `Anchored/Models/ClassificationResult.swift` (`ClassificationEvidence`, `ClassificationDecision`, safe reasons, policy ranks)
 - `Anchored/Models/FocusIntent.swift` (sanitized intent/baseline input and intent-relative result types)
+- `Anchored/Models/ContextualLearning.swift` (privacy-safe contextual learning record and coarse page/intent categories)
 - `Anchored/Models/ClassificationOutcome.swift` (structured persistence for context/classification history)
 - `Anchored/Models/ClassificationFeedback.swift` + `Anchored/Storage/ClassificationFeedbackStore.swift` (sanitized opt-in corrections, clearable and retention-pruned)
+- `Anchored/Storage/ContextualLearningStore.swift` (privacy-safe page-scoped correction history for mixed-use domains)
 - `Anchored/Models/InteractionSummary.swift` (memory-only idle/foreground aggregates and bounded interaction buckets)
 - `Anchored/Engine/LocalTextClassifier.swift` (versioned opt-in on-device text scorer over sanitized snapshot + OCR text)
-- `Anchored/App/StartSessionWindow.swift` and `Anchored/MenuBar/MenuBarPopoverView.swift` (auto-suggested session profile/goal defaults)
+- `Anchored/App/StartSessionWindow.swift` and `Anchored/MenuBar/MenuBarPopoverView.swift` (auto-suggested session profile/goal defaults and OCR-backed productive correction scope chooser)
+- `Anchored/MenuBar/MenuBarViewModel.swift` (popover state coordination for current app tracking and correction guidance)
 - `Anchored/Overlay/DimCenterView.swift`, `Anchored/Overlay/DimCenterPanel.swift`, and `Anchored/Overlay/OverlayManager.swift` (suggested return-to-work label prefill)
 - `Anchored/Overlay/DimOverlayWindow.swift` (fog overlay, mission-warning phase, and dim transition host)
 - `Anchored/Storage/PreferencesManager.swift` (warning pill and dim timing preferences)
@@ -402,6 +412,7 @@ Responsibilities:
 - Legacy sync tuple methods deprecated with `warnIfMainThread` warnings, now private compute helpers (`computeTodayTotalFocusTime`, etc.) without nested queue.sync
 - `DashboardDataModel.refresh` generation-guarded, chains earliestDate → parallel range summaries + top distractions + hourly/daily, discarding stale generations
 - `TopDistractionsPanel` shows `Loadable` loading/error/empty states, `TidalWaveChartView` already had Loadable + requestGeneration
+- top-distraction aggregation normalizes common browser host variants before grouping, so `www.youtube.com`, `m.youtube.com`, and `newtab`-style labels collapse into one user-facing source
 
 This file reconstructs analytics from event streams, never SQLite on main in new API.
 
@@ -451,7 +462,7 @@ Architecture notes:
 - `@Published` state is live-wired into the engine from `AppDelegate`
 - launch-at-login behavior is abstracted behind `LoginItemService` for tests
 - theme selection persists through `UserDefaults` and resolves through `ThemeCatalog`
-- a hidden `focusThresholdOverride` defaults key can temporarily shorten the live engine threshold without changing the persisted picker value
+- a hidden runtime opt-in (`ANCHORED_ENABLE_RUNTIME_FOCUS_THRESHOLD_OVERRIDE=1` plus the `focusThresholdOverride` defaults key) can temporarily shorten the live engine threshold without changing the persisted picker value; stale stored values are ignored unless that launch-time flag is present
 - when commitment lock is enabled, `launchAtLogin` and `enableDoomscrollLoopBreaker` are forced back on, both app quit paths remain available as an emergency escape, and Settings shows an explicit Unlock action for the lock itself
 - `focusPromptExperimentEnabled` is retained as a legacy rollout preference, but the shipped runtime no longer branches on it
 - `focusScheduleDidChange` tells the live engine when the configured schedule moves between active and inactive windows
@@ -542,7 +553,7 @@ Own:
 
 - the Analytics surface embedded in settings
 - the optional standalone sidebar, range selector, trend chart, distraction list, focus score, month-to-date summary cards, and all-time summary card
-- local data loading for focus trends, top distractions, range summaries, and all-time summaries via `MenuBarViewModel`, `DashboardQuerying`, and `SQLiteSessionStore`
+- local data loading for focus trends, top distractions, range summaries, latest-session freshness, and all-time summaries via `MenuBarViewModel`, `DashboardQuerying`, and `SQLiteSessionStore`
 
 They depend on:
 
@@ -601,7 +612,7 @@ It also stops shadow accumulation when the focus schedule is outside its active 
 
 #### `Anchored/Engine/SmartNudgeManager.swift`
 
-Auto-anchors a session after the onboarding-selected shadow threshold and sends a local notification only when smart nudges are enabled.
+Auto-anchors a session after the onboarding-selected shadow threshold only when the current work streak has at least two corroborating positive sources, and sends a local notification only when smart nudges are enabled.
 
 Architectural note:
 
@@ -635,8 +646,8 @@ This is functional but makes deterministic testing and async context collection 
 These come from both the code and repo rules. Future changes should preserve them unless a plan explicitly replaces them.
 
 - `FocusEngine` state transitions are architectural invariants; no `NSClassFromString` in production, no semaphore blocking main, no SQLite on main.
-- Auto-focus and shadow tracking stay on device; `ShadowTrackingEngine` and the threshold timer can start sessions, while `SmartNudgeManager` only adds notification side effects.
-- The persisted focus schedule gate only controls automatic behavior; it should quiet the app outside the configured window without removing manual session affordances.
+- Auto-focus and shadow tracking stay on device; `ShadowTrackingEngine` and the threshold timer can start sessions only after the current work streak has at least two corroborating positive sources, while `SmartNudgeManager` only adds notification side effects.
+- The persisted focus schedule gate only controls automatic behavior; schedule-off windows may keep a manual session alive, but they must not start or extend automatic focus tracking, distraction grace, or doomscroll enforcement.
 - Browser support registered through `BrowserStrategyFactory`; AppleEventExecutor serial queue 750ms discard-late.
 - SQL belongs in `SQLiteSessionStore.swift` or `DashboardQueries.swift` only.
 - `PersistedContextObservation` and `SessionEvent.persistedCopy()` sanitize URLs (creds/queries/fragments stripped, titles collapsed/capped) before persistence.
@@ -646,6 +657,7 @@ These come from both the code and repo rules. Future changes should preserve the
 - Accessibility permission loss degrades gracefully, stops privileged polling on `.permissionDenied`, suspend/resume on sleep/wake/lock/unlock, never crash.
 - Sleep and a locked user session freeze focus duration, break duration, and enforcement countdowns; wake/unlock resumes only the remaining active time.
 - Profile `allowedApps`/allowedDomains are explicit positive focus signals; domain rules outrank app rules, and unknown native/browser contexts remain neutral rather than starting focus tracking.
+- Mixed-use browser domains remain contextual by default; page-scoped approvals may increase confidence for the exact normalized-domain + page-category + intent-category bucket, but they never become broad domain allow rules unless the user explicitly chooses website-wide approval.
 - Classification corrections add an explicit app/domain rule immediately and remove the opposite rule for the same target; invalid domain corrections are rejected.
 - Classification feedback is disabled by default and never stores titles, full URLs, OCR, screenshots, typed text, coordinates, or raw interaction events. Interaction summaries are disabled by default, use only bounded in-memory aggregates, and are never persisted.
 - Local text classification is disabled by default, runs off-main, reads only the sanitized snapshot identity, and cannot enforce distraction. If disabled via `PreferencesManager.enableLocalTextClassification`, it is skipped entirely. Low-confidence/conflicting results remain neutral; only a high-confidence productive result can enter the existing neutral-only promotion path.
@@ -658,7 +670,7 @@ These come from both the code and repo rules. Future changes should preserve the
 - Commitment lock never disables `Quit Anchored` in either the status-item menu or the application menu, and `applicationShouldTerminate` always permits termination so a permission panel or dim overlay cannot trap the user.
 - The onboarding permission step also exposes a visible `Quit Anchored` action so users can quit, grant Screen Recording or Accessibility in System Settings, and reopen without relying on a menu-bar path.
 - `DimOverlayWindow` remains click-through and never captures input, even while the fog treatment and mission-warning phase are active.
-- The automatic focus start gate uses `PreferencesManager.effectiveFocusThreshold`, while automatic sessions use `PreferencesManager.automaticSessionDuration` (default 25 minutes). `focusThresholdOverride` affects only the gate and never the anchored session duration.
+- The automatic focus start gate uses `PreferencesManager.effectiveFocusThreshold`, while automatic sessions use `PreferencesManager.automaticSessionDuration` (default 25 minutes). The hidden override affects only the gate when explicitly opted in and never changes the anchored session duration.
 - User-authored session summaries are local-only, normalized for control characters, capped at `CommitmentPolicy.maximumSessionSummaryLength`, and stored only in `sessions.sessionSummary`; empty or oversized values are omitted. Summary edit/clear helpers live at the SQLite boundary.
 - Commitment policy refuses Break before 30 minutes of net focus unless bypassed (e.g. via overlay buttons), permits a two-minute memory-only break at or after that threshold, permits Done at any active-session duration, and schedules weekly review delivery for Sunday at 8:00 AM local time. Break review identities include the session and context generation so stale results can be discarded.
 - Weekly review aggregates contain counts and durations only; written summaries and break intentions are not included in notifications, cloud inputs, screenshots, OCR, context history, or logs.
@@ -689,7 +701,7 @@ These come from both the code and repo rules. Future changes should preserve the
 
 Read this section before implementing anything from `/private/tmp/anchored-plans-external/anchored-v2.6-plan.md`.
 
-### Planned architectural additions — status 2026-07-12 (P0-P1 hardened, Wave 4 complete, tests 203 green)
+### Planned architectural additions — status 2026-07-20 (P0-P1 hardened, Wave 4 complete, tests 203 green)
 
 V2.6 core pipeline + BYOK + privacy + dashboard async all landed and hardened:
 
@@ -702,6 +714,7 @@ V2.6 core pipeline + BYOK + privacy + dashboard async all landed and hardened:
 - Dashboard async: `DashboardQueries` primary async `fetchRangeSummary`/`fetchTopDistractions`/`fetchEarliest...` via `performDashboardQuery` off-main, sync deprecated with main warnings, `DashboardDataModel` generation-guarded, `TopDistractionsPanel` + `TidalWaveChartView` Loadable states ✅
 - `ControlRoomSurface` shell/card/footer primitives, warm dark control-room unified, Appearance chooser removed ✅
 - FocusEngine: `WindowTextExtracting`/`LiveOCRProvider`, `VisualProductivityChecking`/`LiveVisualProductivityChecker`, no `NSClassFromString`, no semaphore, ordered local/cloud/visual fallback pipeline, no OCR in cloud requests, only productive neutral-context promotion, break-return grace that auto-resumes after a stable related work return, and privacy-safe diagnostics events for state transitions, timers, workspace changes, permissions, and sanitized classification outcomes ✅
+- Contextual mixed-use site handling: `ContextualSiteHeuristic` keeps ChatGPT/Reddit/YouTube/Discord-style pages contextual by default, `ContextualLearningStore` persists only coarse privacy-safe normalized-domain + page-category + intent-category learning records, and page-scoped corrections can improve the exact bucket without creating a broad domain rule ✅
 - Intent-aware runtime: `FocusIntent`/`FocusIntentClassifier` keep task-intent comparison local and sanitized; high-confidence entertainment/unrelated results can enter the existing countdown grace path but never dim immediately ✅
 - AppDelegate: `FreshInstallChecking`/`LiveFreshInstallChecker` with FileManager + appPathProvider injection, no XCTest sniffing ✅
 - `Anchored/Engine/DiagnosticsCenter.swift` owns the bounded in-memory diagnostics buffer, sanitized report formatting, and clipboard copy helper used by Settings and FocusEngine diagnostics hooks ✅
@@ -765,6 +778,7 @@ Remaining V2.6 follow-ups: Task 10 full singleton-free test isolation (remove al
 - `Anchored/Storage/PreferencesManager.swift`
 - `AnchoredTests/Engine/`
 - `AnchoredTests/Storage/`
+- `AnchoredTests/Storage/DashboardQueriesTests.swift`
 
 ### Expected seam changes
 
@@ -782,10 +796,13 @@ Read:
 - `docs/architecture/anchored-architecture.md`
 - `Anchored/Engine/FocusEngine.swift`
 - `Anchored/Engine/FocusIntentClassifier.swift`
+- `Anchored/Engine/ContextualSiteHeuristic.swift`
 - `Anchored/Engine/OneShotTimerScheduler.swift`
 - `Anchored/Models/FocusIntent.swift`
+- `Anchored/Models/ContextualLearning.swift`
 - `Anchored/Engine/ShadowTrackingEngine.swift`
 - `Anchored/Storage/InstalledAppSuggestionProvider.swift`
+- `Anchored/Storage/ContextualLearningStore.swift`
 - `Anchored/Storage/PreferencesManager.swift`
 - `Anchored/Storage/ClassificationOutcomeStore.swift`
 - `AnchoredTests/Engine/FocusEngineTests.swift`

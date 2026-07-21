@@ -62,6 +62,22 @@ test -d "$BUILT_APP"
 /bin/rm -rf "$INSTALL_PATH"
 /usr/bin/ditto "$BUILT_APP" "$INSTALL_PATH"
 
+# The default scheme builds the unit-test host bundle. Trim those test-only
+# artifacts back out of the installed app so the shipping copy stays lean.
+for path in \
+  "$INSTALL_PATH/Contents/PlugIns/AnchoredTests.xctest" \
+  "$INSTALL_PATH/Contents/Frameworks/XCUnit.framework" \
+  "$INSTALL_PATH/Contents/Frameworks/XCTAutomationSupport.framework" \
+  "$INSTALL_PATH/Contents/Frameworks/XCUIAutomation.framework" \
+  "$INSTALL_PATH/Contents/Frameworks/XCTestSupport.framework" \
+  "$INSTALL_PATH/Contents/Frameworks/XCTest.framework" \
+  "$INSTALL_PATH/Contents/Frameworks/XCTestCore.framework" \
+  "$INSTALL_PATH/Contents/Frameworks/Testing.framework" \
+  "$INSTALL_PATH/Contents/Frameworks/libXCTestBundleInject.dylib" \
+  "$INSTALL_PATH/Contents/Frameworks/libXCTestSwiftSupport.dylib"; do
+  /bin/rm -rf "$path"
+done
+
 open_app() {
   /usr/bin/open -n "$INSTALL_PATH"
 }
