@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 enum SQLiteDatabaseMigrations {
-    static let currentVersion = 7
+    static let currentVersion = 8
 
     static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
@@ -149,6 +149,20 @@ enum SQLiteDatabaseMigrations {
             );
             """)
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_classification_outcomes_timestamp ON classification_outcomes(timestamp);")
+        }
+
+        migrator.registerMigration("v8_create_contextual_learning") { db in
+            try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS contextual_learning (
+                timestamp DATETIME NOT NULL,
+                normalizedDomain TEXT NOT NULL,
+                pageCategory TEXT NOT NULL,
+                intentCategory TEXT NOT NULL,
+                decision TEXT NOT NULL
+            );
+            """)
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_contextual_learning_timestamp ON contextual_learning(timestamp);")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_contextual_learning_lookup ON contextual_learning(normalizedDomain, pageCategory, intentCategory);")
         }
 
         return migrator

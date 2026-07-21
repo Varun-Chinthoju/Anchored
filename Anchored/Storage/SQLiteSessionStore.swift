@@ -183,6 +183,66 @@ class SQLiteSessionStore {
         }
     }
 
+    func insertContextualLearningRecord(_ record: ContextualLearningRecord) throws {
+        let normalizedDomain = record.normalizedDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO contextual_learning (
+                    timestamp,
+                    normalizedDomain,
+                    pageCategory,
+                    intentCategory,
+                    decision
+                ) VALUES (?, ?, ?, ?, ?);
+                """,
+                arguments: [
+                    record.timestamp,
+                    normalizedDomain,
+                    record.pageCategory.rawValue,
+                    record.intentCategory.rawValue,
+                    record.decision.rawValue
+                ]
+            )
+        }
+    }
+
+    func fetchContextualLearningRecords() throws -> [ContextualLearningRecord] {
+        try dbQueue.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                SELECT timestamp, normalizedDomain, pageCategory, intentCategory, decision
+                FROM contextual_learning
+                ORDER BY timestamp ASC, rowid ASC
+                """
+            ).map { row in
+                ContextualLearningRecord(
+                    normalizedDomain: row["normalizedDomain"],
+                    pageCategory: ContextualPageCategory(rawValue: row["pageCategory"] ?? "") ?? .general,
+                    intentCategory: ContextualIntentCategory(rawValue: row["intentCategory"] ?? "") ?? .general,
+                    decision: ClassificationLabel(rawValue: row["decision"] ?? "") ?? .contextual,
+                    timestamp: row["timestamp"] ?? Date.distantPast
+                )
+            }
+        }
+    }
+
+    func deleteAllContextualLearningRecords() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM contextual_learning;")
+        }
+    }
+
+    func deleteContextualLearningRecords(olderThan cutoffDate: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM contextual_learning WHERE timestamp < ?;",
+                arguments: [cutoffDate]
+            )
+        }
+    }
+
     func insertClassificationFeedback(_ feedback: ClassificationFeedback) throws {
         try dbQueue.write { db in
             try feedback.insert(db)
