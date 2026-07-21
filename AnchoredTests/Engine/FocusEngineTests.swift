@@ -14,12 +14,15 @@ final class FocusEngineTests: XCTestCase {
     private var mockOCRProvider: MockOCRProvider!
     private var breakReviewChecker: RecordingBreakReviewChecker!
     private var diagnosticsRecorder: TestDiagnosticsRecorder!
+    private var contextualLearningStore: RecordingContextualLearningStore!
     private var sessionTimerScheduler: TestOneShotTimerScheduler!
     private var distractionTimerScheduler: TestOneShotTimerScheduler!
     private var breakTimerScheduler: TestOneShotTimerScheduler!
     private var breakReturnTimerScheduler: TestOneShotTimerScheduler!
     private var doomscrollTimerScheduler: TestOneShotTimerScheduler!
     private var focusPromptTimerScheduler: TestOneShotTimerScheduler!
+    private var mockUserActivityProvider: MockUserActivityProvider!
+    private var previousUserActivityProvider: UserActivityProviding!
     private var engine: FocusEngine!
     private var tempStoreURL: URL!
     
@@ -45,12 +48,16 @@ final class FocusEngineTests: XCTestCase {
         mockOCRProvider = MockOCRProvider()
         breakReviewChecker = RecordingBreakReviewChecker()
         diagnosticsRecorder = TestDiagnosticsRecorder()
+        contextualLearningStore = RecordingContextualLearningStore()
         sessionTimerScheduler = TestOneShotTimerScheduler()
         distractionTimerScheduler = TestOneShotTimerScheduler()
         breakTimerScheduler = TestOneShotTimerScheduler()
         breakReturnTimerScheduler = TestOneShotTimerScheduler()
         doomscrollTimerScheduler = TestOneShotTimerScheduler()
         focusPromptTimerScheduler = TestOneShotTimerScheduler()
+        previousUserActivityProvider = UserActivityEnvironment.shared
+        mockUserActivityProvider = MockUserActivityProvider()
+        UserActivityEnvironment.shared = mockUserActivityProvider
         // Initialize FocusEngine (default threshold = 10 minutes) with fake providers to avoid Vision overhead
         engine = FocusEngine(
             activityMonitor: mockActivityMonitor,
@@ -61,6 +68,7 @@ final class FocusEngineTests: XCTestCase {
             preferencesManager: testPreferences,
             ocrProvider: mockOCRProvider,
             visualChecker: MockVisualChecker(),
+            contextualLearningStore: contextualLearningStore,
             breakReviewChecker: breakReviewChecker,
             sessionTimerScheduler: sessionTimerScheduler,
             breakTimerScheduler: breakTimerScheduler,
@@ -85,12 +93,16 @@ final class FocusEngineTests: XCTestCase {
         distractionListManager = nil
         breakReviewChecker = nil
         diagnosticsRecorder = nil
+        contextualLearningStore = nil
         distractionTimerScheduler = nil
         sessionTimerScheduler = nil
         breakTimerScheduler = nil
         breakReturnTimerScheduler = nil
         doomscrollTimerScheduler = nil
         focusPromptTimerScheduler = nil
+        UserActivityEnvironment.shared = previousUserActivityProvider
+        mockUserActivityProvider = nil
+        previousUserActivityProvider = nil
         if let suiteName {
             testDefaults.removePersistentDomain(forName: suiteName)
         }
@@ -233,7 +245,7 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
     }
     
-    func testDistractionAppSwitchAutoStartsSessionIfOverThreshold() {
+    func testDistractionAppSwitchDoesNotAutoStartSessionEvenIfOverThreshold() {
         engine.focusThreshold = 0.1 // Use very short focus threshold for testing
 
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
@@ -243,11 +255,22 @@ final class FocusEngineTests: XCTestCase {
         
         mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
         
-        XCTAssertNotNil(engine.workSessionStart)
-        XCTAssertEqual(engine.state, .anchored)
-        XCTAssertNotNil(engine.activeSession)
+        XCTAssertNil(engine.activeSession)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .idle)
         XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
-        XCTAssertEqual(engine.activeSession?.goal, "Auto-chartered Voyage")
+    }
+
+    func testHeuristicProductiveAppDoesNotAutoStartWithoutExplicitRuleOrIntent() throws {
+        engine.focusThreshold = 0.1
+        let promptTimer = try startFocusPromptRun(bundleID: "com.example.Cursor")
+
+        engine.workSessionStart = Date().addingTimeInterval(-0.2)
+        promptTimer.fire()
+
+        XCTAssertNil(engine.activeSession)
+        XCTAssertEqual(engine.state, .watching)
+        XCTAssertTrue(mockDelegate.exitTriggers.isEmpty)
     }
 
     func testFocusPromptTimerAutoStartsSessionUsesConfiguredThreshold() throws {
@@ -409,6 +432,21 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNil(engine.activeSession)
     }
 
+    func testFocusContextOutsideScheduleDoesNotStartAutomaticTracking() {
+        let now = Date()
+        testPreferences.focusSchedule = scheduleExcludingCurrentMinute(now: now)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        XCTAssertFalse(engine.isFocusScheduleActive)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertNil(engine.workSessionStart)
+        XCTAssertNil(engine.activeSession)
+        XCTAssertNil(engine.lastWorkAppBundleID)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertTrue(focusPromptTimerScheduler.scheduledTimers.isEmpty)
+    }
+
     func testAnchorSessionUsesSuggestedCategoryAndGoalWhenMissing() {
         profileManager.switchProfile(to: "Video")
         mockActivityMonitor.simulateContextChange(
@@ -523,6 +561,216 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertFalse(engine.isDimming)
     }
 
+    func testMixedUseBrowserPagesStayContextualByDefault() {
+        let profile = WorkProfile(name: "Mixed Use")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://chatgpt.com/c/123")!,
+            title: "ChatGPT - coding help"
+        )
+
+        XCTAssertEqual(engine.currentClassification.label, .contextual)
+        XCTAssertTrue(engine.currentClassification.isNeutral)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+    }
+
+    func testMixedUseBrowserReviewPrefersPageScope() {
+        let profile = WorkProfile(name: "Mixed Use Review")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let reviewURL = URL(string: "https://reddit.com/r/swift/comments/123")!
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: reviewURL,
+            title: "Swift discussion"
+        )
+
+        let reviewed = expectation(description: "mixed-use review completed")
+        var reviewResult: ProductiveCorrectionReview?
+        engine.reviewItemAsProductive(
+            bundleID: "com.google.Chrome",
+            localizedName: "Google Chrome",
+            url: reviewURL,
+            title: "Swift discussion"
+        ) { review in
+            reviewResult = review
+            reviewed.fulfill()
+        }
+
+        wait(for: [reviewed], timeout: 1.0)
+        XCTAssertEqual(reviewResult?.recommendedScope, .page)
+        XCTAssertTrue(reviewResult?.canUseWebsiteScope ?? false)
+    }
+
+    func testPageScopedApprovalUsesCapturedSnapshotWithoutBroadDomainRule() {
+        let profile = WorkProfile(name: "Mixed Use Snapshot")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let reviewURL = URL(string: "https://chatgpt.com/c/abc")!
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: reviewURL,
+            title: "ChatGPT - coding help"
+        )
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: "com.google.Chrome",
+            localizedName: "Google Chrome",
+            url: reviewURL,
+            title: "ChatGPT - coding help",
+            source: .chromium,
+            observedAt: Date()
+        )
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.apple.dt.Xcode",
+            title: "Project draft"
+        )
+
+        let recorded = expectation(description: "contextual learning record captured")
+        contextualLearningStore.onRecord = { record in
+            if record.normalizedDomain == "chatgpt.com" {
+                recorded.fulfill()
+            }
+        }
+
+        engine.applyPageScopedProductive(snapshot: snapshot)
+
+        wait(for: [recorded], timeout: 1.0)
+        XCTAssertFalse(profileManager.activeProfile.allowedDomains.contains("chatgpt.com"))
+        XCTAssertFalse(profileManager.activeProfile.allowedApps.contains("com.google.Chrome"))
+        XCTAssertEqual(contextualLearningStore.records.last?.normalizedDomain, "chatgpt.com")
+        XCTAssertEqual(contextualLearningStore.records.last?.decision, .productive)
+        XCTAssertEqual(engine.currentApp, "com.apple.dt.Xcode")
+    }
+
+    func testExplicitAllowStillBeatsMixedUseLearning() {
+        let profile = WorkProfile(
+            name: "Explicit Allow",
+            allowedDomains: ["chatgpt.com"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://chatgpt.com/c/123")!,
+            title: "ChatGPT - coding help"
+        )
+
+        XCTAssertTrue(engine.currentClassification.isFocus)
+        XCTAssertEqual(engine.currentClassification.source, .explicitDomainRule)
+    }
+
+    func testContextualDomainsStayContextual() {
+        let profile = WorkProfile(name: "Mixed Use Baseline")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let contextualURLs = [
+            "https://chatgpt.com/c/chat-123",
+            "https://gemini.google.com/app/session",
+            "https://www.reddit.com/r/swift/comments/123",
+            "https://www.youtube.com/watch?v=xyz123"
+        ]
+
+        for urlString in contextualURLs {
+            mockActivityMonitor.simulateContextChange(
+                bundleID: "com.google.Chrome",
+                url: URL(string: urlString)!,
+                title: "Mixed Use Content"
+            )
+
+            XCTAssertEqual(
+                engine.currentClassification.label,
+                .contextual,
+                "Domain \(urlString) should stay contextual (neutral) by default"
+            )
+        }
+    }
+
+    func testPageScopedApprovalDoesNotBecomeDomainWide() {
+        let profile = WorkProfile(name: "Page Scope Isolation")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: "com.google.Chrome",
+            localizedName: "Google Chrome",
+            url: URL(string: "https://www.reddit.com/r/swift/comments/abc")!,
+            title: "Swift Discussion",
+            source: .chromium,
+            observedAt: Date()
+        )
+
+        engine.applyPageScopedProductive(snapshot: snapshot)
+
+        XCTAssertFalse(
+            profileManager.activeProfile.allowedDomains.contains("reddit.com"),
+            "Page-scoped approval must not insert the domain into profile.allowedDomains"
+        )
+        XCTAssertFalse(
+            profileManager.activeProfile.allowedApps.contains("com.google.Chrome"),
+            "Page-scoped approval must not insert the browser app into profile.allowedApps"
+        )
+    }
+
+    func testExplicitBlockBeatsMixedUseLearning() {
+        let profile = WorkProfile(
+            name: "Explicit Block Overrides Learning",
+            distractionDomains: ["reddit.com"]
+        )
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: "com.google.Chrome",
+            localizedName: "Google Chrome",
+            url: URL(string: "https://www.reddit.com/r/swift/comments/123")!,
+            title: "Swift Post",
+            source: .chromium,
+            observedAt: Date()
+        )
+
+        engine.applyPageScopedProductive(snapshot: snapshot)
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://www.reddit.com/r/swift/comments/123")!,
+            title: "Swift Post"
+        )
+
+        XCTAssertTrue(engine.currentClassification.isDistraction)
+        XCTAssertEqual(engine.currentClassification.source, .explicitDomainRule)
+    }
+
+    func testRuleSuggestionTriggersAfterRepeatedConfirmations() {
+        let profile = WorkProfile(name: "Rule Suggestion Threshold")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        let domain = "reddit.com"
+        XCTAssertFalse(engine.shouldSuggestPermanentRule(for: domain))
+
+        for i in 1...3 {
+            let snapshot = ContextSnapshot(
+                bundleIdentifier: "com.google.Chrome",
+                localizedName: "Google Chrome",
+                url: URL(string: "https://www.reddit.com/r/swift/comments/\(i)")!,
+                title: "Swift Discussion \(i)",
+                source: .chromium,
+                observedAt: Date()
+            )
+            engine.applyPageScopedProductive(snapshot: snapshot)
+        }
+
+        XCTAssertTrue(engine.shouldSuggestPermanentRule(for: domain))
+    }
+
     func testCorrectionImmediatelyChangesCurrentClassification() {
         let profile = WorkProfile(name: "Correction")
         profileManager.addProfile(profile)
@@ -539,6 +787,87 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(engine.currentClassification.isFocus)
         XCTAssertFalse(profileManager.activeProfile.distractionApps.contains("com.example.Editor"))
         XCTAssertTrue(profileManager.activeProfile.allowedApps.contains("com.example.Editor"))
+    }
+
+    func testProductiveReviewPrefersWebsiteScopeForBrowserContexts() {
+        let profile = WorkProfile(name: "Review Scope")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        mockOCRProvider.text = "Swift API documentation and code examples"
+
+        let reviewURL = URL(string: "https://developer.apple.com/documentation/swift")!
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: reviewURL,
+            title: "Swift documentation"
+        )
+
+        let reviewed = expectation(description: "productive review completed")
+        var reviewResult: ProductiveCorrectionReview?
+        engine.reviewCurrentAppAsProductive { review in
+            reviewResult = review
+            reviewed.fulfill()
+        }
+
+        wait(for: [reviewed], timeout: 1.0)
+        XCTAssertEqual(reviewResult?.recommendedScope, .website)
+        XCTAssertFalse(reviewResult?.message.isEmpty ?? true)
+        XCTAssertFalse(profileManager.activeProfile.allowedApps.contains("com.google.Chrome"))
+        XCTAssertFalse(profileManager.activeProfile.allowedDomains.contains("developer.apple.com"))
+    }
+
+    func testExplicitProductiveCorrectionStillAppliesAfterReview() {
+        let profile = WorkProfile(name: "Explicit Correction")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        mockOCRProvider.text = "Spotify music and entertainment"
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Editor", title: "Research notes")
+
+        let reviewed = expectation(description: "productive review completed")
+        var reviewResult: ProductiveCorrectionReview?
+        engine.reviewCurrentAppAsProductive { review in
+            reviewResult = review
+            reviewed.fulfill()
+        }
+
+        wait(for: [reviewed], timeout: 1.0)
+        XCTAssertEqual(reviewResult?.recommendedScope, .app)
+
+        engine.applyCorrection(.allowApp, bundleID: "com.example.Editor", url: nil)
+        XCTAssertTrue(profileManager.activeProfile.allowedApps.contains("com.example.Editor"))
+        XCTAssertFalse(profileManager.activeProfile.distractionApps.contains("com.example.Editor"))
+    }
+
+    func testExplicitProductiveReviewSupportsWebsiteScope() {
+        let profile = WorkProfile(name: "Website Review")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+        mockOCRProvider.text = "Swift API documentation and code examples"
+
+        let reviewURL = URL(string: "https://developer.apple.com/documentation/swift")!
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: reviewURL,
+            title: "Swift documentation"
+        )
+
+        let reviewed = expectation(description: "website productive review completed")
+        var reviewResult: ProductiveCorrectionReview?
+        engine.reviewItemAsProductive(
+            bundleID: "com.google.Chrome",
+            localizedName: "Google Chrome",
+            url: reviewURL,
+            title: "Swift documentation"
+        ) { review in
+            reviewResult = review
+            reviewed.fulfill()
+        }
+
+        wait(for: [reviewed], timeout: 1.0)
+        XCTAssertEqual(reviewResult?.recommendedScope, .website)
+        XCTAssertTrue(reviewResult?.canUseWebsiteScope ?? false)
+        XCTAssertFalse(reviewResult?.message.isEmpty ?? true)
     }
 
     func testOptInLocalClassifierPromotesOnlyCurrentNeutralContext() {
@@ -734,6 +1063,15 @@ final class FocusEngineTests: XCTestCase {
 
     func testSuggestedSessionGoalDoesNotFallbackToAppName() {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        XCTAssertNil(engine.suggestedSessionGoal())
+    }
+
+    func testSuggestedSessionGoalSuppressesBuildArtifactTitles() {
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.apple.dt.Xcode",
+            title: "Anchor — SwiftStdLibToolInputDependencies.dep"
+        )
 
         XCTAssertNil(engine.suggestedSessionGoal())
     }
@@ -1298,17 +1636,13 @@ final class FocusEngineTests: XCTestCase {
     }
 
     func testMovingOutsideActiveFocusScheduleInvalidatesPendingDoomscrollCallback() throws {
-        testPreferences.focusSchedule = FocusSchedule(
-            enabled: true,
-            startMinute: 9 * 60,
-            endMinute: 17 * 60,
-            lunchBreakEnabled: false
-        )
-        engine.refreshScheduleState(now: makeDate(hour: 10, minute: 0))
+        let now = Date()
+        testPreferences.focusSchedule = scheduleAllowingCurrentMinute(now: now)
+        engine.refreshScheduleState(now: now)
 
         let pendingTimer = try prepareDoomscrollRun()
 
-        engine.refreshScheduleState(now: makeDate(hour: 20, minute: 0))
+        testPreferences.focusSchedule = scheduleExcludingCurrentMinute(now: now)
 
         XCTAssertTrue(pendingTimer.isCancelled)
         pendingTimer.fireIgnoringCancellation()
@@ -1710,6 +2044,21 @@ final class FocusEngineTests: XCTestCase {
         let events = loadEventsFromDisk()
         XCTAssertEqual(events.last?.type, .sessionEnd)
         XCTAssertEqual(events.last?.sessionDurationSeconds, 700)
+    }
+
+    func testIdleTimeDoesNotAccrueWhileUserIsRecentlyActive() {
+        mockUserActivityProvider.idleDuration = 10.0
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+
+        engine.anchorSession(duration: 1500.0)
+        XCTAssertEqual(engine.totalIdleTime, 0.0)
+
+        let expectation = XCTestExpectation(description: "recent user activity keeps idle clock paused")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            XCTAssertEqual(self.engine.totalIdleTime, 0.0)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.5)
     }
     
     func testURLDistractionDetection() {
@@ -2853,6 +3202,24 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNil(engine.currentDistractionGraceRemaining)
     }
 
+    func testActiveSessionOutsideScheduleDoesNotTriggerNewDistractionEnforcement() {
+        let now = Date()
+        testPreferences.focusSchedule = scheduleAllowingCurrentMinute(now: now)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1500)
+
+        testPreferences.focusSchedule = scheduleExcludingCurrentMinute(now: now)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.spotify.client")
+
+        XCTAssertFalse(engine.isFocusScheduleActive)
+        XCTAssertTrue(mockDelegate.detectedDistractions.isEmpty)
+        XCTAssertTrue(distractionTimerScheduler.scheduledTimers.isEmpty)
+        XCTAssertFalse(engine.isDimming)
+        XCTAssertNil(engine.currentDistractionGraceRemaining)
+    }
+
     func testWorkspaceSleepReschedulesActiveBreakTimer() throws {
         mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
         engine.anchorSession(duration: 3600)
@@ -3109,6 +3476,18 @@ final class MockOCRProvider: WindowTextExtracting {
     func extractText() -> String {
         text
     }
+
+    func extractText(for bundleID: String) -> String {
+        text
+    }
+}
+
+final class MockUserActivityProvider: UserActivityProviding {
+    var idleDuration: TimeInterval = 0.0
+
+    func idleDuration(at _: Date) -> TimeInterval {
+        idleDuration
+    }
 }
 
 struct MockVisualChecker: VisualProductivityChecking {
@@ -3191,6 +3570,62 @@ final class TestDiagnosticsRecorder: DiagnosticsRecording {
 
     func recordSanitizedError(category: DiagnosticErrorCategory) {
         messages.append("sanitizedError category=\(category.rawValue)")
+    }
+}
+
+final class RecordingContextualLearningStore: ContextualLearningRecording {
+    var isEnabled = true
+
+    private let queue = DispatchQueue(label: "com.varun.Anchored.FocusEngineTests.ContextualLearningStore")
+    private(set) var records: [ContextualLearningRecord] = []
+    var onRecord: ((ContextualLearningRecord) -> Void)?
+
+    func record(_ record: ContextualLearningRecord, completion: StorageWriteCompletion?) {
+        queue.async {
+            self.records.append(record)
+            self.onRecord?(record)
+            completion?(.success(()))
+        }
+    }
+
+    func evidence(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> ClassificationEvidence? {
+        queue.sync {
+            let domain = ContextualSiteHeuristic.normalizedDomain(for: snapshot.url) ?? ""
+            let pageCategory = ContextualSiteHeuristic.pageCategory(for: snapshot.url, title: snapshot.title)
+            let intentCategory = ContextualSiteHeuristic.intentCategory(for: focusIntent)
+            let matchingRecords = records.filter {
+                $0.normalizedDomain == domain && $0.pageCategory == pageCategory && $0.intentCategory == intentCategory
+            }
+            guard !matchingRecords.isEmpty else { return nil }
+            return ClassificationEvidence(
+                label: matchingRecords.count >= 2 ? .productive : .contextual,
+                source: matchingRecords.count >= 2 ? .deterministicRule : .heuristic,
+                confidence: matchingRecords.count >= 2 ? 0.9 : 0.65,
+                reason: .contextualLearning
+            )
+        }
+    }
+
+    func shouldSuggestPermanentRule(for domain: String) -> Bool {
+        queue.sync {
+            let targetDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalized = targetDomain.hasPrefix("www.") ? String(targetDomain.dropFirst(4)) : targetDomain
+            let count = records.filter { $0.normalizedDomain == normalized && $0.decision == .productive }.count
+            return count >= 3
+        }
+    }
+
+    func clearAll(completion: StorageWriteCompletion?) {
+        queue.async {
+            self.records.removeAll()
+            completion?(.success(()))
+        }
+    }
+
+    func prune(retentionDays: Int, completion: StorageWriteCompletion?) {
+        queue.async {
+            completion?(.success(()))
+        }
     }
 }
 

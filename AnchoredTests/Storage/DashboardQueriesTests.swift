@@ -221,6 +221,59 @@ final class DashboardQueriesTests: XCTestCase {
         XCTAssertEqual(ranks[1].totalDurationSeconds, 300)
     }
 
+    func testTopDistractionsNormalizesCommonHostVariantsAndNewTabLabels() {
+        let referenceDate = Date()
+        let todayStart = calendar.startOfDay(for: referenceDate)
+
+        let variants: [(offset: TimeInterval, domain: String)] = [
+            (0, "www.youtube.com"),
+            (3600, "youtube.com"),
+            (7200, "m.youtube.com"),
+            (10_800, "newtab")
+        ]
+
+        for variant in variants {
+            let sessionStart = SessionEvent(
+                timestamp: todayStart.addingTimeInterval(variant.offset),
+                type: .sessionStart,
+                appBundleID: "com.apple.Safari",
+                appName: "Safari"
+            )
+            let distraction = SessionEvent(
+                timestamp: todayStart.addingTimeInterval(variant.offset + 120),
+                type: .distractionDetected,
+                appBundleID: "com.apple.Safari",
+                appName: "Safari",
+                distractionAppBundleID: "com.apple.Safari",
+                distraction_domain: variant.domain
+            )
+            let sessionEnd = SessionEvent(
+                timestamp: todayStart.addingTimeInterval(variant.offset + 420),
+                type: .sessionEnd,
+                appBundleID: "com.apple.Safari",
+                appName: "Safari",
+                sessionDurationSeconds: 300
+            )
+
+            logSync(sessionStart)
+            logSync(distraction)
+            logSync(sessionEnd)
+        }
+
+        let ranks = store.topDistractions(since: todayStart, to: todayStart.addingTimeInterval(14_400))
+        XCTAssertEqual(ranks.count, 2)
+
+        XCTAssertEqual(ranks[0].name, "youtube.com")
+        XCTAssertEqual(ranks[0].domain, "youtube.com")
+        XCTAssertEqual(ranks[0].count, 3)
+        XCTAssertEqual(ranks[0].totalDurationSeconds, 900)
+
+        XCTAssertEqual(ranks[1].name, "New Tab")
+        XCTAssertEqual(ranks[1].domain, "New Tab")
+        XCTAssertEqual(ranks[1].count, 1)
+        XCTAssertEqual(ranks[1].totalDurationSeconds, 300)
+    }
+
     func testTopDistractionsExcludesSystemLoginWindowArtifacts() {
         let referenceDate = Date()
         let start = referenceDate.addingTimeInterval(-3_600)

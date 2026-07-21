@@ -19,6 +19,10 @@ final class ClassificationResolver {
             return explicitDecision
         }
 
+        if let contextualDecision = resolveContextualEvidence(evidence, interactionSummary: interactionSummary) {
+            return contextualDecision
+        }
+
         let optionalEvidence = evidence.filter { !$0.source.isExplicitRule }
         let deterministicEvidence = optionalEvidence.filter {
             $0.source == .deterministicRule || $0.source == .heuristic
@@ -38,6 +42,41 @@ final class ClassificationResolver {
             modelEvidence,
             interactionSummary: interactionSummary,
             evidenceTrace: evidence
+        )
+    }
+
+    private func resolveContextualEvidence(
+        _ evidence: [ClassificationEvidence],
+        interactionSummary: InteractionSummary?
+    ) -> ClassificationDecision? {
+        let contextualEvidence = evidence.filter { $0.label == .contextual }
+        guard !contextualEvidence.isEmpty else {
+            return nil
+        }
+
+        let strongerNonExplicitEvidence = evidence.contains {
+            !$0.source.isExplicitRule && ($0.label == .productive || $0.label == .distracting)
+        }
+        guard !strongerNonExplicitEvidence else {
+            return nil
+        }
+
+        guard let first = contextualEvidence.max(by: { lhs, rhs in
+            if lhs.confidence == rhs.confidence {
+                return ClassificationPolicy.rank(of: lhs.source) > ClassificationPolicy.rank(of: rhs.source)
+            }
+            return lhs.confidence < rhs.confidence
+        }) else {
+            return nil
+        }
+
+        let adjustedConfidence = adjustedConfidence(for: first, interactionSummary: interactionSummary)
+        return ClassificationDecision(
+            label: .contextual,
+            confidence: adjustedConfidence,
+            source: first.source,
+            reason: first.reason,
+            evidence: evidence
         )
     }
 

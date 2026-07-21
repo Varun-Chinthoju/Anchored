@@ -126,9 +126,9 @@ final class DistractionEvaluatorTests: XCTestCase {
             title: "Focus video"
         )
 
-        XCTAssertEqual(evidence.map(\.label), [.distracting, .productive, .distracting])
+        XCTAssertEqual(evidence.map(\.label), [.distracting, .productive, .contextual])
         XCTAssertEqual(evidence.map(\.source), [.explicitDomainRule, .explicitAppRule, .heuristic])
-        XCTAssertEqual(evidence.map(\.reason), [.explicitBlockRule, .explicitAllowRule, .deterministicHeuristic])
+        XCTAssertEqual(evidence.map(\.reason), [.explicitBlockRule, .explicitAllowRule, .contextualMixedUse])
     }
 
     func testTitleOnlyBrowserHeuristicRemainsNeutralEvidence() {

@@ -8,11 +8,22 @@ import UniformTypeIdentifiers
 
 protocol WindowTextExtracting {
     func extractText() -> String
+    func extractText(for bundleID: String) -> String
+}
+
+extension WindowTextExtracting {
+    func extractText() -> String {
+        guard let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+            return ""
+        }
+
+        return extractText(for: bundleID)
+    }
 }
 
 struct LiveOCRProvider: WindowTextExtracting {
-    func extractText() -> String {
-        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+    func extractText(for bundleID: String) -> String {
+        guard let frontmostApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) else {
             return ""
         }
         let pid = frontmostApp.processIdentifier
@@ -66,6 +77,18 @@ struct LiveVisualProductivityChecker: VisualProductivityChecking {
     }
 }
 
+enum ProductiveCorrectionScope: Equatable {
+    case app
+    case website
+    case page
+}
+
+struct ProductiveCorrectionReview: Equatable {
+    let message: String
+    let recommendedScope: ProductiveCorrectionScope
+    let canUseWebsiteScope: Bool
+}
+
 /// The central engine that coordinates focus session tracking and state transitions.
 final class FocusEngine {
     private let activityMonitor: ActivityMonitor
@@ -83,6 +106,7 @@ final class FocusEngine {
     private let localTextClassifier: ContextClassifying
     private let intentClassifier: IntentClassifying
     private let classificationOutcomeStore: ClassificationOutcomeRecording
+    private let contextualLearningStore: ContextualLearningRecording
     private let breakReviewChecker: BreakReviewChecking
     private let sessionTimerScheduler: OneShotTimerScheduling
     private let breakTimerScheduler: OneShotTimerScheduling
@@ -90,6 +114,7 @@ final class FocusEngine {
     private let breakReturnGraceTimerScheduler: OneShotTimerScheduling
     private let doomscrollTimerScheduler: OneShotTimerScheduling
     private let focusPromptTimerScheduler: OneShotTimerScheduling
+    private let userActivityProvider: UserActivityProviding
     private let diagnosticsRecorder: DiagnosticsRecording
     private var preferencesCancellables = Set<AnyCancellable>()
     
@@ -119,6 +144,14 @@ final class FocusEngine {
 
     /// The latest safe, UI-facing classification decision for the current context.
     private(set) var currentClassification: ClassificationDecision = .neutral()
+
+    /// The strongest corroborated focus run observed for the current sessionless work streak.
+    private var currentFocusRunSourceCount: Int = 0
+
+    /// Whether the current work streak has enough corroborating positive signals to justify automatic session start.
+    var canAutoStartFocusSession: Bool {
+        currentFocusRunSourceCount >= 2
+    }
 
     /// In-memory cache of resolved model/ML classifications to avoid repeated cloud requests and screenshot analysis.
     private var classificationCache: [ContextIdentity: ClassificationDecision] = [:]
@@ -282,6 +315,7 @@ final class FocusEngine {
         localTextClassifier: ContextClassifying? = nil,
         intentClassifier: IntentClassifying? = nil,
         classificationOutcomeStore: ClassificationOutcomeRecording? = nil,
+        contextualLearningStore: ContextualLearningRecording? = nil,
         breakReviewChecker: BreakReviewChecking = ConservativeBreakReviewChecker(),
         sessionTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
         breakTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
@@ -289,6 +323,7 @@ final class FocusEngine {
         breakReturnGraceTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
         doomscrollTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
         focusPromptTimerScheduler: OneShotTimerScheduling = LiveOneShotTimerScheduler(),
+        userActivityProvider: UserActivityProviding = UserActivityEnvironment.shared,
         diagnosticsRecorder: DiagnosticsRecording = DiagnosticsCenter.shared
     ) {
         self.activityMonitor = activityMonitor
@@ -309,6 +344,7 @@ final class FocusEngine {
         self.localTextClassifier = localTextClassifier ?? LocalTextClassifier(preferences: preferencesManager)
         self.intentClassifier = intentClassifier ?? LocalIntentClassifier()
         self.classificationOutcomeStore = classificationOutcomeStore ?? ClassificationOutcomeStore.shared
+        self.contextualLearningStore = contextualLearningStore ?? ContextualLearningStore.shared
         self.breakReviewChecker = breakReviewChecker
         self.sessionTimerScheduler = sessionTimerScheduler
         self.breakTimerScheduler = breakTimerScheduler
@@ -316,6 +352,7 @@ final class FocusEngine {
         self.breakReturnGraceTimerScheduler = breakReturnGraceTimerScheduler
         self.doomscrollTimerScheduler = doomscrollTimerScheduler
         self.focusPromptTimerScheduler = focusPromptTimerScheduler
+        self.userActivityProvider = userActivityProvider
         self.diagnosticsRecorder = diagnosticsRecorder
         
         self.activityMonitor.onContextChange = { [weak self] snapshot in
@@ -482,11 +519,12 @@ final class FocusEngine {
                 startIdleTimer()
                 scheduleSessionTimer(duration: max(0, session.anchoredDuration - currentSessionFocusedTime(at: now)))
             }
-        } else if workSessionStart != nil {
+        } else if isFocusScheduleActive, workSessionStart != nil {
             scheduleFocusPromptTimer()
         }
 
-        if let bundleID = currentApp,
+        if isFocusScheduleActive,
+           let bundleID = currentApp,
            distractionStartDate != nil,
            activeSession != nil,
            !isDimming,
@@ -496,7 +534,7 @@ final class FocusEngine {
         if isDeclaredActivityBypassActive {
             scheduleDeclaredActivityCheckTimer()
         }
-        if doomscrollingBundleID != nil, !hasFiredDoomscrollAlert {
+        if isFocusScheduleActive, doomscrollingBundleID != nil, !hasFiredDoomscrollAlert {
             refreshDoomscrollTimerIfNeeded(observedAt: now)
         }
 
@@ -587,8 +625,23 @@ final class FocusEngine {
     }
     
     private func classifyContext(bundleID: String, url: URL?, title: String) -> ClassificationDecision {
-        classificationResolver.resolve(
-            distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title),
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: bundleID,
+            localizedName: getAppName(for: bundleID),
+            url: url,
+            title: title,
+            source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                : .application,
+            observedAt: Date()
+        )
+        var evidence = distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title)
+        if let contextualEvidence = contextualLearningStore.evidence(for: snapshot, focusIntent: activeFocusIntent) {
+            evidence.append(contextualEvidence)
+        }
+
+        return classificationResolver.resolve(
+            evidence,
             interactionSummary: preferencesManager.interactionSummaryEnabled
                 ? interactionSummaryProvider.summary(at: Date())
                 : nil
@@ -625,7 +678,8 @@ final class FocusEngine {
 
         for candidate in candidates {
             guard let cleaned = Self.cleanedSuggestedLabel(candidate),
-                  !Self.isGenericSuggestedLabel(cleaned) else {
+                  !Self.isGenericSuggestedLabel(cleaned),
+                  !Self.isMachineGeneratedSuggestedLabel(cleaned) else {
                 continue
             }
             return cleaned
@@ -782,6 +836,7 @@ final class FocusEngine {
                         if isCurrentlyActive {
                             self.applyPromotedFocus(bundleID: bundleID)
                             self.currentClassification = promotedDecision
+                            self.updateFocusRunSourceCount(for: promotedDecision)
                             self.recordClassificationDecision(promotedDecision)
                             NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
                             self.persistClassificationOutcome(
@@ -895,6 +950,7 @@ final class FocusEngine {
                         if isCurrentlyActive {
                             self.applyPromotedFocus(bundleID: bundleID)
                             self.currentClassification = promotedDecision
+                            self.updateFocusRunSourceCount(for: promotedDecision)
                             self.recordClassificationDecision(promotedDecision)
                             NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
                             self.persistClassificationOutcome(
@@ -925,6 +981,10 @@ final class FocusEngine {
     }
 
     private func applyPromotedFocus(bundleID: String) {
+        guard isFocusScheduleActive else {
+            suppressAutomaticScheduleBehavior(reason: "promotedFocus", bundleID: bundleID)
+            return
+        }
         lastWorkAppBundleID = bundleID
         if activeSession != nil {
             let needsUIUpdate = distractionStartDate != nil && !isDimming
@@ -950,7 +1010,8 @@ final class FocusEngine {
         url: URL?,
         title: String,
         generation: Int,
-        promotion: ClassificationEvidence
+        promotion: ClassificationEvidence,
+        persistOutcome: Bool = true
     ) -> Bool {
         let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
         guard generation == contextGeneration,
@@ -967,28 +1028,31 @@ final class FocusEngine {
         }
 
         currentClassification = promotedDecision
+        updateFocusRunSourceCount(for: promotedDecision)
         recordClassificationDecision(promotedDecision)
         classificationCache[identity] = promotedDecision
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
         applyPromotedFocus(bundleID: bundleID)
 
-        persistClassificationOutcome(
-            snapshot: ContextSnapshot(
-                bundleIdentifier: bundleID,
-                localizedName: getAppName(for: bundleID),
-                url: url,
-                title: title,
-                source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
-                    ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
-                    : .application,
-                observedAt: Date()
-            ),
-            decision: promotedDecision,
-            intentResult: nil,
-            graceStarted: false,
-            enforcementOccurred: false
-        )
+        if persistOutcome {
+            persistClassificationOutcome(
+                snapshot: ContextSnapshot(
+                    bundleIdentifier: bundleID,
+                    localizedName: getAppName(for: bundleID),
+                    url: url,
+                    title: title,
+                    source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                        ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                        : .application,
+                    observedAt: Date()
+                ),
+                decision: promotedDecision,
+                intentResult: nil,
+                graceStarted: false,
+                enforcementOccurred: false
+            )
+        }
         
         return true
     }
@@ -1014,6 +1078,7 @@ final class FocusEngine {
             title: currentTitle
         )
         currentClassification = decision
+        updateFocusRunSourceCount(for: decision)
         recordClassificationDecision(decision)
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
         persistClassificationOutcome(
@@ -1025,6 +1090,10 @@ final class FocusEngine {
         )
         if activeBreakCommitment != nil {
             updateBreakReturnGrace(for: decision, snapshot: currentSnapshot, observedAt: now)
+            return
+        }
+        guard isFocusScheduleActive else {
+            suppressAutomaticScheduleBehavior(reason: "activeProfileChange", bundleID: currentApp)
             return
         }
         if activeSession != nil,
@@ -1119,6 +1188,7 @@ final class FocusEngine {
             title: currentTitle
         )
         currentClassification = decision
+        updateFocusRunSourceCount(for: decision)
         recordClassificationDecision(decision)
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
         persistClassificationOutcome(
@@ -1130,6 +1200,10 @@ final class FocusEngine {
         )
         if activeBreakCommitment != nil {
             updateBreakReturnGrace(for: decision, snapshot: currentSnapshot, observedAt: now)
+            return
+        }
+        guard isFocusScheduleActive else {
+            suppressAutomaticScheduleBehavior(reason: "profilesDidChange", bundleID: currentApp)
             return
         }
         if activeSession != nil,
@@ -1252,7 +1326,7 @@ final class FocusEngine {
             }
         } else {
             let baseDecision = classifyContext(bundleID: bundleID, url: url, title: title)
-            if !baseDecision.isNeutral {
+            if baseDecision.label != .neutral {
                 decision = baseDecision
                 classificationCache[actualSnapshot.identity] = decision
             } else {
@@ -1261,6 +1335,7 @@ final class FocusEngine {
         }
 
         currentClassification = decision
+        updateFocusRunSourceCount(for: decision)
         recordClassificationDecision(decision)
         RuntimeTrace.event("context_decision", fields: [
             "bundleID": bundleID,
@@ -1305,6 +1380,10 @@ final class FocusEngine {
             updateBreakReturnGrace(for: decision, snapshot: actualSnapshot, observedAt: now)
             return
         }
+        guard isFocusScheduleActive else {
+            suppressAutomaticScheduleBehavior(reason: "contextChange", bundleID: bundleID)
+            return
+        }
 
         if activeSession != nil,
            activeFocusIntent?.hasIntentSignal == true,
@@ -1318,7 +1397,7 @@ final class FocusEngine {
             )
         }
 
-        if decision.isNeutral && classificationCache[actualSnapshot.identity] == nil {
+        if decision.label == .neutral && classificationCache[actualSnapshot.identity] == nil {
             let identity = actualSnapshot.identity
             if !inProgressClassifications.contains(identity) {
                 classificationCache[identity] = .neutral()
@@ -1332,13 +1411,6 @@ final class FocusEngine {
             return
         }
 
-        guard isFocusScheduleActive else {
-            cancelFocusPromptTimer()
-            cancelDistractionTimer()
-            cancelDoomscrollTimer()
-            return
-        }
-        
         if decision.isDistraction {
             // Distraction app/URL detected
             RuntimeTrace.event("distraction_detected", fields: [
@@ -1379,9 +1451,7 @@ final class FocusEngine {
             } else {
                 // Distraction app detected + no session → start doomscroll timer
                 refreshDoomscrollTimerIfNeeded(observedAt: now)
-                if !requestFocusPromptIfEligible(now: now) {
-                    resetFocusTracking()
-                }
+                resetFocusTracking()
             }
         } else if decision.isFocus {
             // Whitelisted focus app/URL detected
@@ -1530,6 +1600,7 @@ final class FocusEngine {
         )
 
         currentClassification = mappedDecision
+        updateFocusRunSourceCount(for: mappedDecision)
         recordClassificationDecision(mappedDecision)
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
@@ -1569,6 +1640,10 @@ final class FocusEngine {
         generation: Int,
         baseDecision: ClassificationDecision
     ) {
+        guard isFocusScheduleActive else {
+            suppressAutomaticScheduleBehavior(reason: "intentGrace", bundleID: snapshot.bundleIdentifier)
+            return
+        }
         guard activeSession != nil,
               activeBreakCommitment == nil,
               !isDeclaredActivityBypassActive else {
@@ -1619,6 +1694,21 @@ final class FocusEngine {
         } else {
             notifyReturnToWorkOncePerContext()
         }
+    }
+
+    private func suppressAutomaticScheduleBehavior(reason: String, bundleID: String?) {
+        var fields = [
+            "reason": reason,
+            "activeSession": String(activeSession != nil),
+            "state": state.rawValue
+        ]
+        if let bundleID, !bundleID.isEmpty {
+            fields["bundleID"] = bundleID
+        }
+        RuntimeTrace.event("schedule_gate_suppressed_automatic_behavior", fields: fields)
+        cancelFocusPromptTimer()
+        cancelDistractionTimer()
+        cancelDoomscrollTimer()
     }
 
     private func reason(for relation: IntentRelation) -> ClassificationReason {
@@ -1770,6 +1860,7 @@ final class FocusEngine {
                         if isCurrentlyActive {
                             self.applyPromotedFocus(bundleID: snapshot.bundleIdentifier)
                             self.currentClassification = promotedDecision
+                            self.updateFocusRunSourceCount(for: promotedDecision)
                             self.recordClassificationDecision(promotedDecision)
                             NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
                             self.persistClassificationOutcome(
@@ -2255,15 +2346,23 @@ final class FocusEngine {
     
     /// Applies a user correction as an explicit profile rule.
     func applyCorrection(_ correction: ClassificationCorrection) {
-        guard let bundleID = currentApp else { return }
-        let originalDecision = currentClassification
-        guard profileManager.applyCorrection(correction, bundleID: bundleID, url: currentURL) else { return }
+        applyCorrection(correction, bundleID: currentApp, url: currentURL, title: currentTitle)
+    }
 
-        // ProfileManager broadcasts the profile change synchronously. Re-read
-        // the current context so callers observe the correction immediately.
-        currentClassification = classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle)
-        recordClassificationDecision(currentClassification)
-        NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+    /// Applies a correction to an explicit target bundle/url pair.
+    func applyCorrection(_ correction: ClassificationCorrection, bundleID: String?, url: URL?, title: String? = nil) {
+        guard let bundleID else { return }
+        let targetTitle = title ?? (currentApp == bundleID ? currentTitle : "")
+        let originalDecision = classifyContext(bundleID: bundleID, url: url, title: targetTitle)
+        guard profileManager.applyCorrection(correction, bundleID: bundleID, url: url) else { return }
+
+        if currentApp == bundleID, currentURL == url {
+            // ProfileManager broadcasts the profile change synchronously. Re-read
+            // the current context so callers observe the correction immediately.
+            currentClassification = classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle)
+            recordClassificationDecision(currentClassification)
+            NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+        }
 
         let correctedLabel: ClassificationLabel = correction == .allowApp
             || correction == .allowDomain
@@ -2273,7 +2372,7 @@ final class FocusEngine {
         ClassificationFeedbackStore.shared.record(
             ClassificationFeedback(
                 bundleID: bundleID,
-                domain: currentURL?.host,
+                domain: url?.host,
                 originalLabel: originalDecision.label,
                 correctedLabel: correctedLabel,
                 correction: correction,
@@ -2283,8 +2382,8 @@ final class FocusEngine {
 
         let sanitizedIdentity = ContextIdentity(
             bundleID: bundleID,
-            sanitizedURL: ContextSanitizer.sanitizePersistedURL(currentURL),
-            normalizedTitle: ContextSanitizer.sanitizeTitle(currentTitle)
+            sanitizedURL: ContextSanitizer.sanitizePersistedURL(url),
+            normalizedTitle: ContextSanitizer.sanitizeTitle(targetTitle)
         )
         classificationOutcomeStore.recordCorrection(
             identity: ClassificationOutcome.Identity(
@@ -2298,6 +2397,157 @@ final class FocusEngine {
         )
     }
 
+    /// Records a page-scoped productive approval for a contextual browser page.
+    /// This keeps the learning key narrow without creating a site-wide rule.
+    func applyPageScopedProductive(snapshot: ContextSnapshot) {
+        guard BrowserStrategyFactory.isSupportedBrowser(snapshot.bundleIdentifier),
+              let normalizedDomain = ContextualSiteHeuristic.normalizedDomain(for: snapshot.url),
+              !normalizedDomain.isEmpty else {
+            return
+        }
+
+        let intentCategory = ContextualSiteHeuristic.intentCategory(for: activeFocusIntent)
+        let record = ContextualLearningRecord(
+            normalizedDomain: normalizedDomain,
+            pageCategory: ContextualSiteHeuristic.pageCategory(for: snapshot.url, title: snapshot.title),
+            intentCategory: intentCategory,
+            decision: .productive,
+            timestamp: Date()
+        )
+
+        contextualLearningStore.record(record, completion: nil)
+
+        guard currentIdentity == snapshot.identity else {
+            return
+        }
+
+        let promotion = ClassificationEvidence(
+            label: .productive,
+            source: .deterministicRule,
+            confidence: 0.92,
+            reason: .contextualLearning
+        )
+        _ = promoteNeutralContextIfCurrent(
+            bundleID: snapshot.bundleIdentifier,
+            url: snapshot.url,
+            title: snapshot.title,
+            generation: contextGeneration,
+            promotion: promotion,
+            persistOutcome: false
+        )
+    }
+
+    func shouldSuggestPermanentRule(for domain: String) -> Bool {
+        contextualLearningStore.shouldSuggestPermanentRule(for: domain)
+    }
+
+    /// Reviews the current app with on-device OCR-backed text classification so
+    /// the menu bar can suggest the safest explicit correction scope.
+    func reviewCurrentAppAsProductive(completion: @escaping (ProductiveCorrectionReview) -> Void) {
+        guard let bundleID = currentContext?.bundleIdentifier ?? currentApp else {
+            DispatchQueue.main.async {
+                completion(
+                    ProductiveCorrectionReview(
+                        message: "No current item is available to review.",
+                        recommendedScope: .app,
+                        canUseWebsiteScope: false
+                    )
+                )
+            }
+            return
+        }
+
+        reviewItemAsProductive(
+            bundleID: bundleID,
+            localizedName: currentContext?.localizedName ?? getAppName(for: bundleID),
+            url: currentURL,
+            title: currentContext?.title ?? currentTitle,
+            completion: completion
+        )
+    }
+
+    func reviewItemAsProductive(
+        bundleID: String,
+        localizedName: String? = nil,
+        url: URL?,
+        title: String?,
+        completion: @escaping (ProductiveCorrectionReview) -> Void
+    ) {
+        let reviewTitle = title ?? ""
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: bundleID,
+            localizedName: localizedName ?? getAppName(for: bundleID),
+            url: url,
+            title: reviewTitle,
+            source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                : .application,
+            observedAt: Date()
+        )
+        let canUseWebsiteScope = BrowserStrategyFactory.isSupportedBrowser(bundleID) && snapshot.url?.host?.isEmpty == false
+        let recommendedScope = ContextualSiteHeuristic.reviewScope(
+            for: bundleID,
+            url: snapshot.url,
+            title: snapshot.title
+        )
+
+        guard !Self.isSensitiveContext(bundleID: snapshot.bundleIdentifier, url: snapshot.url, title: snapshot.title) else {
+            DispatchQueue.main.async {
+                completion(
+                    ProductiveCorrectionReview(
+                        message: "Sensitive content detected. OCR review was skipped, but you can still choose the correction scope.",
+                        recommendedScope: recommendedScope,
+                        canUseWebsiteScope: canUseWebsiteScope
+                    )
+                )
+            }
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            let visibleText = self.normalizedVisibleText(self.ocrProvider.extractText(for: bundleID))
+            let result = self.localTextClassifier.classify(snapshot: snapshot, screenText: visibleText)
+
+            DispatchQueue.main.async {
+                let baseMessage: String
+                switch result.label {
+                case .productive:
+                    if result.confidence >= ClassificationPolicy.highConfidenceThreshold {
+                        baseMessage = result.explanation ?? "Current item looks productive."
+                    } else {
+                        baseMessage = result.explanation ?? "Current item may be productive, but Anchored is not fully confident."
+                    }
+                case .distracting:
+                    baseMessage = result.explanation ?? "Current item looks distracting or unrelated."
+                case .contextual:
+                    baseMessage = result.explanation ?? "Current item looks mixed-use and stays page-scoped."
+                case .neutral:
+                    baseMessage = result.explanation ?? "Anchored could not confidently read the current item."
+                }
+
+                let recommendedLabel: String
+                switch recommendedScope {
+                case .app:
+                    recommendedLabel = "This App"
+                case .website:
+                    recommendedLabel = "This Website"
+                case .page:
+                    recommendedLabel = "This Page"
+                }
+
+                completion(
+                    ProductiveCorrectionReview(
+                        message: "\(baseMessage) Recommended: \(recommendedLabel).",
+                        recommendedScope: recommendedScope,
+                        canUseWebsiteScope: canUseWebsiteScope
+                    )
+                )
+            }
+        }
+    }
+    
     /// Locks in an active focused session.
     func anchorSession(duration: TimeInterval, category: String? = nil, goal: String? = nil) {
         let now = Date()
@@ -2494,10 +2744,9 @@ final class FocusEngine {
     
     private func checkIdleTime() {
         guard lifecyclePauseStartedAt == nil else { return }
-        let anyInputEventType = CGEventType(rawValue: ~0)!
-        let idleTime = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInputEventType)
+        let idleTime = userActivityProvider.idleDuration(at: Date())
         
-        if idleTime >= 60.0 {
+        if idleTime >= UserActivityPolicy.recentActivityIdleThreshold {
             totalIdleTime += 1.0
             
             // Postpone the session end timer
@@ -2539,10 +2788,28 @@ final class FocusEngine {
         activeFocusPromptTimerGeneration = nil
     }
 
+    private func updateFocusRunSourceCount(for decision: ClassificationDecision) {
+        guard activeSession == nil,
+              decision.isFocus else {
+            return
+        }
+
+        currentFocusRunSourceCount = Set(
+            decision.evidence
+                .filter { $0.label == .productive }
+                .map(\.source)
+        ).count
+    }
+
+    private func resetFocusRunSourceCount() {
+        currentFocusRunSourceCount = 0
+    }
+
     private func resetFocusTracking() {
         let fromState = state
         cancelFocusPromptTimer()
         workSessionStart = nil
+        resetFocusRunSourceCount()
         hasPromptedForCurrentFocusRun = false
         activeFocusIntent = nil
         currentIntentResult = nil
@@ -2559,6 +2826,7 @@ final class FocusEngine {
               focusPromptsEnabled,
               activeSession == nil,
               !hasPromptedForCurrentFocusRun,
+              canAutoStartFocusSession,
               let start = workSessionStart else {
             return false
         }
@@ -2594,6 +2862,7 @@ final class FocusEngine {
               focusPromptsEnabled,
               activeSession == nil,
               !hasPromptedForCurrentFocusRun,
+              canAutoStartFocusSession,
               let bundleID = currentApp,
               classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle).isFocus else {
             return
@@ -2958,14 +3227,61 @@ final class FocusEngine {
             "new tab",
             "untitled",
             "blank page",
-            "page"
+            "page",
+            "localhost",
+            "127.0.0.1",
+            "0.0.0.0"
         ]
 
         if genericLabels.contains(where: { normalized == $0 || normalized.hasPrefix("\($0) ") }) {
             return true
         }
 
+        if normalized.hasSuffix(".local") {
+            return true
+        }
+
         return normalized.count < 3
+    }
+
+    private static func isMachineGeneratedSuggestedLabel(_ text: String) -> Bool {
+        let normalized = text.lowercased()
+
+        let suspiciousFragments = [
+            "deriveddata",
+            "swiftstdlibtoolinputdependencies",
+            "intermediates.noindex",
+            "build intermediates",
+            "build artifacts",
+            "generated file",
+            "generatedfiles",
+            "xcuserdata",
+            "xcodebuild",
+            "products/"
+        ]
+        if suspiciousFragments.contains(where: { normalized.contains($0) }) {
+            return true
+        }
+
+        let suspiciousSuffixes = [
+            ".dep",
+            ".o",
+            ".swiftmodule",
+            ".dsym"
+        ]
+        if suspiciousSuffixes.contains(where: { normalized.hasSuffix($0) }) {
+            return true
+        }
+
+        if normalized.contains("/") || normalized.contains("\\") {
+            return true
+        }
+
+        if normalized.range(of: #"[A-Za-z0-9]{24,}"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return false
     }
 
     private static func bestSuggestedProfile(

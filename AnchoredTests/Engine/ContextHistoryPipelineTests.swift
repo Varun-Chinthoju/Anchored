@@ -14,6 +14,7 @@ final class ContextHistoryPipelineTests: XCTestCase {
     private var testDefaults: UserDefaults!
     private var testDefaultsSuiteName: String!
     private var pipeline: ContextHistoryPipeline!
+    private var previousUserActivityProvider: UserActivityProviding!
 
     override func setUp() {
         super.setUp()
@@ -28,6 +29,8 @@ final class ContextHistoryPipelineTests: XCTestCase {
         testDefaults = UserDefaults(suiteName: testDefaultsSuiteName)!
         profileManager = ProfileManager(defaults: testDefaults)
         monitor = MockActivityMonitor()
+        previousUserActivityProvider = UserActivityEnvironment.shared
+        UserActivityEnvironment.shared = MockUserActivityProvider()
         engine = FocusEngine(
             activityMonitor: monitor,
             distractionListManager: DistractionListManager(defaults: testDefaults),
@@ -59,6 +62,8 @@ final class ContextHistoryPipelineTests: XCTestCase {
         if FileManager.default.fileExists(atPath: tempDirectory.path) {
             try? FileManager.default.removeItem(at: tempDirectory)
         }
+        UserActivityEnvironment.shared = previousUserActivityProvider
+        previousUserActivityProvider = nil
 
         super.tearDown()
     }

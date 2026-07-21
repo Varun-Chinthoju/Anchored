@@ -33,6 +33,8 @@ final class SmartNudgeManager: NSObject, UNUserNotificationCenterDelegate {
             
             self.sessionStore.fetchAllEvents { [weak self] events in
                 guard let self else { return }
+                guard self.focusEngine.currentClassification.isFocus,
+                      self.focusEngine.canAutoStartFocusSession else { return }
 
                 let duration = AutomaticDurationRecommendation.recommendedDuration(
                     from: events,

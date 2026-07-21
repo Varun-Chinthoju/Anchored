@@ -13,6 +13,7 @@ final class IntentAwareFocusEngineTests: XCTestCase {
     private var engine: FocusEngine!
     private var tempStoreURL: URL!
     private var defaultsSuiteName: String!
+    private var previousUserActivityProvider: UserActivityProviding!
 
     override func setUp() {
         super.setUp()
@@ -34,6 +35,8 @@ final class IntentAwareFocusEngineTests: XCTestCase {
 
         mockActivityMonitor = MockActivityMonitor()
         mockDelegate = MockFocusEngineDelegate()
+        previousUserActivityProvider = UserActivityEnvironment.shared
+        UserActivityEnvironment.shared = MockUserActivityProvider()
         rebuildEngine { _ in
             IntentClassificationResult(
                 relation: .uncertain,
@@ -60,6 +63,8 @@ final class IntentAwareFocusEngineTests: XCTestCase {
             UserDefaults(suiteName: defaultsSuiteName)?.removePersistentDomain(forName: defaultsSuiteName)
         }
         defaultsSuiteName = nil
+        UserActivityEnvironment.shared = previousUserActivityProvider
+        previousUserActivityProvider = nil
 
         let directoryURL = tempStoreURL.deletingLastPathComponent()
         if FileManager.default.fileExists(atPath: directoryURL.path) {

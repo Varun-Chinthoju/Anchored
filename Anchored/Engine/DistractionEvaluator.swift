@@ -55,17 +55,27 @@ final class DistractionEvaluator {
         }
 
         if BrowserStrategyFactory.isSupportedBrowser(bundleID), url != nil {
+            let isMixedUseContext = ContextualSiteHeuristic.isMixedUseContext(url: url, title: title)
+            if isMixedUseContext {
+                evidence.append(ClassificationEvidence(
+                    label: .contextual,
+                    source: .heuristic,
+                    confidence: 0.65,
+                    reason: .contextualMixedUse
+                ))
+            }
+
             if BrowserContentHeuristic.isEducationalContent(url: url, title: title) {
                 // Educational video content should stay neutral unless another
                 // explicit rule or stronger intent signal says otherwise.
-            } else if BrowserContentHeuristic.isEntertainment(url: url) {
+            } else if !isMixedUseContext, BrowserContentHeuristic.isEntertainment(url: url) {
                 evidence.append(ClassificationEvidence(
                     label: .distracting,
                     source: .heuristic,
                     confidence: 0.90,
                     reason: .deterministicHeuristic
                 ))
-            } else if SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
+            } else if !isMixedUseContext, SmartWebClassifier.isCodingForumOrDoc(url: url, title: title) {
                 evidence.append(ClassificationEvidence(
                     label: .productive,
                     source: .heuristic,
@@ -108,7 +118,6 @@ private enum BrowserContentHeuristic {
     ]
 
     private static let entertainmentHosts = [
-        "youtube.com",
         "netflix.com",
         "twitch.tv",
         "hulu.com",

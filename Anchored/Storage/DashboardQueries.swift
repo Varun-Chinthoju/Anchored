@@ -418,11 +418,11 @@ extension SQLiteSessionStore {
             let name: String
             let bundleID: String?
             let domain: String?
-            if let dom = block.distractionDomain, !dom.isEmpty {
+            if let dom = normalizedAnalyticsDomain(from: block.distractionDomain) {
                 key = "domain:\(dom)"
-                name = dom
+                name = displayAnalyticsDomain(for: dom)
                 bundleID = block.distractionAppBundleID
-                domain = dom
+                domain = displayAnalyticsDomain(for: dom)
             } else if let bID = block.distractionAppBundleID, !bID.isEmpty {
                 key = "app:\(bID)"
                 name = self.appName(for: bID)
@@ -458,7 +458,12 @@ extension SQLiteSessionStore {
                 count: item.count,
                 totalDurationSeconds: Int(item.totalDuration)
             )
-        }.sorted { $0.totalDurationSeconds > $1.totalDurationSeconds }
+        }.sorted {
+            if $0.totalDurationSeconds == $1.totalDurationSeconds {
+                return $0.name < $1.name
+            }
+            return $0.totalDurationSeconds > $1.totalDurationSeconds
+        }
     }
 
     private func computeFocusTimePerHourForLast24Hours(relativeTo referenceDate: Date, calendar: Calendar) throws -> [DashboardTimeBucket] {
@@ -553,8 +558,11 @@ extension SQLiteSessionStore {
             let duration = TimeInterval(session.sessionDurationSeconds ?? 0)
 
             var domain: String? = nil
-            if let urlString = session.url, let url = URL(string: urlString), let host = url.host {
-                domain = host.lowercased().hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            if let urlString = session.url,
+               let url = URL(string: urlString),
+               let host = url.host,
+               let normalizedDomain = normalizedAnalyticsDomain(from: host) {
+                domain = displayAnalyticsDomain(for: normalizedDomain)
             }
 
             var current = distribution[bundleID] ?? (appName: appName, duration: 0, domains: [:])
@@ -683,6 +691,34 @@ extension SQLiteSessionStore {
             return String(lastComponent).capitalized
         }
         return bundleID
+    }
+
+    private func normalizedAnalyticsDomain(from rawDomain: String?) -> String? {
+        guard let rawDomain = rawDomain?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !rawDomain.isEmpty else {
+            return nil
+        }
+
+        if rawDomain == "newtab" || rawDomain == "new tab" || rawDomain == "about:blank" {
+            return "newtab"
+        }
+
+        var normalized = rawDomain
+        let removablePrefixes = ["www.", "m.", "mobile.", "amp."]
+        var strippedPrefix = true
+        while strippedPrefix {
+            strippedPrefix = false
+            for prefix in removablePrefixes where normalized.hasPrefix(prefix) {
+                normalized.removeFirst(prefix.count)
+                strippedPrefix = true
+            }
+        }
+
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func displayAnalyticsDomain(for normalizedDomain: String) -> String {
+        normalizedDomain == "newtab" ? "New Tab" : normalizedDomain
     }
 }
 

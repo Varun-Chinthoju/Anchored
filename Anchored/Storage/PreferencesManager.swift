@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Combine
 import ServiceManagement
 
@@ -79,6 +80,8 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultDimTransitionDuration: Double = 3.0
     public static let defaultEnableDoomscrollLoopBreaker = true
     public static let defaultDoomscrollThreshold: TimeInterval = 1800.0
+    
+    private static let runtimeFocusThresholdOverrideEnvironmentVariable = "ANCHORED_ENABLE_RUNTIME_FOCUS_THRESHOLD_OVERRIDE"
     
     /// The distraction countdown duration in seconds. Clamped to [0, 3600].
     @Published public var countdownDuration: Int {
@@ -542,7 +545,11 @@ public final class PreferencesManager: ObservableObject {
     }
 
     /// A hidden launch-time override used for short live verification runs.
+    /// It only applies when the explicit environment opt-in is present.
     public var runtimeFocusThresholdOverride: TimeInterval? {
+        guard Self.isRuntimeFocusThresholdOverrideEnabled() else {
+            return nil
+        }
         guard let override = defaults.object(forKey: Keys.focusThresholdOverride) as? NSNumber else {
             return nil
         }
@@ -568,6 +575,18 @@ public final class PreferencesManager: ObservableObject {
     /// Hidden rollout switch. Auto Voyage remains the fallback when this experiment is disabled.
     public var focusPromptExperimentEnabled: Bool {
         defaults.object(forKey: Keys.focusPromptExperimentEnabled) as? Bool ?? true
+    }
+
+    private static func isRuntimeFocusThresholdOverrideEnabled() -> Bool {
+        guard let rawValue = getenv(runtimeFocusThresholdOverrideEnvironmentVariable) else {
+            return false
+        }
+
+        let normalized = String(cString: rawValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return ["1", "true", "yes", "on"].contains(normalized)
     }
     
     private func updateLaunchAtLogin(_ enabled: Bool) {

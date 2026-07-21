@@ -3,6 +3,7 @@ import Foundation
 public enum ClassificationLabel: String, Codable, Equatable, CaseIterable, Sendable {
     case productive
     case distracting
+    case contextual
     case neutral
 }
 
@@ -38,6 +39,8 @@ public enum ClassificationReason: String, Codable, Equatable, CaseIterable, Send
     case explicitBlockRule
     case deterministicRule
     case deterministicHeuristic
+    case contextualMixedUse
+    case contextualLearning
     case modelEvidence
     case intentRelated
     case intentEntertainment
@@ -77,7 +80,9 @@ public struct ClassificationDecision: Equatable, Codable, Sendable {
 
     public var isFocus: Bool { label == .productive }
     public var isDistraction: Bool { label == .distracting }
-    public var isNeutral: Bool { label == .neutral }
+    public var isContextual: Bool { label == .contextual }
+    public var isNeutral: Bool { label == .neutral || label == .contextual }
+    public var isNeutralOrContextual: Bool { isNeutral }
 
     public init(
         label: ClassificationLabel,

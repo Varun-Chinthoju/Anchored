@@ -1,9 +1,11 @@
 import XCTest
 import Combine
 import ServiceManagement
+import Darwin
 @testable import Anchored
 
 final class PreferencesManagerTests: XCTestCase {
+    private let runtimeFocusThresholdOverrideEnvironmentVariable = "ANCHORED_ENABLE_RUNTIME_FOCUS_THRESHOLD_OVERRIDE"
     
     private var suiteName: String!
     private var testDefaults: UserDefaults!
@@ -119,6 +121,16 @@ final class PreferencesManagerTests: XCTestCase {
         // Dim preferences loaded values
         XCTAssertEqual(manager.dimOpacity, 0.5)
         XCTAssertEqual(manager.dimTransitionDuration, 10.0)
+    }
+
+    func testStoredRuntimeFocusThresholdOverrideIsIgnoredWithoutExplicitOptIn() {
+        testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
+        testDefaults.set(5.0, forKey: PreferencesManager.Keys.focusThresholdOverride)
+
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        XCTAssertNil(manager.runtimeFocusThresholdOverride)
+        XCTAssertEqual(manager.effectiveFocusThreshold, 300.0)
     }
 
     func testFocusSchedulePreferencesPersist() {
@@ -261,14 +273,16 @@ final class PreferencesManagerTests: XCTestCase {
     }
 
     func testRuntimeFocusThresholdOverrideWinsForEngineUse() {
-        testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
-        testDefaults.set(5.0, forKey: PreferencesManager.Keys.focusThresholdOverride)
+        withRuntimeFocusThresholdOverrideEnabled {
+            testDefaults.set(300.0, forKey: PreferencesManager.Keys.focusThreshold)
+            testDefaults.set(5.0, forKey: PreferencesManager.Keys.focusThresholdOverride)
 
-        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+            let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
 
-        XCTAssertEqual(manager.focusThreshold, 300.0)
-        XCTAssertEqual(manager.runtimeFocusThresholdOverride, 5.0)
-        XCTAssertEqual(manager.effectiveFocusThreshold, 5.0)
+            XCTAssertEqual(manager.focusThreshold, 300.0)
+            XCTAssertEqual(manager.runtimeFocusThresholdOverride, 5.0)
+            XCTAssertEqual(manager.effectiveFocusThreshold, 5.0)
+        }
     }
     
     func testCountdownDurationClamping() {
@@ -342,6 +356,21 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(reloaded.selectedThemeID, "thor")
         XCTAssertEqual(reloaded.selectedTheme.name, "Thor")
         XCTAssertEqual(reloaded.selectedThemePalette.parchment.hex, ThemePalette.baldr.parchment.hex)
+    }
+
+    private func withRuntimeFocusThresholdOverrideEnabled<T>(_ body: () throws -> T) rethrows -> T {
+        let previousValue = getenv(runtimeFocusThresholdOverrideEnvironmentVariable).map { String(cString: $0) }
+
+        setenv(runtimeFocusThresholdOverrideEnvironmentVariable, "1", 1)
+        defer {
+            if let previousValue {
+                setenv(runtimeFocusThresholdOverrideEnvironmentVariable, previousValue, 1)
+            } else {
+                unsetenv(runtimeFocusThresholdOverrideEnvironmentVariable)
+            }
+        }
+
+        return try body()
     }
     
     func testToggleLaunchAtLoginSuccessful() {
