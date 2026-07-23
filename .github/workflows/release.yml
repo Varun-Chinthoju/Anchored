@@ -34,7 +34,7 @@ jobs:
       RELEASE_TAG_INPUT: ${{ github.event.inputs.tag }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install XcodeGen
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
