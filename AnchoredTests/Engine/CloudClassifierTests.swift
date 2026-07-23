@@ -51,6 +51,7 @@ final class CloudClassifierTests: XCTestCase {
             let body = String(data: request.httpBodyData ?? Data(), encoding: .utf8) ?? ""
             XCTAssertTrue(body.contains("editor"))
             XCTAssertTrue(body.contains("documentation"))
+            XCTAssertTrue(body.contains("social domains"))
             XCTAssertFalse(body.contains("CloudClassifier.swift"))
             XCTAssertFalse(body.contains("typed secret"))
             XCTAssertFalse(body.contains("youtube.com"))
@@ -85,6 +86,19 @@ final class CloudClassifierTests: XCTestCase {
         }
 
         wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testSocialFeedAddsSocialTitleFeaturesAndGuidance() {
+        let input = CloudClassificationFeatureExtractor.make(
+            appName: "Chrome",
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://x.com/home")!,
+            title: "X / Home",
+            source: .chromium
+        )
+
+        XCTAssertEqual(input.domainCategory, .social)
+        XCTAssertTrue(input.titleFeatures.contains(.socialFeed))
     }
 
     func testLowConfidenceStructuredCloudResultStaysNeutral() {
@@ -259,7 +273,107 @@ final class CloudClassifierTests: XCTestCase {
             }
             expectation.fulfill()
         }
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testLMStudioNativeChatClassifyYes() {
+        preferences.cloudProvider = 1
+        preferences.cloudModel = "qwen3.5-0.8b"
+        preferences.cloudEndpoint = "http://localhost:1234/api/v1/chat"
+        KeychainHelper.mockKeys["openai"] = "lmstudio-test-token"
+
+        let expectation = XCTestExpectation(description: "LM Studio native chat classifies Yes")
+
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "http://localhost:1234/api/v1/chat")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer lmstudio-test-token")
+
+            if let bodyData = request.httpBodyData,
+               let payload = try? JSONDecoder().decode(InputPromptRequest.self, from: bodyData) {
+                XCTAssertEqual(payload.model, "qwen3.5-0.8b")
+                XCTAssertTrue(payload.input.contains("productive"))
+            } else {
+                XCTFail("Failed to parse LM Studio request body")
+            }
+
+            let jsonString = """
+            {
+                "model_instance_id": "qwen3.5-0.8b",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": "{\\"label\\":\\"productive\\",\\"confidence\\":0.9,\\"explanation\\":\\"lm studio response\\"}"
+                    }
+                ]
+            }
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, jsonString.data(using: .utf8))
+        }
+
+        classifier.classify(appName: "Xcode", windowTitle: "CloudClassifier.swift", url: URL(string: "https://apple.com"), ocrText: "code writing") { result in
+            switch result {
+            case .success(let productive):
+                XCTAssertTrue(productive)
+            case .failure(let error):
+                XCTFail("Expected success, but got error: \(error)")
+            }
+            expectation.fulfill()
+        }
         
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testOllamaClassifyYes() {
+        preferences.cloudProvider = 3
+        preferences.cloudModel = "llama3.2"
+        preferences.cloudEndpoint = "http://localhost:11434/api/chat"
+
+        let expectation = XCTestExpectation(description: "Ollama classifies Yes")
+
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "http://localhost:11434/api/chat")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+
+            if let bodyData = request.httpBodyData,
+               let payload = try? JSONDecoder().decode(OllamaChatRequest.self, from: bodyData) {
+                XCTAssertEqual(payload.model, "llama3.2")
+                XCTAssertFalse(payload.stream)
+                XCTAssertEqual(payload.format, "json")
+                XCTAssertTrue(payload.messages.first?.content.contains("productive") ?? false)
+            } else {
+                XCTFail("Failed to parse Ollama request body")
+            }
+
+            let jsonString = """
+            {
+                "model": "llama3.2",
+                "message": {
+                    "role": "assistant",
+                    "content": "{\\"label\\":\\"productive\\",\\"confidence\\":0.91,\\"explanation\\":\\"ollama response\\"}"
+                },
+                "done": true
+            }
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, jsonString.data(using: .utf8))
+        }
+
+        classifier.classify(appName: "Xcode", windowTitle: "CloudClassifier.swift", url: URL(string: "https://apple.com"), ocrText: "code writing") { result in
+            switch result {
+            case .success(let productive):
+                XCTAssertTrue(productive)
+            case .failure(let error):
+                XCTFail("Expected success, but got error: \(error)")
+            }
+            expectation.fulfill()
+        }
+
         wait(for: [expectation], timeout: 1.0)
     }
     

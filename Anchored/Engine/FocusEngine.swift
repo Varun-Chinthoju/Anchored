@@ -117,6 +117,7 @@ final class FocusEngine {
     private let userActivityProvider: UserActivityProviding
     private let diagnosticsRecorder: DiagnosticsRecording
     private var preferencesCancellables = Set<AnyCancellable>()
+    private var isClassificationConfigurationRefreshScheduled = false
     
     /// The delegate to receive state transition callbacks.
     weak var delegate: FocusEngineDelegate?
@@ -154,10 +155,10 @@ final class FocusEngine {
     }
 
     /// In-memory cache of resolved model/ML classifications to avoid repeated cloud requests and screenshot analysis.
-    private var classificationCache: [ContextIdentity: ClassificationDecision] = [:]
+    private let classificationCache = ClassificationCache(maximumEntries: 256)
 
     /// In-progress classifications to avoid concurrent redundant pipelines.
-    private var inProgressClassifications: Set<ContextIdentity> = []
+    private var inProgressClassifications: Set<ClassificationCacheKey> = []
 
     /// The latest intent-relative result for the current context, if any.
     private(set) var currentIntentResult: IntentClassificationResult?
@@ -286,6 +287,12 @@ final class FocusEngine {
     /// Invalidates optional classifier results whenever the foreground context changes.
     private var contextGeneration = 0
 
+    /// Invalidates delayed work whenever the engine lifecycle changes.
+    private var lifecycleGeneration: UInt64 = 0
+
+    /// Invalidates cached classification answers whenever live configuration changes.
+    private var classificationConfigurationRevision: UInt64 = 0
+
     /// Whether the current time falls inside the user-configured focus schedule.
     private(set) var isFocusScheduleActive = true
     
@@ -389,6 +396,60 @@ final class FocusEngine {
                 self?.refreshDoomscrollTimerIfNeeded(threshold: threshold)
             }
             .store(in: &preferencesCancellables)
+        preferencesManager.$enableLocalTextClassification
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$classificationFeedbackEnabled
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$enableCloudClassification
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$cloudProvider
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$cloudModel
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$cloudEndpoint
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$enableImageClassification
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        preferencesManager.$interactionSummaryEnabled
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.scheduleClassificationConfigurationRefresh()
+            }
+            .store(in: &preferencesCancellables)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCloudAPIKeyChange(_:)),
+            name: .anchoredCloudAPIKeyDidChange,
+            object: nil
+        )
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(handleWorkspaceWillSleep),
@@ -422,6 +483,7 @@ final class FocusEngine {
     
     /// Starts monitoring application switch events.
     func start() {
+        advanceLifecycleGeneration()
         RuntimeTrace.event("focus_engine_start", fields: [
             "focusThreshold": String(focusThreshold),
             "promptsEnabled": String(focusPromptsEnabled)
@@ -432,6 +494,7 @@ final class FocusEngine {
     
     /// Stops monitoring application switch events.
     func stop() {
+        advanceLifecycleGeneration()
         RuntimeTrace.event("focus_engine_stop")
         activityMonitor.stop()
         cancelSessionTimer(reason: .engineStopped)
@@ -443,6 +506,9 @@ final class FocusEngine {
         cancelBreakReturnGraceTimer()
         resetDoomscrollTimer()
         clearBreakState(at: Date())
+        if activeSession == nil {
+            resetFocusTracking()
+        }
     }
 
     @objc private func handleWorkspaceWillSleep() {
@@ -467,6 +533,7 @@ final class FocusEngine {
 
     internal func pauseFocusAccountingForWorkspaceLifecycle(now: Date = Date()) {
         guard lifecyclePauseStartedAt == nil else { return }
+        advanceLifecycleGeneration()
         lifecyclePauseStartedAt = now
 
         cancelSessionTimer(reason: .workspacePaused)
@@ -487,6 +554,7 @@ final class FocusEngine {
 
     internal func resumeFocusAccountingForWorkspaceLifecycle(now: Date = Date()) {
         guard let pauseStartedAt = lifecyclePauseStartedAt else { return }
+        advanceLifecycleGeneration()
         let pauseDuration = max(0, now.timeIntervalSince(pauseStartedAt))
         lifecyclePauseStartedAt = nil
 
@@ -623,6 +691,201 @@ final class FocusEngine {
         scheduleTransitionTimer?.invalidate()
         scheduleTransitionTimer = nil
     }
+
+    private func advanceLifecycleGeneration() {
+        lifecycleGeneration &+= 1
+    }
+
+    @objc private func handleCloudAPIKeyChange(_ notification: Notification) {
+        invalidateClassificationConfiguration(reclassifyCurrentContext: true)
+    }
+
+    private func scheduleClassificationConfigurationRefresh() {
+        guard !isClassificationConfigurationRefreshScheduled else { return }
+        isClassificationConfigurationRefreshScheduled = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isClassificationConfigurationRefreshScheduled = false
+            self.invalidateClassificationConfiguration(reclassifyCurrentContext: true)
+        }
+    }
+
+    private func invalidateClassificationConfiguration(reclassifyCurrentContext: Bool = false) {
+        classificationConfigurationRevision &+= 1
+        classificationCache.removeAll()
+        inProgressClassifications.removeAll()
+        guard reclassifyCurrentContext else { return }
+        refreshCurrentClassificationAfterConfigurationChange()
+    }
+
+    private func currentRuntimeToken() -> RuntimeToken {
+        RuntimeToken(
+            lifecycleGeneration: lifecycleGeneration,
+            contextGeneration: UInt64(contextGeneration),
+            sessionID: activeSessionIdentity,
+            profileID: profileManager.activeProfile.id,
+            classificationConfigurationRevision: classificationConfigurationRevision
+        )
+    }
+
+    private func classificationCacheKey(for identity: ContextIdentity) -> ClassificationCacheKey {
+        ClassificationCacheKey(
+            contextIdentity: identity,
+            profileID: profileManager.activeProfile.id,
+            sessionID: activeSessionIdentity,
+            classificationConfigurationRevision: classificationConfigurationRevision
+        )
+    }
+
+    private func classificationCacheKey(for snapshot: ContextSnapshot) -> ClassificationCacheKey {
+        classificationCacheKey(for: snapshot.identity)
+    }
+
+    private func currentContextSnapshot(observedAt: Date = Date()) -> ContextSnapshot? {
+        guard let bundleID = currentApp else { return nil }
+        return ContextSnapshot(
+            bundleIdentifier: bundleID,
+            localizedName: currentContext?.localizedName ?? getAppName(for: bundleID),
+            url: currentURL,
+            title: currentTitle,
+            source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                : .application,
+            observedAt: observedAt
+        )
+    }
+
+    private func refreshCurrentClassificationAfterConfigurationChange() {
+        let now = Date()
+        guard let snapshot = currentContextSnapshot(observedAt: now) else { return }
+
+        let bundleID = snapshot.bundleIdentifier
+        let decision = classifyContext(bundleID: bundleID, url: currentURL, title: currentTitle)
+
+        currentClassification = decision
+        updateFocusRunSourceCount(for: decision)
+        recordClassificationDecision(decision)
+        RuntimeTrace.event("context_decision_refreshed", fields: [
+            "bundleID": bundleID,
+            "label": decision.label.rawValue,
+            "source": decision.source.rawValue,
+            "reason": decision.reason.rawValue,
+            "confidence": String(decision.confidence)
+        ])
+        NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
+
+        scheduleNeutralClassificationFallbackIfNeeded(
+            snapshot: snapshot,
+            decision: decision,
+            generation: contextGeneration,
+            runtimeToken: currentRuntimeToken()
+        )
+
+        if activeBreakCommitment != nil {
+            updateBreakReturnGrace(for: decision, snapshot: snapshot, observedAt: now)
+            return
+        }
+
+        guard isFocusScheduleActive else {
+            suppressAutomaticScheduleBehavior(reason: "classificationConfigurationChange", bundleID: bundleID)
+            return
+        }
+
+        if activeSession != nil,
+           activeFocusIntent?.hasIntentSignal == true,
+           !decision.source.isExplicitRule,
+           activeBreakCommitment == nil,
+           !isDeclaredActivityBypassActive {
+            triggerAsyncIntentClassification(
+                snapshot: snapshot,
+                generation: contextGeneration,
+                baseDecision: decision,
+                runtimeToken: currentRuntimeToken()
+            )
+        }
+
+        if activeBreakCommitment != nil || isDeclaredActivityBypassActive {
+            return
+        }
+
+        if decision.isDistraction {
+            RuntimeTrace.event("distraction_detected", fields: [
+                "bundleID": bundleID,
+                "activeSession": String(activeSession != nil),
+                "countdownSeconds": String(distractionCountdownThreshold)
+            ])
+            if activeSession != nil {
+                if distractionStartDate == nil {
+                    distractionStartDate = now
+
+                    let event = SessionEvent(
+                        type: .distractionDetected,
+                        appBundleID: lastWorkAppBundleID ?? "",
+                        appName: getAppName(for: lastWorkAppBundleID ?? ""),
+                        url: currentURL?.absoluteString,
+                        distractionAppBundleID: bundleID,
+                        distraction_domain: currentURL?.host
+                    )
+                    sessionStore.log(event)
+
+                    delegate?.didDetectDistraction(bundleID: bundleID)
+                    RuntimeTrace.event("distraction_countdown_started", fields: ["bundleID": bundleID])
+                    scheduleDistractionTimer(distractionBundleID: bundleID)
+                }
+            } else {
+                refreshDoomscrollTimerIfNeeded(observedAt: now)
+                resetFocusTracking()
+            }
+        } else if decision.isFocus {
+            RuntimeTrace.event("focus_context_applied", fields: [
+                "bundleID": bundleID,
+                "activeSession": String(activeSession != nil)
+            ])
+
+            if activeSession != nil {
+                if shouldImmediatelyResumeSession(for: snapshot, decision: decision) {
+                    let wasDimming = isDimming
+                    lastWorkAppBundleID = bundleID
+                    resumeSessionIfNeeded()
+                    cancelDistractionTimer()
+                    distractionStartDate = nil
+                    if !wasDimming {
+                        notifyReturnToWorkOncePerContext()
+                    }
+                }
+            } else {
+                lastWorkAppBundleID = bundleID
+                resetDoomscrollTimer()
+                if workSessionStart == nil {
+                    workSessionStart = now
+                    hasPromptedForCurrentFocusRun = false
+                }
+                scheduleFocusPromptTimer()
+            }
+        } else {
+            RuntimeTrace.event("neutral_context_reapplied", fields: [
+                "bundleID": bundleID,
+                "activeSession": String(activeSession != nil)
+            ])
+            if activeSession != nil {
+                if distractionStartDate != nil || isDimming {
+                    cancelDistractionTimer()
+                    distractionStartDate = nil
+                    if isDimming {
+                        isDimming = false
+                        notifyReturnToWorkOncePerContext()
+                    }
+                }
+            } else {
+                resetDoomscrollTimer()
+                if !requestFocusPromptIfEligible(now: now) {
+                    resetFocusTracking()
+                }
+            }
+        }
+
+    }
     
     private func classifyContext(bundleID: String, url: URL?, title: String) -> ClassificationDecision {
         let snapshot = ContextSnapshot(
@@ -636,16 +899,40 @@ final class FocusEngine {
             observedAt: Date()
         )
         var evidence = distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title)
-        if let contextualEvidence = contextualLearningStore.evidence(for: snapshot, focusIntent: activeFocusIntent) {
+        let contextualIntent = currentContextualFocusIntent(for: snapshot)
+        if let contextualEvidence = contextualLearningStore.evidence(for: snapshot, focusIntent: contextualIntent) {
             evidence.append(contextualEvidence)
         }
 
-        return classificationResolver.resolve(
+        let decision = classificationResolver.resolve(
             evidence,
             interactionSummary: preferencesManager.interactionSummaryEnabled
                 ? interactionSummaryProvider.summary(at: Date())
                 : nil
         )
+
+        if shouldDeferSocialMixedUseToCloud(bundleID: bundleID, url: url, title: title, decision: decision) {
+            return .neutral(reason: .lowConfidence, evidence: decision.evidence)
+        }
+
+        return decision
+    }
+
+    private func shouldDeferSocialMixedUseToCloud(
+        bundleID: String,
+        url: URL?,
+        title: String,
+        decision: ClassificationDecision
+    ) -> Bool {
+        guard preferencesManager.enableCloudClassification,
+              BrowserStrategyFactory.isSupportedBrowser(bundleID),
+              !decision.source.isExplicitRule,
+              decision.isDistraction,
+              ContextualSiteHeuristic.pageCategory(for: url, title: title) == .social else {
+            return false
+        }
+
+        return true
     }
 
     private func shouldImmediatelyResumeSession(for snapshot: ContextSnapshot, decision: ClassificationDecision) -> Bool {
@@ -660,6 +947,19 @@ final class FocusEngine {
         }
 
         return baseline.identity == snapshot.identity
+    }
+
+    private func currentContextualFocusIntent(for snapshot: ContextSnapshot) -> FocusIntent {
+        if let activeFocusIntent {
+            return activeFocusIntent
+        }
+
+        return FocusIntent.make(
+            goal: nil,
+            baselineContext: snapshot,
+            activeProfileName: profileManager.activeProfile.name,
+            activeProfileCategory: profileManager.activeProfile.name
+        )
     }
 
     func suggestedSessionGoal() -> String? {
@@ -731,42 +1031,80 @@ final class FocusEngine {
         return false
     }
 
-    private func triggerCloudOrVisualFallback(bundleID: String, url: URL?, title: String, generation: Int) {
-        let targetIdentity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != targetIdentity)
-        if isStale {
-            inProgressClassifications.remove(targetIdentity)
+    private func triggerCloudOrVisualFallback(
+        bundleID: String,
+        url: URL?,
+        title: String,
+        generation: Int,
+        runtimeToken: RuntimeToken
+    ) {
+        let targetIdentity = ContextIdentity(
+            bundleID: bundleID,
+            sanitizedURL: ContextSanitizer.sanitizePersistedURL(url),
+            normalizedTitle: ContextSanitizer.sanitizeTitle(title)
+        )
+        let cacheKey = classificationCacheKey(for: targetIdentity)
+        guard runtimeToken == currentRuntimeToken() else {
+            inProgressClassifications.remove(cacheKey)
             return
         }
 
         if preferencesManager.enableCloudClassification {
             RuntimeTrace.event("fallback_cloud_selected", fields: ["bundleID": bundleID, "generation": String(generation)])
-            triggerAsyncCloudClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+            triggerAsyncCloudClassification(
+                bundleID: bundleID,
+                url: url,
+                title: title,
+                generation: generation,
+                runtimeToken: runtimeToken
+            )
         } else if preferencesManager.enableImageClassification {
             RuntimeTrace.event("fallback_visual_selected", fields: ["bundleID": bundleID, "generation": String(generation)])
-            triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+            triggerAsyncVisualClassification(
+                bundleID: bundleID,
+                url: url,
+                title: title,
+                generation: generation,
+                runtimeToken: runtimeToken
+            )
         } else {
             RuntimeTrace.event("fallbacks_disabled", fields: ["bundleID": bundleID, "generation": String(generation)])
             // End of pipeline, cache as neutral
-            classificationCache[targetIdentity] = .neutral()
-            inProgressClassifications.remove(targetIdentity)
+            classificationCache.store(.neutral(), for: cacheKey)
+            inProgressClassifications.remove(cacheKey)
         }
     }
 
-    private func triggerAsyncCloudClassification(bundleID: String, url: URL?, title: String, generation: Int) {
-        let targetIdentity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != targetIdentity)
-        if isStale {
-            inProgressClassifications.remove(targetIdentity)
+    private func triggerAsyncCloudClassification(
+        bundleID: String,
+        url: URL?,
+        title: String,
+        generation: Int,
+        runtimeToken: RuntimeToken
+    ) {
+        let targetIdentity = ContextIdentity(
+            bundleID: bundleID,
+            sanitizedURL: ContextSanitizer.sanitizePersistedURL(url),
+            normalizedTitle: ContextSanitizer.sanitizeTitle(title)
+        )
+        let cacheKey = classificationCacheKey(for: targetIdentity)
+        guard runtimeToken == currentRuntimeToken() else {
+            inProgressClassifications.remove(cacheKey)
             return
         }
 
         guard preferencesManager.enableCloudClassification else {
             if preferencesManager.enableImageClassification {
-                triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+                triggerAsyncVisualClassification(
+                    bundleID: bundleID,
+                    url: url,
+                    title: title,
+                    generation: generation,
+                    runtimeToken: runtimeToken
+                )
             } else {
-                classificationCache[targetIdentity] = .neutral()
-                inProgressClassifications.remove(targetIdentity)
+                classificationCache.store(.neutral(), for: cacheKey)
+                inProgressClassifications.remove(cacheKey)
             }
             return
         }
@@ -792,12 +1130,16 @@ final class FocusEngine {
             DispatchQueue.main.async {
                 guard let self else { return }
 
-                let identity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-                let isActiveContext = (self.currentIdentity == identity)
+                let identity = ContextIdentity(
+                    bundleID: bundleID,
+                    sanitizedURL: ContextSanitizer.sanitizePersistedURL(url),
+                    normalizedTitle: ContextSanitizer.sanitizeTitle(title)
+                )
+                let cacheKey = self.classificationCacheKey(for: identity)
 
-                guard generation == self.contextGeneration else {
-                    self.classificationCache.removeValue(forKey: identity)
-                    self.inProgressClassifications.remove(identity)
+                guard runtimeToken == self.currentRuntimeToken() else {
+                    self.classificationCache.removeValue(forKey: cacheKey)
+                    self.inProgressClassifications.remove(cacheKey)
                     return
                 }
 
@@ -819,21 +1161,26 @@ final class FocusEngine {
                    evidence.confidence >= ClassificationPolicy.highConfidenceThreshold {
                     
                     let currentEvidence = self.distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title)
+                    let promotionBaseEvidence: [ClassificationEvidence]
+                    if ContextualSiteHeuristic.pageCategory(for: url, title: title) == .social {
+                        promotionBaseEvidence = currentEvidence.filter { $0.source.isExplicitRule }
+                    } else {
+                        promotionBaseEvidence = currentEvidence
+                    }
                     let promotionEvidence = ClassificationEvidence(
                         label: .productive,
                         source: .cloudModel,
                         confidence: evidence.confidence,
                         reason: .modelEvidence
                     )
-                    let promotedDecision = self.classificationResolver.resolve(currentEvidence + [promotionEvidence])
-                    
+                    let promotedDecision = self.classificationResolver.resolve(promotionBaseEvidence + [promotionEvidence])
+
                     if promotedDecision.isFocus {
-                        self.classificationCache[identity] = promotedDecision
-                        self.inProgressClassifications.remove(identity)
+                        self.classificationCache.store(promotedDecision, for: cacheKey)
+                        self.inProgressClassifications.remove(cacheKey)
                         promoted = true
-                        
-                        let isCurrentlyActive = (generation == self.contextGeneration) || isActiveContext
-                        if isCurrentlyActive {
+
+                        if runtimeToken == self.currentRuntimeToken() {
                             self.applyPromotedFocus(bundleID: bundleID)
                             self.currentClassification = promotedDecision
                             self.updateFocusRunSourceCount(for: promotedDecision)
@@ -865,35 +1212,51 @@ final class FocusEngine {
 
                 if self.preferencesManager.enableImageClassification {
                     RuntimeTrace.event("cloud_did_not_promote_using_visual_fallback", fields: ["bundleID": bundleID])
-                    self.triggerAsyncVisualClassification(bundleID: bundleID, url: url, title: title, generation: generation)
+                    self.triggerAsyncVisualClassification(
+                        bundleID: bundleID,
+                        url: url,
+                        title: title,
+                        generation: generation,
+                        runtimeToken: runtimeToken
+                    )
                 } else {
                     RuntimeTrace.event("cloud_did_not_promote_no_visual_fallback", fields: ["bundleID": bundleID])
-                    self.classificationCache[identity] = .neutral()
-                    self.inProgressClassifications.remove(identity)
+                    self.classificationCache.store(.neutral(), for: cacheKey)
+                    self.inProgressClassifications.remove(cacheKey)
                 }
             }
         }
     }
 
-    private func triggerAsyncVisualClassification(bundleID: String, url: URL?, title: String, generation: Int) {
-        let targetIdentity = ContextIdentity(bundleID: bundleID, sanitizedURL: ContextSanitizer.sanitizePersistedURL(url), normalizedTitle: ContextSanitizer.sanitizeTitle(title))
-        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != targetIdentity)
-        if isStale {
-            inProgressClassifications.remove(targetIdentity)
+    private func triggerAsyncVisualClassification(
+        bundleID: String,
+        url: URL?,
+        title: String,
+        generation: Int,
+        runtimeToken: RuntimeToken
+    ) {
+        let targetIdentity = ContextIdentity(
+            bundleID: bundleID,
+            sanitizedURL: ContextSanitizer.sanitizePersistedURL(url),
+            normalizedTitle: ContextSanitizer.sanitizeTitle(title)
+        )
+        let cacheKey = classificationCacheKey(for: targetIdentity)
+        guard runtimeToken == currentRuntimeToken() else {
+            inProgressClassifications.remove(cacheKey)
             return
         }
 
         guard preferencesManager.enableImageClassification else {
-            classificationCache[targetIdentity] = .neutral()
-            inProgressClassifications.remove(targetIdentity)
+            classificationCache.store(.neutral(), for: cacheKey)
+            inProgressClassifications.remove(cacheKey)
             return
         }
 
         // Skip visual check for sensitive contexts (protect privacy and avoid false positives)
         if FocusEngine.isSensitiveContext(bundleID: bundleID, url: url, title: title) {
             RuntimeTrace.event("visual_classification_skipped_sensitive", fields: ["bundleID": bundleID])
-            self.classificationCache[targetIdentity] = .neutral()
-            inProgressClassifications.remove(targetIdentity)
+            self.classificationCache.store(.neutral(), for: cacheKey)
+            inProgressClassifications.remove(cacheKey)
             return
         }
 
@@ -904,17 +1267,12 @@ final class FocusEngine {
 
              var isBackgroundStale = false
              DispatchQueue.main.sync {
-                 let identityMatches = (generation == self.contextGeneration) && (self.currentIdentity == targetIdentity)
-                 var frontAppMatches = (NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID)
-                 if NSClassFromString("XCTestCase") != nil {
-                     frontAppMatches = true
-                 }
-                 isBackgroundStale = !identityMatches || !frontAppMatches
+                 isBackgroundStale = runtimeToken != self.currentRuntimeToken()
              }
             if isBackgroundStale {
                 DispatchQueue.main.async { [weak self] in
-                    self?.classificationCache.removeValue(forKey: targetIdentity)
-                    self?.inProgressClassifications.remove(targetIdentity)
+                    self?.classificationCache.removeValue(forKey: cacheKey)
+                    self?.inProgressClassifications.remove(cacheKey)
                 }
                 return
             }
@@ -923,15 +1281,13 @@ final class FocusEngine {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
 
-                let isActiveContext = (self.currentIdentity == targetIdentity)
-
-                guard generation == self.contextGeneration else {
-                    self.classificationCache.removeValue(forKey: targetIdentity)
-                    self.inProgressClassifications.remove(targetIdentity)
+                guard runtimeToken == self.currentRuntimeToken() else {
+                    self.classificationCache.removeValue(forKey: cacheKey)
+                    self.inProgressClassifications.remove(cacheKey)
                     return
                 }
 
-                self.inProgressClassifications.remove(targetIdentity)
+                self.inProgressClassifications.remove(cacheKey)
 
                 if isProductive {
                     let currentEvidence = self.distractionEvaluator.evidence(bundleID: bundleID, url: url, title: title)
@@ -944,10 +1300,9 @@ final class FocusEngine {
                     let promotedDecision = self.classificationResolver.resolve(currentEvidence + [promotionEvidence])
 
                     if promotedDecision.isFocus {
-                        self.classificationCache[targetIdentity] = promotedDecision
+                        self.classificationCache.store(promotedDecision, for: cacheKey)
 
-                        let isCurrentlyActive = (generation == self.contextGeneration) || isActiveContext
-                        if isCurrentlyActive {
+                        if runtimeToken == self.currentRuntimeToken() {
                             self.applyPromotedFocus(bundleID: bundleID)
                             self.currentClassification = promotedDecision
                             self.updateFocusRunSourceCount(for: promotedDecision)
@@ -975,7 +1330,7 @@ final class FocusEngine {
                 }
 
                 // If not productive/promoted:
-                self.classificationCache[targetIdentity] = .neutral()
+                self.classificationCache.store(.neutral(), for: cacheKey)
             }
         }
     }
@@ -1030,7 +1385,7 @@ final class FocusEngine {
         currentClassification = promotedDecision
         updateFocusRunSourceCount(for: promotedDecision)
         recordClassificationDecision(promotedDecision)
-        classificationCache[identity] = promotedDecision
+        classificationCache.store(promotedDecision, for: classificationCacheKey(for: identity))
         NotificationCenter.default.post(name: .focusEngineClassificationDidChange, object: self)
 
         applyPromotedFocus(bundleID: bundleID)
@@ -1059,6 +1414,8 @@ final class FocusEngine {
     
     @objc private func handleActiveProfileChange() {
         contextGeneration += 1
+        invalidateClassificationConfiguration(reclassifyCurrentContext: true)
+        return
         classificationCache.removeAll()
         inProgressClassifications.removeAll()
         guard let currentApp = currentApp else { return }
@@ -1088,6 +1445,12 @@ final class FocusEngine {
             graceStarted: false,
             enforcementOccurred: isDimming
         )
+        scheduleNeutralClassificationFallbackIfNeeded(
+            snapshot: currentSnapshot,
+            decision: decision,
+            generation: contextGeneration,
+            runtimeToken: currentRuntimeToken()
+        )
         if activeBreakCommitment != nil {
             updateBreakReturnGrace(for: decision, snapshot: currentSnapshot, observedAt: now)
             return
@@ -1104,7 +1467,8 @@ final class FocusEngine {
             triggerAsyncIntentClassification(
                 snapshot: currentSnapshot,
                 generation: contextGeneration,
-                baseDecision: decision
+                baseDecision: decision,
+                runtimeToken: currentRuntimeToken()
             )
         }
         let isCurrentlyDistraction = decision.isDistraction
@@ -1169,6 +1533,8 @@ final class FocusEngine {
 
     @objc private func handleProfilesDidChange() {
         contextGeneration += 1
+        invalidateClassificationConfiguration(reclassifyCurrentContext: true)
+        return
         classificationCache.removeAll()
         inProgressClassifications.removeAll()
         guard let currentApp = currentApp else { return }
@@ -1198,6 +1564,12 @@ final class FocusEngine {
             graceStarted: false,
             enforcementOccurred: isDimming
         )
+        scheduleNeutralClassificationFallbackIfNeeded(
+            snapshot: currentSnapshot,
+            decision: decision,
+            generation: contextGeneration,
+            runtimeToken: currentRuntimeToken()
+        )
         if activeBreakCommitment != nil {
             updateBreakReturnGrace(for: decision, snapshot: currentSnapshot, observedAt: now)
             return
@@ -1214,7 +1586,8 @@ final class FocusEngine {
             triggerAsyncIntentClassification(
                 snapshot: currentSnapshot,
                 generation: contextGeneration,
-                baseDecision: decision
+                baseDecision: decision,
+                runtimeToken: currentRuntimeToken()
             )
         }
         let isCurrentlyDistraction = decision.isDistraction
@@ -1314,21 +1687,22 @@ final class FocusEngine {
         )
         
         let decision: ClassificationDecision
-        if let cached = classificationCache[actualSnapshot.identity] {
-            decision = cached
+        let cacheKey = classificationCacheKey(for: actualSnapshot)
+        if let cached = classificationCache.cachedClassification(for: cacheKey) {
+            decision = cached.decision
             RuntimeTrace.event("context_decision_cached", fields: [
                 "bundleID": bundleID,
                 "label": decision.label.rawValue,
                 "source": decision.source.rawValue
             ])
-            if cached.isFocus {
+            if cached.decision.isFocus {
                 applyPromotedFocus(bundleID: bundleID)
             }
         } else {
             let baseDecision = classifyContext(bundleID: bundleID, url: url, title: title)
             if baseDecision.label != .neutral {
                 decision = baseDecision
-                classificationCache[actualSnapshot.identity] = decision
+                classificationCache.store(decision, for: cacheKey)
             } else {
                 decision = baseDecision // neutral
             }
@@ -1393,18 +1767,17 @@ final class FocusEngine {
             triggerAsyncIntentClassification(
                 snapshot: actualSnapshot,
                 generation: contextGeneration,
-                baseDecision: decision
+                baseDecision: decision,
+                runtimeToken: currentRuntimeToken()
             )
         }
 
-        if decision.label == .neutral && classificationCache[actualSnapshot.identity] == nil {
-            let identity = actualSnapshot.identity
-            if !inProgressClassifications.contains(identity) {
-                classificationCache[identity] = .neutral()
-                inProgressClassifications.insert(identity)
-                runClassificationPipeline(snapshot: actualSnapshot, generation: contextGeneration)
-            }
-        }
+        scheduleNeutralClassificationFallbackIfNeeded(
+            snapshot: actualSnapshot,
+            decision: decision,
+            generation: contextGeneration,
+            runtimeToken: currentRuntimeToken()
+        )
 
         // A committed break or declared activity bypass suspends normal enforcement
         if activeBreakCommitment != nil || isDeclaredActivityBypassActive {
@@ -1499,27 +1872,58 @@ final class FocusEngine {
         }
     }
 
-    private func runClassificationPipeline(snapshot: ContextSnapshot, generation: Int) {
-        guard generation == contextGeneration,
-              self.currentIdentity == snapshot.identity else { return }
+    private func runClassificationPipeline(
+        snapshot: ContextSnapshot,
+        generation: Int,
+        runtimeToken: RuntimeToken
+    ) {
+        guard runtimeToken == currentRuntimeToken() else { return }
 
         if preferencesManager.enableLocalTextClassification {
             RuntimeTrace.event("neutral_local_text_selected", fields: ["bundleID": snapshot.bundleIdentifier, "generation": String(generation)])
-            triggerAsyncLocalTextClassification(snapshot: snapshot, generation: generation)
+            triggerAsyncLocalTextClassification(
+                snapshot: snapshot,
+                generation: generation,
+                runtimeToken: runtimeToken
+            )
         } else {
             triggerCloudOrVisualFallback(
                 bundleID: snapshot.bundleIdentifier,
                 url: snapshot.url,
                 title: snapshot.title,
-                generation: generation
+                generation: generation,
+                runtimeToken: runtimeToken
             )
         }
+    }
+
+    private func scheduleNeutralClassificationFallbackIfNeeded(
+        snapshot: ContextSnapshot,
+        decision: ClassificationDecision,
+        generation: Int,
+        runtimeToken: RuntimeToken
+    ) {
+        let cacheKey = classificationCacheKey(for: snapshot)
+        guard decision.label == .neutral,
+              classificationCache.cachedClassification(for: cacheKey) == nil,
+              !inProgressClassifications.contains(cacheKey) else {
+            return
+        }
+
+        classificationCache.store(.neutral(), for: cacheKey)
+        inProgressClassifications.insert(cacheKey)
+        runClassificationPipeline(
+            snapshot: snapshot,
+            generation: generation,
+            runtimeToken: runtimeToken
+        )
     }
 
     private func triggerAsyncIntentClassification(
         snapshot: ContextSnapshot,
         generation: Int,
-        baseDecision: ClassificationDecision
+        baseDecision: ClassificationDecision,
+        runtimeToken: RuntimeToken
     ) {
         guard let focusIntent = activeFocusIntent, focusIntent.hasIntentSignal else {
             return
@@ -1533,7 +1937,7 @@ final class FocusEngine {
 
             var isBackgroundStale = false
             DispatchQueue.main.sync {
-                isBackgroundStale = (generation != self.contextGeneration) || (self.currentIdentity != snapshot.identity)
+                isBackgroundStale = runtimeToken != self.currentRuntimeToken()
             }
             if isBackgroundStale {
                 return
@@ -1554,8 +1958,7 @@ final class FocusEngine {
             let result = self.intentClassifier.classify(input: input)
             DispatchQueue.main.async { [weak self] in
                 guard let self,
-                      generation == self.contextGeneration,
-                      self.currentIdentity == snapshot.identity else {
+                      runtimeToken == self.currentRuntimeToken() else {
                     RuntimeTrace.event("intent_result_discarded_stale", fields: [
                         "bundleID": snapshot.bundleIdentifier,
                         "generation": String(generation)
@@ -1766,10 +2169,14 @@ final class FocusEngine {
         classificationOutcomeStore.record(outcome, completion: nil)
     }
 
-    private func triggerAsyncLocalTextClassification(snapshot: ContextSnapshot, generation: Int) {
-        let isStale = (generation != self.contextGeneration) && (self.currentIdentity != snapshot.identity)
-        if isStale {
-            inProgressClassifications.remove(snapshot.identity)
+    private func triggerAsyncLocalTextClassification(
+        snapshot: ContextSnapshot,
+        generation: Int,
+        runtimeToken: RuntimeToken
+    ) {
+        let cacheKey = classificationCacheKey(for: snapshot)
+        guard runtimeToken == currentRuntimeToken() else {
+            inProgressClassifications.remove(cacheKey)
             return
         }
 
@@ -1778,17 +2185,17 @@ final class FocusEngine {
                 bundleID: snapshot.bundleIdentifier,
                 url: snapshot.url,
                 title: snapshot.title,
-                generation: generation
+                generation: generation,
+                runtimeToken: runtimeToken
             )
             return
         }
 
-        let identity = snapshot.identity
         let sanitizedSnapshot = ContextSnapshot(
-            bundleIdentifier: identity.bundleID,
+            bundleIdentifier: snapshot.identity.bundleID,
             localizedName: snapshot.localizedName,
-            url: identity.sanitizedURL.flatMap(URL.init(string:)),
-            title: identity.normalizedTitle,
+            url: snapshot.identity.sanitizedURL.flatMap(URL.init(string:)),
+            title: snapshot.identity.normalizedTitle,
             source: snapshot.source,
             observedAt: snapshot.observedAt
         )
@@ -1798,12 +2205,12 @@ final class FocusEngine {
 
             var isBackgroundStale = false
             DispatchQueue.main.sync {
-                isBackgroundStale = (generation != self.contextGeneration) || (self.currentIdentity != snapshot.identity)
+                isBackgroundStale = runtimeToken != self.currentRuntimeToken()
             }
             if isBackgroundStale {
                 DispatchQueue.main.async { [weak self] in
-                    self?.classificationCache.removeValue(forKey: snapshot.identity)
-                    self?.inProgressClassifications.remove(snapshot.identity)
+                    self?.classificationCache.removeValue(forKey: cacheKey)
+                    self?.inProgressClassifications.remove(cacheKey)
                 }
                 return
             }
@@ -1825,11 +2232,9 @@ final class FocusEngine {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
 
-                let isActiveContext = (self.currentIdentity == identity)
-
-                guard generation == self.contextGeneration else {
-                    self.classificationCache.removeValue(forKey: identity)
-                    self.inProgressClassifications.remove(identity)
+                guard runtimeToken == self.currentRuntimeToken() else {
+                    self.classificationCache.removeValue(forKey: cacheKey)
+                    self.inProgressClassifications.remove(cacheKey)
                     return
                 }
 
@@ -1853,11 +2258,10 @@ final class FocusEngine {
                     let promotedDecision = self.classificationResolver.resolve(currentEvidence + [promotionEvidence])
 
                     if promotedDecision.isFocus {
-                        self.classificationCache[identity] = promotedDecision
-                        self.inProgressClassifications.remove(identity)
+                        self.classificationCache.store(promotedDecision, for: cacheKey)
+                        self.inProgressClassifications.remove(cacheKey)
 
-                        let isCurrentlyActive = (generation == self.contextGeneration) || isActiveContext
-                        if isCurrentlyActive {
+                        if runtimeToken == self.currentRuntimeToken() {
                             self.applyPromotedFocus(bundleID: snapshot.bundleIdentifier)
                             self.currentClassification = promotedDecision
                             self.updateFocusRunSourceCount(for: promotedDecision)
@@ -1879,7 +2283,8 @@ final class FocusEngine {
                     bundleID: snapshot.bundleIdentifier,
                     url: snapshot.url,
                     title: snapshot.title,
-                    generation: generation
+                    generation: generation,
+                    runtimeToken: runtimeToken
                 )
             }
         }
@@ -2406,7 +2811,9 @@ final class FocusEngine {
             return
         }
 
-        let intentCategory = ContextualSiteHeuristic.intentCategory(for: activeFocusIntent)
+        let intentCategory = ContextualSiteHeuristic.intentCategory(
+            for: activeFocusIntent ?? currentContextualFocusIntent(for: snapshot)
+        )
         let record = ContextualLearningRecord(
             normalizedDomain: normalizedDomain,
             pageCategory: ContextualSiteHeuristic.pageCategory(for: snapshot.url, title: snapshot.title),
@@ -2437,8 +2844,11 @@ final class FocusEngine {
         )
     }
 
-    func shouldSuggestPermanentRule(for domain: String) -> Bool {
-        contextualLearningStore.shouldSuggestPermanentRule(for: domain)
+    func shouldSuggestPermanentRule(for snapshot: ContextSnapshot) -> Bool {
+        contextualLearningStore.shouldSuggestPermanentRule(
+            for: snapshot,
+            focusIntent: activeFocusIntent ?? currentContextualFocusIntent(for: snapshot)
+        )
     }
 
     /// Reviews the current app with on-device OCR-backed text classification so
@@ -2702,7 +3112,7 @@ final class FocusEngine {
         // The gate is an onboarding milestone, not a modal requirement after every session.
         // Keep it deferred until the user has completed ten sessions so an unavailable
         // Accessibility permission can never interrupt ordinary focus work.
-        let completedSessionCount = sessionStore.allEvents().filter { $0.type == .sessionEnd }.count
+        let completedSessionCount = sessionStore.recordedEvents.filter { $0.type == .sessionEnd }.count
         if completedSessionCount >= 10, !AXIsProcessTrusted() {
             delegate?.didRequestPermissionGate()
         }

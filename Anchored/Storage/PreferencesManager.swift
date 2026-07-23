@@ -59,13 +59,15 @@ public final class PreferencesManager: ObservableObject {
     public static let defaultFocusSchedule = FocusSchedule()
     
     public static let defaultEnableCloudClassification = false
-    public static let defaultCloudProvider = 0 // 0 = Gemini, 1 = OpenAI, 2 = Anthropic
+    public static let defaultCloudProvider = 0 // 0 = Gemini, 1 = OpenAI, 2 = Anthropic, 3 = Ollama
     public static let defaultCloudModelGemini = "gemini-2.5-flash"
     public static let defaultCloudModelOpenAI = "gpt-4o-mini"
     public static let defaultCloudModelAnthropic = "claude-3-5-haiku"
+    public static let defaultCloudModelOllama = "llama3.2"
     public static let defaultCloudEndpointGemini = "https://generativelanguage.googleapis.com/v1beta/models/"
     public static let defaultCloudEndpointOpenAI = "https://api.openai.com/v1/chat/completions"
     public static let defaultCloudEndpointAnthropic = "https://api.anthropic.com/v1/messages"
+    public static let defaultCloudEndpointOllama = "http://localhost:11434/api/chat"
     public static let defaultLocalTextModel = "qwen2.5:0.5b"
 
     public static let defaultContextHistoryEnabled = false
@@ -254,7 +256,7 @@ public final class PreferencesManager: ObservableObject {
         }
     }
 
-    /// The selected cloud provider (0 = Gemini, 1 = OpenAI, 2 = Anthropic)
+    /// The selected cloud provider (0 = Gemini, 1 = OpenAI, 2 = Anthropic, 3 = Ollama)
     @Published public var cloudProvider: Int {
         didSet {
             defaults.set(cloudProvider, forKey: Keys.cloudProvider)
@@ -268,6 +270,9 @@ public final class PreferencesManager: ObservableObject {
             case 2:
                 defaultModel = Self.defaultCloudModelAnthropic
                 defaultEndpoint = Self.defaultCloudEndpointAnthropic
+            case 3:
+                defaultModel = Self.defaultCloudModelOllama
+                defaultEndpoint = Self.defaultCloudEndpointOllama
             default:
                 defaultModel = Self.defaultCloudModelGemini
                 defaultEndpoint = Self.defaultCloudEndpointGemini
@@ -283,6 +288,9 @@ public final class PreferencesManager: ObservableObject {
             case 2:
                 oldDefaultModel = Self.defaultCloudModelAnthropic
                 oldDefaultEndpoint = Self.defaultCloudEndpointAnthropic
+            case 3:
+                oldDefaultModel = Self.defaultCloudModelOllama
+                oldDefaultEndpoint = Self.defaultCloudEndpointOllama
             default:
                 oldDefaultModel = Self.defaultCloudModelGemini
                 oldDefaultEndpoint = Self.defaultCloudEndpointGemini
@@ -478,6 +486,9 @@ public final class PreferencesManager: ObservableObject {
         case 2:
             defaultModel = Self.defaultCloudModelAnthropic
             defaultEndpoint = Self.defaultCloudEndpointAnthropic
+        case 3:
+            defaultModel = Self.defaultCloudModelOllama
+            defaultEndpoint = Self.defaultCloudEndpointOllama
         default:
             defaultModel = Self.defaultCloudModelGemini
             defaultEndpoint = Self.defaultCloudEndpointGemini

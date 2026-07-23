@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public enum ClassificationCorrection: String, Codable, Equatable, CaseIterable {
+public enum ClassificationCorrection: String, Codable, Equatable, CaseIterable, Sendable {
     case allowApp
     case blockApp
     case allowDomain
@@ -9,7 +9,7 @@ public enum ClassificationCorrection: String, Codable, Equatable, CaseIterable {
     case markSessionProductive
 }
 
-struct ClassificationFeedback: Codable, Equatable {
+struct ClassificationFeedback: Codable, Equatable, Sendable {
     let id: UUID
     let createdAt: Date
     let bundleID: String

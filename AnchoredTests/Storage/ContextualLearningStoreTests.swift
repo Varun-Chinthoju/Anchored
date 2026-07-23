@@ -16,7 +16,11 @@ final class ContextualLearningStoreTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         dbURL = tempDirectory.appendingPathComponent("contextual-learning.db")
         sqliteStore = SQLiteSessionStore(databaseURL: dbURL)
-        store = ContextualLearningStore(sqliteStore: sqliteStore, isEnabled: true)
+        store = ContextualLearningStore(
+            sqliteStore: sqliteStore,
+            isEnabled: true,
+            clock: { Date(timeIntervalSince1970: 1_700_000_000) }
+        )
     }
 
     override func tearDown() {
@@ -65,6 +69,19 @@ final class ContextualLearningStoreTests: XCTestCase {
         )
     }
 
+    private func makeFocusIntent(profileName: String? = nil) -> FocusIntent {
+        let snapshot = makeSnapshot(
+            url: "https://chatgpt.com/c/123",
+            title: "ChatGPT - coding help"
+        )
+        return FocusIntent.make(
+            goal: "Write Swift code",
+            baselineContext: snapshot,
+            activeProfileName: profileName,
+            activeProfileCategory: profileName
+        )
+    }
+
     func testRecordPersistsOnlyStructuredPrivacySafeFields() throws {
         let record = ContextualLearningRecord(
             normalizedDomain: " ChatGPT.com ",
@@ -108,11 +125,16 @@ final class ContextualLearningStoreTests: XCTestCase {
 
         let codingEvidence = store.evidence(
             for: codingSnapshot,
-            focusIntent: FocusIntent(sanitizedGoal: "Write Swift code")
+            focusIntent: makeFocusIntent(profileName: "Coding")
         )
         let unrelatedEvidence = store.evidence(
             for: unrelatedSnapshot,
-            focusIntent: FocusIntent()
+            focusIntent: FocusIntent.make(
+                goal: "Review writing",
+                baselineContext: unrelatedSnapshot,
+                activeProfileName: "Writing",
+                activeProfileCategory: "Writing"
+            )
         )
 
         XCTAssertEqual(codingEvidence?.label, .productive)
@@ -146,11 +168,45 @@ final class ContextualLearningStoreTests: XCTestCase {
 
         let evidence = store.evidence(
             for: snapshot,
-            focusIntent: FocusIntent(sanitizedGoal: "Learn about history")
+            focusIntent: FocusIntent.make(
+                goal: "Learn about history",
+                baselineContext: snapshot,
+                activeProfileName: "Research",
+                activeProfileCategory: "Research"
+            )
         )
 
         XCTAssertEqual(evidence?.label, .contextual)
         XCTAssertEqual(evidence?.source, .heuristic)
         XCTAssertEqual(evidence?.reason, .contextualLearning)
+    }
+
+    func testSuggestionsDecayOverTime() {
+        let oldTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let decayedClock = { Date(timeIntervalSince1970: 1_700_000_000 + 60 * 60 * 24 * 45) }
+        let decayedStore = ContextualLearningStore(
+            sqliteStore: sqliteStore,
+            isEnabled: true,
+            clock: decayedClock
+        )
+
+        for _ in 0..<3 {
+            let record = ContextualLearningRecord(
+                normalizedDomain: "chatgpt.com",
+                pageCategory: .chat,
+                intentCategory: .coding,
+                decision: .productive,
+                timestamp: oldTimestamp
+            )
+            awaitWrite { decayedStore.record(record, completion: $0) }
+        }
+
+        let snapshot = makeSnapshot(
+            url: "https://chatgpt.com/c/123",
+            title: "ChatGPT - coding help"
+        )
+        let intent = makeFocusIntent(profileName: "Coding")
+
+        XCTAssertFalse(decayedStore.shouldSuggestPermanentRule(for: snapshot, focusIntent: intent))
     }
 }

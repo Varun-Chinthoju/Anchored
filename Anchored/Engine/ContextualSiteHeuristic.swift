@@ -47,7 +47,6 @@ enum ContextualSiteHeuristic {
         if domain.contains("x.com") || domain.contains("twitter.com") || domain.contains("facebook.com") || domain.contains("instagram.com") || domain.contains("tiktok.com") || domain.contains("linkedin.com") {
             return .social
         }
-
         return .general
     }
 
@@ -91,6 +90,26 @@ enum ContextualSiteHeuristic {
         return isMixedUseContext(url: url, title: title) ? .page : .website
     }
 
+    static func reviewChoices(for bundleID: String, url: URL?, title: String) -> [ProductiveCorrectionScope] {
+        guard BrowserStrategyFactory.isSupportedBrowser(bundleID), url?.host?.isEmpty == false else {
+            return [.app]
+        }
+
+        let recommendedScope = reviewScope(for: bundleID, url: url, title: title)
+        switch recommendedScope {
+        case .page:
+            return [.page, .website, .app]
+        case .website:
+            return [.website, .page, .app]
+        case .app:
+            return [.app]
+        }
+    }
+
+    static func reviewActionTitle() -> String {
+        return "Review Current Item"
+    }
+
     static func isMixedUseContext(url: URL?, title: String) -> Bool {
         guard let domain = normalizedDomain(for: url) else { return false }
         if contextualDomains.contains(domain) {
@@ -98,10 +117,12 @@ enum ContextualSiteHeuristic {
         }
 
         switch pageCategory(for: url, title: title) {
-        case .chat, .community, .messaging, .social, .video:
+        case .chat, .community, .messaging, .video:
             return true
         case .code, .docs, .general:
             return false
+        case .social:
+            return true
         }
     }
 

@@ -22,6 +22,9 @@ public enum CloudTitleFeature: String, Codable, CaseIterable, Hashable, Sendable
     case documentation
     case meeting
     case media
+    case socialFeed
+    case socialProfile
+    case socialPost
     case unknown
 }
 
@@ -109,6 +112,21 @@ enum CloudClassificationFeatureExtractor {
         if ["video", "movie", "music", "livestream", "game", "gaming"]
             .contains(where: titleText.contains) {
             titleFeatures.append(.media)
+        }
+        if ["home", "feed", "for you", "explore", "trending", "following", "timeline", "notifications", "bookmarks"]
+            .contains(where: searchableDomain.contains) || ["home", "feed", "for you", "explore", "trending", "following", "timeline", "notifications", "bookmarks"]
+            .contains(where: titleText.contains) {
+            titleFeatures.append(.socialFeed)
+        }
+        if ["profile", "status", "post", "thread", "reply", "replies", "discussion"]
+            .contains(where: searchableDomain.contains) || ["profile", "status", "post", "thread", "reply", "replies", "discussion"]
+            .contains(where: titleText.contains) {
+            titleFeatures.append(.socialPost)
+        }
+        if ["user", "about", "followers", "following", "connections"]
+            .contains(where: searchableDomain.contains) || ["user", "about", "followers", "following", "connections"]
+            .contains(where: titleText.contains) {
+            titleFeatures.append(.socialProfile)
         }
         if titleFeatures.isEmpty {
             titleFeatures = [.unknown]

@@ -51,6 +51,7 @@ class MenuBarController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
+        RuntimeTrace.event("menu_bar_status_item_ready")
     }
     
     @objc private func handleStateChange() {
@@ -236,10 +237,11 @@ class MenuBarController: NSObject, NSMenuDelegate {
         }
         
         NSApp.setActivationPolicy(.regular)
+        let updateManager = UpdateManager.shared
         let window = SettingsWindow(
             focusEngine: focusEngine,
             initialSection: section,
-            onCheckForUpdates: UpdateManager.shared.checkForUpdates
+            onCheckForUpdates: updateManager.canCheckForUpdates ? { updateManager.checkForUpdates() } : nil
         )
         
         NotificationCenter.default.addObserver(
@@ -340,75 +342,77 @@ class MenuBarController: NSObject, NSMenuDelegate {
         alert.messageText = "Review Current Item"
         alert.informativeText = review.message
 
-        let choices: [(title: String, scope: ProductiveCorrectionScope)] = {
-            switch review.recommendedScope {
-            case .app:
-                return [("Mark This App as Productive", .app)]
-            case .website:
-                return [("Mark This Website as Productive", .website)]
-            case .page:
-                var options: [(title: String, scope: ProductiveCorrectionScope)] = [("This Page Is Related to My Focus", .page)]
-                if review.canUseWebsiteScope {
-                    options.append(("This Website Is Productive", .website))
-                }
-                return options
-            }
-        }()
+        let choices = ContextualSiteHeuristic.reviewChoices(
+            for: target.bundleID,
+            url: target.url,
+            title: target.title ?? ""
+        ).map { scope in
+            (title: titleForScope(scope), scope: scope)
+        }
 
         for choice in choices {
             alert.addButton(withTitle: choice.title)
         }
         alert.addButton(withTitle: "Cancel")
 
-        let response = alert.runModal()
-        let selectedScope: ProductiveCorrectionScope?
-        switch response {
-        case .alertFirstButtonReturn:
-            selectedScope = choices.first?.scope
-        case .alertSecondButtonReturn:
-            selectedScope = choices.dropFirst().first?.scope
-        default:
-            selectedScope = nil
+        let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+
+            let selectedScope: ProductiveCorrectionScope?
+            switch response {
+            case .alertFirstButtonReturn:
+                selectedScope = choices.first?.scope
+            case .alertSecondButtonReturn:
+                selectedScope = choices.dropFirst().first?.scope
+            default:
+                selectedScope = nil
+            }
+
+            guard let selectedScope else { return }
+
+            switch selectedScope {
+            case .app:
+                self.focusEngine.applyCorrection(.allowApp, bundleID: target.bundleID, url: target.url, title: target.title)
+            case .website:
+                self.focusEngine.applyCorrection(.allowDomain, bundleID: target.bundleID, url: target.url, title: target.title)
+            case .page:
+                let snapshot = ContextSnapshot(
+                    bundleIdentifier: target.bundleID,
+                    localizedName: target.localizedName ?? self.focusEngine.currentContext?.localizedName ?? target.bundleID,
+                    url: target.url,
+                    title: target.title ?? "",
+                    source: BrowserStrategyFactory.isSupportedBrowser(target.bundleID)
+                        ? (target.bundleID == "com.apple.Safari" ? .safari : .chromium)
+                        : .application,
+                    observedAt: Date()
+                )
+                self.focusEngine.applyPageScopedProductive(snapshot: snapshot)
+            }
         }
 
-        guard let selectedScope else { return }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        } else {
+            handleResponse(alert.runModal())
+        }
+    }
 
-        switch selectedScope {
+    private func titleForScope(_ scope: ProductiveCorrectionScope) -> String {
+        switch scope {
         case .app:
-            focusEngine.applyCorrection(.allowApp, bundleID: target.bundleID, url: target.url, title: target.title)
+            return "Mark This App as Productive"
         case .website:
-            focusEngine.applyCorrection(.allowDomain, bundleID: target.bundleID, url: target.url, title: target.title)
+            return "Mark This Website as Productive"
         case .page:
-            let snapshot = ContextSnapshot(
-                bundleIdentifier: target.bundleID,
-                localizedName: target.localizedName ?? focusEngine.currentContext?.localizedName ?? target.bundleID,
-                url: target.url,
-                title: target.title ?? "",
-                source: BrowserStrategyFactory.isSupportedBrowser(target.bundleID)
-                    ? (target.bundleID == "com.apple.Safari" ? .safari : .chromium)
-                    : .application,
-                observedAt: Date()
-            )
-            focusEngine.applyPageScopedProductive(snapshot: snapshot)
+            return "This Page Is Related to My Focus"
         }
     }
 
     private func reviewCurrentItemTitle() -> String {
-        guard let reviewTarget = pendingReviewTarget ?? makeReviewTarget() else {
+        guard (pendingReviewTarget ?? makeReviewTarget()) != nil else {
             return "Review Current Item"
         }
 
-        switch ContextualSiteHeuristic.reviewScope(
-            for: reviewTarget.bundleID,
-            url: reviewTarget.url,
-            title: reviewTarget.title ?? ""
-        ) {
-        case .app:
-            return "Mark This App as Productive..."
-        case .website:
-            return "Mark This Website as Productive..."
-        case .page:
-            return "This Page Is Related to My Focus..."
-        }
+        return ContextualSiteHeuristic.reviewActionTitle() + "..."
     }
 }

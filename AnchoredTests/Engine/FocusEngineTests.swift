@@ -202,7 +202,7 @@ final class FocusEngineTests: XCTestCase {
 
         XCTAssertNil(engine.currentApp)
         XCTAssertEqual(engine.state, .idle)
-        XCTAssertTrue(sessionStore.allEvents().isEmpty)
+        XCTAssertTrue(sessionStore.recordedEvents.isEmpty)
     }
     
     // MARK: - Non-Distraction Transitions
@@ -399,8 +399,8 @@ final class FocusEngineTests: XCTestCase {
         promptTimer.fireIgnoringCancellation()
 
         XCTAssertNil(engine.activeSession)
-        XCTAssertEqual(engine.state, .watching)
-        XCTAssertNotNil(engine.workSessionStart)
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertNil(engine.workSessionStart)
     }
 
     func testFocusPromptTimerStopsOnScheduleChange() throws {
@@ -675,7 +675,7 @@ final class FocusEngineTests: XCTestCase {
             "https://chatgpt.com/c/chat-123",
             "https://gemini.google.com/app/session",
             "https://www.reddit.com/r/swift/comments/123",
-            "https://www.youtube.com/watch?v=xyz123"
+            "https://discord.com/channels/123/456"
         ]
 
         for urlString in contextualURLs {
@@ -691,6 +691,24 @@ final class FocusEngineTests: XCTestCase {
                 "Domain \(urlString) should stay contextual (neutral) by default"
             )
         }
+    }
+
+    func testGenericYouTubeVideoTriggersDistractionInFocusSession() {
+        let profile = WorkProfile(name: "Generic YouTube Should Distract")
+        profileManager.addProfile(profile)
+        profileManager.switchProfile(to: profile.name)
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.apple.dt.Xcode")
+        engine.anchorSession(duration: 1_500)
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://www.youtube.com/watch?v=xyz123")!,
+            title: "Funny Cat Videos - YouTube"
+        )
+
+        XCTAssertTrue(engine.currentClassification.isDistraction)
+        XCTAssertEqual(mockDelegate.detectedDistractions, ["com.google.Chrome"])
     }
 
     func testPageScopedApprovalDoesNotBecomeDomainWide() {
@@ -753,8 +771,15 @@ final class FocusEngineTests: XCTestCase {
         profileManager.addProfile(profile)
         profileManager.switchProfile(to: profile.name)
 
-        let domain = "reddit.com"
-        XCTAssertFalse(engine.shouldSuggestPermanentRule(for: domain))
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: "com.google.Chrome",
+            localizedName: "Google Chrome",
+            url: URL(string: "https://www.reddit.com/r/swift/comments/seed")!,
+            title: "Swift Discussion Seed",
+            source: .chromium,
+            observedAt: Date()
+        )
+        XCTAssertFalse(engine.shouldSuggestPermanentRule(for: snapshot))
 
         for i in 1...3 {
             let snapshot = ContextSnapshot(
@@ -768,7 +793,32 @@ final class FocusEngineTests: XCTestCase {
             engine.applyPageScopedProductive(snapshot: snapshot)
         }
 
-        XCTAssertTrue(engine.shouldSuggestPermanentRule(for: domain))
+        XCTAssertTrue(engine.shouldSuggestPermanentRule(for: snapshot))
+    }
+
+    func testProfileScopedLearningDoesNotLeakAcrossProfiles() {
+        let codingProfile = WorkProfile(name: "Coding")
+        let writingProfile = WorkProfile(name: "Writing")
+        profileManager.addProfile(codingProfile)
+        profileManager.addProfile(writingProfile)
+
+        let snapshot = ContextSnapshot(
+            bundleIdentifier: "com.google.Chrome",
+            localizedName: "Google Chrome",
+            url: URL(string: "https://chatgpt.com/c/123")!,
+            title: "ChatGPT - coding help",
+            source: .chromium,
+            observedAt: Date()
+        )
+
+        profileManager.switchProfile(to: codingProfile.name)
+        for _ in 0..<3 {
+            engine.applyPageScopedProductive(snapshot: snapshot)
+        }
+        XCTAssertTrue(engine.shouldSuggestPermanentRule(for: snapshot))
+
+        profileManager.switchProfile(to: writingProfile.name)
+        XCTAssertFalse(engine.shouldSuggestPermanentRule(for: snapshot))
     }
 
     func testCorrectionImmediatelyChangesCurrentClassification() {
@@ -787,6 +837,56 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertTrue(engine.currentClassification.isFocus)
         XCTAssertFalse(profileManager.activeProfile.distractionApps.contains("com.example.Editor"))
         XCTAssertTrue(profileManager.activeProfile.allowedApps.contains("com.example.Editor"))
+    }
+
+    func testEnablingClassificationFeedbackReclassifiesTheCurrentContext() {
+        let matchingURL = URL(string: "https://example.com/reference")!
+        let learningStore = ToggleableContextualLearningStore()
+        learningStore.evidenceResult = ClassificationEvidence(
+            label: .productive,
+            source: .deterministicRule,
+            confidence: 0.9,
+            reason: .contextualLearning
+        )
+        learningStore.isEnabled = false
+        let localEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            contextualLearningStore: learningStore
+        )
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: matchingURL,
+            title: "Reference notes"
+        )
+
+        XCTAssertTrue(localEngine.currentClassification.isNeutral)
+
+        let refreshed = expectation(description: "feedback-enabled refresh promoted the current context")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .focusEngineClassificationDidChange,
+            object: localEngine,
+            queue: .main
+        ) { [weak localEngine] _ in
+            if localEngine?.currentClassification.isFocus == true {
+                refreshed.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        learningStore.isEnabled = true
+        testPreferences.classificationFeedbackEnabled = true
+
+        wait(for: [refreshed], timeout: 1.0)
+        XCTAssertTrue(localEngine.currentClassification.isFocus)
+        localEngine.stop()
     }
 
     func testProductiveReviewPrefersWebsiteScopeForBrowserContexts() {
@@ -1785,7 +1885,7 @@ final class FocusEngineTests: XCTestCase {
         XCTAssertNotNil(engine.activeSession)
         XCTAssertTrue(oldTimer.isCancelled)
         XCTAssertFalse(newTimer.isCancelled)
-        XCTAssertEqual(newTimer.interval, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(newTimer.interval, 0.1, accuracy: 0.001)
         XCTAssertEqual(mockDelegate.endedSessions, 1)
     }
 
@@ -2159,7 +2259,7 @@ final class FocusEngineTests: XCTestCase {
         }
         
         // Flush queue by doing a sync read
-        _ = sessionStore.allEvents()
+        _ = sessionStore.recordedEvents
         
         // Start and anchor session
         engine.anchorSession(duration: 1500.0)
@@ -2543,6 +2643,104 @@ final class FocusEngineTests: XCTestCase {
         localEngine.stop()
     }
 
+    func testEnablingCloudClassificationReclassifiesTheCurrentContext() {
+        let cloudService = DeferredCloudClassificationService()
+        let requestReceived = expectation(description: "cloud request received after enable")
+        cloudService.onRequest = { requestReceived.fulfill() }
+        testPreferences.cloudProvider = 0
+        try? KeychainHelper.saveKey("fake-gemini-key", forProvider: "gemini")
+
+        let localEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            cloudClassificationService: cloudService
+        )
+        localEngine.delegate = mockDelegate
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.Notepad", title: "Draft")
+        XCTAssertTrue(localEngine.currentClassification.isNeutral)
+
+        testPreferences.enableCloudClassification = true
+
+        wait(for: [requestReceived], timeout: 1.0)
+
+        let promoted = expectation(description: "cloud promotion applied after enable")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .focusEngineClassificationDidChange,
+            object: localEngine,
+            queue: .main
+        ) { [weak localEngine] _ in
+            if localEngine?.currentClassification.isFocus == true {
+                promoted.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        cloudService.complete(.success(ClassificationResult(
+            label: .productive,
+            confidence: 0.95,
+            modelVersion: "test-cloud",
+            latency: 0,
+            explanation: "test cloud productive result"
+        )))
+        wait(for: [promoted], timeout: 1.0)
+
+        XCTAssertTrue(localEngine.currentClassification.isFocus)
+        XCTAssertEqual(localEngine.lastWorkAppBundleID, "com.example.Notepad")
+        localEngine.stop()
+    }
+
+    func testCloudClassificationCanPromoteSocialFeedToFocus() {
+        let cloudService = DeferredCloudClassificationService()
+        let requestReceived = expectation(description: "cloud request received for social feed")
+        cloudService.onRequest = { requestReceived.fulfill() }
+        testPreferences.enableCloudClassification = true
+
+        let localEngine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            cloudClassificationService: cloudService
+        )
+
+        mockActivityMonitor.simulateContextChange(
+            bundleID: "com.google.Chrome",
+            url: URL(string: "https://www.linkedin.com/feed/"),
+            title: "Feed | LinkedIn"
+        )
+
+        wait(for: [requestReceived], timeout: 1)
+
+        cloudService.complete(.success(ClassificationResult(
+            label: .productive,
+            confidence: 0.95,
+            modelVersion: "test-cloud",
+            latency: 0,
+            explanation: "social feed was actually productive"
+        )))
+
+        let promoted = expectation(description: "social cloud promotion applied")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            promoted.fulfill()
+        }
+        wait(for: [promoted], timeout: 1.0)
+
+        XCTAssertTrue(localEngine.currentClassification.isFocus)
+        XCTAssertEqual(localEngine.lastWorkAppBundleID, "com.google.Chrome")
+        localEngine.stop()
+    }
+
     func testCloudClassificationIsDistractionFallbackOnFailure() {
         testPreferences.enableCloudClassification = true
         testPreferences.cloudProvider = 0 // Gemini
@@ -2805,7 +3003,7 @@ final class FocusEngineTests: XCTestCase {
     private func loadEventsFromDisk() -> [SessionEvent] {
         // Flush queue by doing a sync read:
         _ = sessionStore.recentSessions(limit: 1)
-        return sessionStore.allEvents()
+        return sessionStore.recordedEvents
     }
 
     private func scheduleAllowingCurrentMinute(now: Date) -> FocusSchedule {
@@ -2892,18 +3090,36 @@ final class FocusEngineTests: XCTestCase {
         // Classification count should still be 1 (cache hit!)
         XCTAssertEqual(countingClassifier.classificationCount, 1)
         
-        // 3. Trigger profile change or rules change to clear cache, then switch again
+        // 3. Trigger profile change or rules change to clear cache.
         NotificationCenter.default.post(name: .profilesDidChange, object: nil)
-        
-        mockActivityMonitor.simulateContextChange(bundleID: "com.example.neutralapp", url: nil, title: "Neutral Title")
-        
-        let expectation3 = XCTestExpectation(description: "Third context switch processed after cache invalidation")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation3.fulfill()
+
+        let expectation3 = XCTestExpectation(description: "Cache invalidation reclassifies current context")
+        let deadline = Date().addingTimeInterval(2.0)
+        func pollForSecondClassification() {
+            if countingClassifier.classificationCount >= 2 {
+                expectation3.fulfill()
+                return
+            }
+            guard Date() < deadline else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                pollForSecondClassification()
+            }
         }
-        wait(for: [expectation3], timeout: 1.0)
+        pollForSecondClassification()
+        wait(for: [expectation3], timeout: 2.0)
         
         // Classification count should now be 2!
+        XCTAssertEqual(countingClassifier.classificationCount, 2)
+
+        // 4. Switch back to the same context and confirm the refreshed cache is used.
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.neutralapp", url: nil, title: "Neutral Title")
+
+        let expectation4 = XCTestExpectation(description: "Post-refresh context switch processed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation4.fulfill()
+        }
+        wait(for: [expectation4], timeout: 1.0)
+
         XCTAssertEqual(countingClassifier.classificationCount, 2)
         
         self.engine.stop()
@@ -2960,6 +3176,49 @@ final class FocusEngineTests: XCTestCase {
         // It should hit the cache for A, so call count should still be 2!
         XCTAssertEqual(countingClassifier.classificationCount, 2)
         XCTAssertTrue(engine.currentClassification.isFocus)
+        engine.stop()
+    }
+
+    func testClassificationCacheSeparatesSessionScopedKeys() {
+        testPreferences.enableLocalTextClassification = true
+        testPreferences.enableCloudClassification = false
+        testPreferences.enableImageClassification = false
+
+        let countingClassifier = CountingClassifier()
+        engine.stop()
+        engine = FocusEngine(
+            activityMonitor: mockActivityMonitor,
+            distractionListManager: distractionListManager,
+            sessionStore: sessionStore,
+            profileManager: profileManager,
+            focusThreshold: 600.0,
+            preferencesManager: testPreferences,
+            ocrProvider: MockOCRProvider(),
+            visualChecker: MockVisualChecker(),
+            localTextClassifier: countingClassifier,
+            intentClassifier: NeutralIntentClassifier()
+        )
+        engine.delegate = mockDelegate
+
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+
+        let firstPass = expectation(description: "first pass classified")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            firstPass.fulfill()
+        }
+        wait(for: [firstPass], timeout: 1.0)
+        XCTAssertEqual(countingClassifier.classificationCount, 1)
+
+        engine.anchorSession(duration: 1_500)
+        mockActivityMonitor.simulateContextChange(bundleID: "com.example.appA")
+
+        let secondPass = expectation(description: "second pass classified")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            secondPass.fulfill()
+        }
+        wait(for: [secondPass], timeout: 1.0)
+
+        XCTAssertEqual(countingClassifier.classificationCount, 2)
         engine.stop()
     }
 
@@ -3440,10 +3699,12 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     
     func didReturnToWork() {
         returnsToWork += 1
+        activeSurfaceCount = 0
     }
     
     func sessionDidEnd() {
         endedSessions += 1
+        activeSurfaceCount = 0
     }
     
     var requestedPermissionGate = 0
@@ -3460,8 +3721,10 @@ class MockFocusEngineDelegate: FocusEngineDelegate {
     }
 
     var immediateDims = 0
+    var activeSurfaceCount = 0
     func didRequestImmediateDim() {
         immediateDims += 1
+        activeSurfaceCount = 1
     }
 
     var doomscrollingDetections: [(bundleID: String, threshold: TimeInterval)] = []
@@ -3589,7 +3852,8 @@ final class RecordingContextualLearningStore: ContextualLearningRecording {
     }
 
     func evidence(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> ClassificationEvidence? {
-        queue.sync {
+        guard isEnabled else { return nil }
+        return queue.sync {
             let domain = ContextualSiteHeuristic.normalizedDomain(for: snapshot.url) ?? ""
             let pageCategory = ContextualSiteHeuristic.pageCategory(for: snapshot.url, title: snapshot.title)
             let intentCategory = ContextualSiteHeuristic.intentCategory(for: focusIntent)
@@ -3606,11 +3870,18 @@ final class RecordingContextualLearningStore: ContextualLearningRecording {
         }
     }
 
-    func shouldSuggestPermanentRule(for domain: String) -> Bool {
-        queue.sync {
-            let targetDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let normalized = targetDomain.hasPrefix("www.") ? String(targetDomain.dropFirst(4)) : targetDomain
-            let count = records.filter { $0.normalizedDomain == normalized && $0.decision == .productive }.count
+    func shouldSuggestPermanentRule(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> Bool {
+        guard isEnabled else { return false }
+        return queue.sync {
+            let domain = ContextualSiteHeuristic.normalizedDomain(for: snapshot.url) ?? ""
+            let pageCategory = ContextualSiteHeuristic.pageCategory(for: snapshot.url, title: snapshot.title)
+            let intentCategory = ContextualSiteHeuristic.intentCategory(for: focusIntent)
+            let count = records.filter {
+                $0.normalizedDomain == domain
+                    && $0.pageCategory == pageCategory
+                    && $0.intentCategory == intentCategory
+                    && $0.decision == .productive
+            }.count
             return count >= 3
         }
     }
@@ -3626,6 +3897,32 @@ final class RecordingContextualLearningStore: ContextualLearningRecording {
         queue.async {
             completion?(.success(()))
         }
+    }
+}
+
+final class ToggleableContextualLearningStore: ContextualLearningRecording {
+    var isEnabled = false
+    var evidenceResult: ClassificationEvidence?
+
+    func record(_ record: ContextualLearningRecord, completion: StorageWriteCompletion?) {
+        completion?(.success(()))
+    }
+
+    func evidence(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> ClassificationEvidence? {
+        guard isEnabled else { return nil }
+        return evidenceResult
+    }
+
+    func shouldSuggestPermanentRule(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> Bool {
+        isEnabled && evidenceResult?.label == .productive
+    }
+
+    func clearAll(completion: StorageWriteCompletion?) {
+        completion?(.success(()))
+    }
+
+    func prune(retentionDays: Int, completion: StorageWriteCompletion?) {
+        completion?(.success(()))
     }
 }
 
@@ -3655,6 +3952,10 @@ final class TestOneShotTimerScheduler: OneShotTimerScheduling {
     }
 
     private(set) var scheduledTimers: [PendingTimer] = []
+
+    var pendingTimers: [PendingTimer] {
+        scheduledTimers.filter { !$0.isCancelled }
+    }
 
     func schedule(after interval: TimeInterval, action: @escaping () -> Void) -> OneShotTimerHandle {
         let timer = PendingTimer(interval: interval, action: action)

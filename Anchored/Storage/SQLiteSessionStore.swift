@@ -105,6 +105,19 @@ class SQLiteSessionStore {
         }
     }
 
+    func recordedEvents() -> [SessionEvent] {
+        queue.sync {
+            do {
+                return try dbQueue.read { db in
+                    try SessionEvent.order(Column("timestamp").asc, Column("rowid").asc).fetchAll(db)
+                }
+            } catch {
+                print("SQLiteSessionStore Error: Failed to fetch all recorded events. \(error.localizedDescription)")
+                return []
+            }
+        }
+    }
+
     func fetchRecentSessions(limit: Int, completion: @escaping ([SessionEvent]) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else {

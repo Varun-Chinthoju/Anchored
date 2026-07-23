@@ -75,6 +75,18 @@ final class PreferencesManagerTests: XCTestCase {
         XCTAssertEqual(manager.dimOpacity, PreferencesManager.defaultDimOpacity)
         XCTAssertEqual(manager.dimTransitionDuration, PreferencesManager.defaultDimTransitionDuration)
     }
+
+    func testSelectingOllamaUsesLocalDefaults() {
+        let manager = PreferencesManager(defaults: testDefaults, loginItemService: mockService)
+
+        manager.cloudProvider = 3
+
+        XCTAssertEqual(manager.cloudModel, PreferencesManager.defaultCloudModelOllama)
+        XCTAssertEqual(manager.cloudEndpoint, PreferencesManager.defaultCloudEndpointOllama)
+        XCTAssertEqual(testDefaults.integer(forKey: PreferencesManager.Keys.cloudProvider), 3)
+        XCTAssertEqual(testDefaults.string(forKey: PreferencesManager.Keys.cloudModel), PreferencesManager.defaultCloudModelOllama)
+        XCTAssertEqual(testDefaults.string(forKey: PreferencesManager.Keys.cloudEndpoint), PreferencesManager.defaultCloudEndpointOllama)
+    }
     
     func testInitializationWithStoredSettings() {
         // Given stored values in UserDefaults and enabled login item status

@@ -606,11 +606,11 @@ private struct ClassificationExplanationCard: View {
                         Image(systemName: "sparkles")
                             .foregroundColor(PirateTheme.gold)
                             .font(.system(size: 11))
-                        Text("You've approved multiple pages on \(suggestedDomain).")
+                        Text("Repeated confirmations suggest a website rule for \(suggestedDomain).")
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundColor(PirateTheme.parchment)
                     }
-                    Button("Add \(suggestedDomain) as Allowed Website Rule") {
+                    Button("Create Website Rule") {
                         onApplyDomainRuleSuggestion?()
                     }
                     .buttonStyle(.borderedProminent)
@@ -701,67 +701,13 @@ private struct ClassificationExplanationCard: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        if draft.recommendedScope == .page {
-                            Button("This Page") {
-                                onChooseProductiveScope(.page)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        correctionScopeButton("This Page", scope: .page, isRecommended: draft.recommendedScope == .page)
 
-                            if draft.canUseWebsiteScope {
-                                Button("This Website") {
-                                    onChooseProductiveScope(.website)
-                                }
-                                .buttonStyle(.bordered)
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            }
-
-                            Button("This App") {
-                                onChooseProductiveScope(.app)
-                            }
-                            .buttonStyle(.bordered)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        } else if draft.recommendedScope == .website {
-                            if draft.canUseWebsiteScope {
-                                Button("This Website") {
-                                    onChooseProductiveScope(.website)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            }
-
-                            Button("This Page") {
-                                onChooseProductiveScope(.page)
-                            }
-                            .buttonStyle(.bordered)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-
-                            Button("This App") {
-                                onChooseProductiveScope(.app)
-                            }
-                            .buttonStyle(.bordered)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        } else {
-                            Button("This App") {
-                                onChooseProductiveScope(.app)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-
-                            if draft.canUseWebsiteScope {
-                                Button("This Page") {
-                                    onChooseProductiveScope(.page)
-                                }
-                                .buttonStyle(.bordered)
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
-
-                                Button("This Website") {
-                                    onChooseProductiveScope(.website)
-                                }
-                                .buttonStyle(.bordered)
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            }
+                        if draft.canUseWebsiteScope {
+                            correctionScopeButton("This Website", scope: .website, isRecommended: draft.recommendedScope == .website)
                         }
+
+                        correctionScopeButton("This App", scope: .app, isRecommended: draft.recommendedScope == .app)
 
                         Spacer(minLength: 6)
 
@@ -781,6 +727,23 @@ private struct ClassificationExplanationCard: View {
                     .stroke(PirateTheme.border.opacity(0.55), lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private func correctionScopeButton(_ title: String, scope: ProductiveCorrectionScope, isRecommended: Bool) -> some View {
+        if isRecommended {
+            Button(title) {
+                onChooseProductiveScope(scope)
+            }
+            .buttonStyle(.borderedProminent)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+        } else {
+            Button(title) {
+                onChooseProductiveScope(scope)
+            }
+            .buttonStyle(.bordered)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
         }
     }
 

@@ -30,6 +30,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SPARKLE_FEED_URL: "https://github.com/Varun-Chinthoju/Anchored/releases/latest/download/appcast.xml"
         SPARKLE_PUBLIC_ED_KEY: "T87HpD4v4x9wRpDV52YgiU1M+lox/AVzkJyZ7KJ23HA="
+        SPARKLE_UPDATES_ENABLED: "NO"
       configs:
         Debug:
           CODE_SIGN_STYLE: Automatic
@@ -38,6 +39,12 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Developer ID Application
           ENABLE_HARDENED_RUNTIME: YES
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+          DEPLOYMENT_POSTPROCESSING: YES
+          STRIP_INSTALLED_PRODUCT: YES
+          STRIP_STYLE: non-global
+          COPY_PHASE_STRIP: YES
+          SWIFT_COMPILATION_MODE: wholemodule
   AnchoredTests:
     type: bundle.unit-test
     platform: macOS

@@ -84,6 +84,12 @@ class SessionStore {
         return sqliteStore.allEvents()
     }
 
+    var recordedEvents: [SessionEvent] {
+        queue.sync {
+            sqliteStore.recordedEvents()
+        }
+    }
+
     func fetchAllEvents(completion: @escaping ([SessionEvent]) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [sqliteStore] in
             let events = sqliteStore.allEvents()
@@ -101,7 +107,7 @@ class SessionStore {
     
     // Helper to load events synchronously on the current queue
     private func loadEventsSync() -> [SessionEvent] {
-        return sqliteStore.allEvents()
+        return sqliteStore.recordedEvents()
     }
 
     private static func computeStats(from events: [SessionEvent]) -> SessionStats {

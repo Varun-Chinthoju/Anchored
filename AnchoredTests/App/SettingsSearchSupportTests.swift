@@ -41,6 +41,20 @@ final class SettingsSearchSupportTests: XCTestCase {
         XCTAssertTrue(results.contains(where: { $0.route.scrollTarget == .privacyDiagnostics }))
     }
 
+    func testOllamaQueryRoutesToProductivityIntelligence() throws {
+        let results = SettingsSearchIndex.results(
+            query: "ollama",
+            isPirateMode: false,
+            activeProfileName: "Focus"
+        )
+
+        let firstResult = try XCTUnwrap(results.first)
+        XCTAssertEqual(firstResult.title, "Cloud Provider")
+        XCTAssertEqual(firstResult.paneTitle, "Productivity Intelligence")
+        XCTAssertEqual(firstResult.route.sidebarItem, .intelligence)
+        XCTAssertEqual(firstResult.route.scrollTarget, .intelligenceCloud)
+    }
+
     func testScheduleQueryReturnsScheduleSettingsOnly() {
         let results = SettingsSearchIndex.results(
             query: "schedule",

@@ -106,6 +106,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SPM_PATH" \
             MARKETING_VERSION="${{ steps.metadata.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.metadata.outputs.build_number }}" \
+            SPARKLE_UPDATES_ENABLED=YES \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
 
       - name: Stage Application Bundle

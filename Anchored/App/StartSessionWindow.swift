@@ -394,6 +394,14 @@ private struct GoalTextField: NSViewRepresentable {
             parent.onCommit()
         }
 
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onCommit()
+                return true
+            }
+            return false
+        }
+
         func controlTextDidBeginEditing(_ notification: Notification) {
             parent.isFocused = true
 
@@ -424,8 +432,6 @@ private struct GoalTextField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSTextField {
         let textField = NSTextField(string: text)
         textField.delegate = context.coordinator
-        textField.target = context.coordinator
-        textField.action = #selector(Coordinator.commit(_:))
         textField.isBezeled = false
         textField.isBordered = false
         textField.drawsBackground = false

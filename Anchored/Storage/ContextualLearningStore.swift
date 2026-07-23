@@ -4,13 +4,16 @@ protocol ContextualLearningRecording: AnyObject {
     var isEnabled: Bool { get set }
     func record(_ record: ContextualLearningRecord, completion: StorageWriteCompletion?)
     func evidence(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> ClassificationEvidence?
-    func shouldSuggestPermanentRule(for domain: String) -> Bool
+    func shouldSuggestPermanentRule(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> Bool
     func clearAll(completion: StorageWriteCompletion?)
     func prune(retentionDays: Int, completion: StorageWriteCompletion?)
 }
 
 final class ContextualLearningStore: ContextualLearningRecording {
     static let shared = ContextualLearningStore()
+    private static let suggestionHalfLife: TimeInterval = 14 * 24 * 60 * 60
+    private static let suggestionThreshold: Double = 2.5
+    private static let minimumStrongConfirmations: Double = 2.0
 
     private struct Key: Hashable {
         let normalizedDomain: String
@@ -86,17 +89,26 @@ final class ContextualLearningStore: ContextualLearningRecording {
         return signal(for: records)
     }
 
-    func shouldSuggestPermanentRule(for domain: String) -> Bool {
+    func shouldSuggestPermanentRule(for snapshot: ContextSnapshot, focusIntent: FocusIntent?) -> Bool {
         guard isEnabled else { return false }
-        let targetDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalized = targetDomain.hasPrefix("www.") ? String(targetDomain.dropFirst(4)) : targetDomain
-        let count = queue.sync { () -> Int in
-            buckets.values
-                .flatMap { $0.records }
-                .filter { $0.normalizedDomain == normalized && $0.decision == .productive }
-                .count
+        guard let normalizedDomain = ContextualSiteHeuristic.normalizedDomain(for: snapshot.url) else {
+            return false
         }
-        return count >= 3
+
+        let pageCategory = ContextualSiteHeuristic.pageCategory(for: snapshot.url, title: snapshot.title)
+        let intentCategory = ContextualSiteHeuristic.intentCategory(for: focusIntent)
+        let key = Key(
+            normalizedDomain: normalizedDomain,
+            pageCategory: pageCategory,
+            intentCategory: intentCategory
+        )
+
+        let records = queue.sync { () -> [ContextualLearningRecord] in
+            buckets[key]?.records ?? []
+        }
+
+        let productiveScore = weightedScore(for: records.filter { $0.decision == .productive })
+        return productiveScore >= Self.suggestionThreshold
     }
 
     func clearAll(completion: StorageWriteCompletion? = nil) {
@@ -160,12 +172,12 @@ final class ContextualLearningStore: ContextualLearningRecording {
     private func signal(for records: [ContextualLearningRecord]) -> ClassificationEvidence? {
         guard !records.isEmpty else { return nil }
 
-        let productiveCount = records.filter { $0.decision == .productive }.count
-        let distractingCount = records.filter { $0.decision == .distracting }.count
-        let contextualCount = records.filter { $0.decision == .contextual }.count
+        let productiveScore = weightedScore(for: records.filter { $0.decision == .productive })
+        let distractingScore = weightedScore(for: records.filter { $0.decision == .distracting })
+        let contextualScore = weightedScore(for: records.filter { $0.decision == .contextual })
 
-        if productiveCount >= 2, productiveCount > distractingCount {
-            let confidence = min(0.95, 0.55 + Double(productiveCount) * 0.10)
+        if productiveScore >= Self.minimumStrongConfirmations, productiveScore > distractingScore {
+            let confidence = min(0.95, 0.55 + productiveScore * 0.12)
             return ClassificationEvidence(
                 label: .productive,
                 source: .deterministicRule,
@@ -174,8 +186,8 @@ final class ContextualLearningStore: ContextualLearningRecording {
             )
         }
 
-        if distractingCount >= 2, distractingCount > productiveCount {
-            let confidence = min(0.95, 0.55 + Double(distractingCount) * 0.10)
+        if distractingScore >= Self.minimumStrongConfirmations, distractingScore > productiveScore {
+            let confidence = min(0.95, 0.55 + distractingScore * 0.12)
             return ClassificationEvidence(
                 label: .distracting,
                 source: .deterministicRule,
@@ -184,8 +196,9 @@ final class ContextualLearningStore: ContextualLearningRecording {
             )
         }
 
-        if productiveCount > 0 || distractingCount > 0 || contextualCount > 0 {
-            let confidence = min(0.75, 0.50 + Double(records.count) * 0.05)
+        let totalScore = productiveScore + distractingScore + contextualScore
+        if totalScore > 0 {
+            let confidence = min(0.75, 0.50 + totalScore * 0.08)
             return ClassificationEvidence(
                 label: .contextual,
                 source: .heuristic,
@@ -195,6 +208,17 @@ final class ContextualLearningStore: ContextualLearningRecording {
         }
 
         return nil
+    }
+
+    private func weightedScore(for records: [ContextualLearningRecord]) -> Double {
+        guard !records.isEmpty else { return 0 }
+
+        let now = clock()
+        return records.reduce(0) { partialResult, record in
+            let age = max(0, now.timeIntervalSince(record.timestamp))
+            let decay = pow(0.5, age / Self.suggestionHalfLife)
+            return partialResult + decay
+        }
     }
 }
 

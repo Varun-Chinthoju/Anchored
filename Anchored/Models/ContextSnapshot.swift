@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ContextSnapshot: Codable, Equatable {
+public struct ContextSnapshot: Codable, Equatable, Sendable {
     public enum Source: String, Codable, Equatable, Sendable {
         case application
         case chromium
@@ -40,7 +40,7 @@ public struct ContextSnapshot: Codable, Equatable {
     }
 }
 
-public struct ContextIdentity: Codable, Equatable, Hashable {
+public struct ContextIdentity: Codable, Equatable, Hashable, Sendable {
     public let bundleID: String
     public let sanitizedURL: String?
     public let normalizedTitle: String

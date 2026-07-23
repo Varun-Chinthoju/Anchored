@@ -51,12 +51,11 @@ Anchored features a bespoke, rich dark user interface. When building UI componen
 
 ### 2. FocusEngine State Machine
 The core focus tracking state machine is located in [FocusEngine](Anchored/Engine/FocusEngine.swift). All state transitions must follow a strict flow:
-* **Idle** ➜ **Watching** (when a Whitelisted App/URL is active).
-* **Watching** ➜ **Prompting** (when switching to a Distraction/Neutral app for too long).
-* **Prompting** ➜ **Anchored** (when the user starts a session) or **Idle** (dismiss/timeout).
-* **Anchored** ➜ **Warning** (on distraction app switch, starts 10s countdown).
-* **Warning** ➜ **Dimmed** (countdown expiry, up to 50% opacity screen dimming).
-* **Dimmed** ➜ **Anchored** (return to work app/URL).
+* **Idle** ➜ **Watching** when a focus-eligible context appears.
+* **Watching** ➜ **Anchored** when the user starts a session or the automatic threshold is reached.
+* **Anchored** ➜ **Dimming** when the distraction countdown expires.
+* **Dimming** ➜ **Anchored** when the user returns to work, dismisses the escalation, or a protected action ends the dim.
+* The old `Prompting`/`Warning`/`Dimmed` wording is stale and should not be reintroduced in new code or docs.
 
 ### 3. The Permission Gate
 To ensure zero upfront friction:

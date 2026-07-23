@@ -200,24 +200,11 @@ class MenuBarViewModel: ObservableObject {
     }
 
     var productiveReviewActionTitle: String {
-        guard let bundleID = currentAppBundleID ?? focusEngine.currentContext?.bundleIdentifier else {
+        guard (currentAppBundleID ?? focusEngine.currentContext?.bundleIdentifier) != nil else {
             return "Review Current Item"
         }
 
-        let scope = ContextualSiteHeuristic.reviewScope(
-            for: bundleID,
-            url: focusEngine.currentURL,
-            title: focusEngine.currentContext?.title ?? focusEngine.currentTitle
-        )
-
-        switch scope {
-        case .app:
-            return "Mark This App as Productive"
-        case .website:
-            return "Mark This Website as Productive"
-        case .page:
-            return "This Page Is Related to My Focus"
-        }
+        return ContextualSiteHeuristic.reviewActionTitle()
     }
 
     func cancelTreatAsProductive() {
@@ -225,16 +212,16 @@ class MenuBarViewModel: ObservableObject {
     }
 
     var currentDomainRuleSuggestion: String? {
-        guard let url = focusEngine.currentURL,
-              let domain = ContextualSiteHeuristic.normalizedDomain(for: url),
-              focusEngine.shouldSuggestPermanentRule(for: domain) else {
+        guard let snapshot = currentReviewSnapshot,
+              focusEngine.shouldSuggestPermanentRule(for: snapshot) else {
             return nil
         }
-        return domain
+
+        return ContextualSiteHeuristic.normalizedDomain(for: snapshot.url)
     }
 
     func applyDomainRuleSuggestion() {
-        guard let domain = currentDomainRuleSuggestion,
+        guard currentDomainRuleSuggestion != nil,
               let bundleID = currentAppBundleID ?? focusEngine.currentContext?.bundleIdentifier else { return }
         focusEngine.applyCorrection(
             .allowDomain,
@@ -243,6 +230,24 @@ class MenuBarViewModel: ObservableObject {
             title: focusEngine.currentContext?.title ?? focusEngine.currentTitle
         )
         refresh()
+    }
+
+    private var currentReviewSnapshot: ContextSnapshot? {
+        guard let bundleID = currentAppBundleID ?? focusEngine.currentContext?.bundleIdentifier else {
+            return nil
+        }
+
+        let localizedName = focusEngine.currentContext?.localizedName ?? ProfileManager.shared.activeProfile.name
+        return ContextSnapshot(
+            bundleIdentifier: bundleID,
+            localizedName: localizedName,
+            url: focusEngine.currentURL,
+            title: focusEngine.currentContext?.title ?? focusEngine.currentTitle,
+            source: BrowserStrategyFactory.isSupportedBrowser(bundleID)
+                ? (bundleID == "com.apple.Safari" ? .safari : .chromium)
+                : .application,
+            observedAt: Date()
+        )
     }
 
     private func applyStatsWithActiveSession(_ rawStats: SessionStats) {

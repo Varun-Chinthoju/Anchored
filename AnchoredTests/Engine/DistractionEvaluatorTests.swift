@@ -126,9 +126,69 @@ final class DistractionEvaluatorTests: XCTestCase {
             title: "Focus video"
         )
 
-        XCTAssertEqual(evidence.map(\.label), [.distracting, .productive, .contextual])
-        XCTAssertEqual(evidence.map(\.source), [.explicitDomainRule, .explicitAppRule, .heuristic])
-        XCTAssertEqual(evidence.map(\.reason), [.explicitBlockRule, .explicitAllowRule, .contextualMixedUse])
+        XCTAssertEqual(evidence.map(\.label), [.distracting, .productive, .contextual, .distracting])
+        XCTAssertEqual(evidence.map(\.source), [.explicitDomainRule, .explicitAppRule, .heuristic, .deterministicRule])
+        XCTAssertEqual(evidence.map(\.reason), [.explicitBlockRule, .explicitAllowRule, .contextualMixedUse, .deterministicHeuristic])
+    }
+
+    func testGenericYouTubeVideoCanResolveAsDistraction() {
+        let evaluator = makeEvaluator(WorkProfile(name: "Heuristics"))
+
+        let decision = ClassificationResolver().resolve(
+            evaluator.evidence(
+                bundleID: "com.google.Chrome",
+                url: URL(string: "https://www.youtube.com/watch?v=funny-cats")!,
+                title: "Funny Cat Videos - YouTube"
+            )
+        )
+
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.source, .deterministicRule)
+    }
+
+    func testXComResolvesAsDistractionByDefault() {
+        let evaluator = makeEvaluator(WorkProfile(name: "Heuristics"))
+
+        let decision = ClassificationResolver().resolve(
+            evaluator.evidence(
+                bundleID: "com.google.Chrome",
+                url: URL(string: "https://x.com/home")!,
+                title: "X / Home"
+            )
+        )
+
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.source, .deterministicRule)
+    }
+
+    func testLinkedInResolvesAsDistractionByDefault() {
+        let evaluator = makeEvaluator(WorkProfile(name: "Heuristics"))
+
+        let decision = ClassificationResolver().resolve(
+            evaluator.evidence(
+                bundleID: "com.google.Chrome",
+                url: URL(string: "https://www.linkedin.com/feed")!,
+                title: "Feed | LinkedIn"
+            )
+        )
+
+        XCTAssertEqual(decision.label, .distracting)
+        XCTAssertEqual(decision.source, .deterministicRule)
+    }
+
+    func testCodingPostOnSocialSiteCanStayProductive() {
+        let evaluator = makeEvaluator(WorkProfile(name: "Heuristics"))
+
+        let decision = ClassificationResolver().resolve(
+            evaluator.evidence(
+                bundleID: "com.google.Chrome",
+                url: URL(string: "https://x.com/SwiftLang/status/123")!,
+                title: "Swift concurrency tips from the iOS dev community"
+            )
+        )
+
+        XCTAssertEqual(decision.label, .productive)
+        XCTAssertEqual(decision.source, .deterministicRule)
     }
 
     func testTitleOnlyBrowserHeuristicRemainsNeutralEvidence() {

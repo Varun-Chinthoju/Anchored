@@ -38,6 +38,7 @@ private enum SettingsTheme {
 
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general = "General"
+    case intelligence = "Productivity Intelligence"
     case privacy = "Privacy & Data"
     case distractions = "Distraction List"
     case captainsLog = "Analytics"
@@ -49,6 +50,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general:
             return isPirateMode ? "Rigging" : "General"
+        case .intelligence:
+            return isPirateMode ? "Rigging Intelligence" : "Productivity Intelligence"
         case .privacy:
             return isPirateMode ? "Privacy & Data" : "Privacy & Data"
         case .distractions:
@@ -63,6 +66,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .general:      return "helm"
+        case .intelligence: return "sparkles"
         case .privacy:      return "lock.shield.fill"
         case .distractions: return "shield.fill"
         case .captainsLog:  return "chart.bar.fill"
@@ -73,6 +77,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var iconColor: Color {
         switch self {
         case .general:      return SettingsTheme.accent
+        case .intelligence: return SettingsTheme.accentShadow
         case .privacy:      return SettingsTheme.accentShadow
         case .distractions: return SettingsTheme.bronze
         case .captainsLog:  return SettingsTheme.bronze
@@ -86,6 +91,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 enum SidebarItem: Hashable {
     case profile(UUID)
     case general
+    case intelligence
     case privacy
     case captainsLog
     case about
@@ -212,6 +218,8 @@ struct SettingsView: View {
         switch initialSection {
         case .general:
             initialItem = .general
+        case .intelligence:
+            initialItem = .intelligence
         case .privacy:
             initialItem = .privacy
         case .distractions:
@@ -299,7 +307,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func settingsSidebar(isPirateMode: Bool) -> some View {
-        let sections: [SettingsSection] = [.general, .privacy, .captainsLog, .about]
+        let sections: [SettingsSection] = [.general, .intelligence, .privacy, .captainsLog, .about]
 
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
@@ -424,6 +432,11 @@ struct SettingsView: View {
                     isPirateMode: isPirateMode,
                     scrollTarget: $searchScrollTarget
                 )
+            case .intelligence:
+                ProductivityIntelligenceSettingsPane(
+                    isPirateMode: isPirateMode,
+                    scrollTarget: $searchScrollTarget
+                )
             case .privacy:
                 PrivacySettingsPane(
                     isPirateMode: isPirateMode,
@@ -464,6 +477,7 @@ struct SettingsView: View {
     private func sidebarItem(for section: SettingsSection) -> SidebarItem {
         switch section {
         case .general:      return .general
+        case .intelligence: return .intelligence
         case .privacy:      return .privacy
         case .distractions: return .profile(profileManager.activeProfile.id)
         case .captainsLog:  return .captainsLog
@@ -697,6 +711,84 @@ struct SettingsRow<Content: View>: View {
     }
 }
 
+struct CloudModelGuidePopover: View {
+    let isPirateMode: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(settingsCopy("Add a custom model", pirate: "Add a custom model", isPirateMode: isPirateMode))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(SettingsTheme.textPrimary)
+                    Text(settingsCopy("Point Anchored at a local server or a hosted cloud model by setting provider, model name, and endpoint.", pirate: "Point Anchored at a local server or a hosted cloud model by setting provider, model name, and endpoint.", isPirateMode: isPirateMode))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(SettingsTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                guideSection(
+                    title: settingsCopy("1. Pick a provider", pirate: "1. Pick a provider", isPirateMode: isPirateMode),
+                    lines: [
+                        settingsCopy("Ollama is for local models exposed at `http://localhost:11434/api/chat`.", pirate: "Ollama is for local models exposed at `http://localhost:11434/api/chat`.", isPirateMode: isPirateMode),
+                        settingsCopy("OpenAI also works for local OpenAI-compatible servers such as LM Studio.", pirate: "OpenAI also works for local OpenAI-compatible servers such as LM Studio.", isPirateMode: isPirateMode),
+                        settingsCopy("Gemini, OpenAI, and Anthropic work for real hosted cloud models.", pirate: "Gemini, OpenAI, and Anthropic work for real hosted cloud models.", isPirateMode: isPirateMode)
+                    ]
+                )
+
+                guideSection(
+                    title: settingsCopy("2. Set the model and endpoint", pirate: "2. Set the model and endpoint", isPirateMode: isPirateMode),
+                    lines: [
+                        settingsCopy("Model name should match the server's model ID exactly.", pirate: "Model name should match the server's model ID exactly.", isPirateMode: isPirateMode),
+                        settingsCopy("Endpoint URL should be the API route your server expects.", pirate: "Endpoint URL should be the API route your server expects.", isPirateMode: isPirateMode),
+                        settingsCopy("If the server uses a proxy or a custom route, paste that URL here.", pirate: "If the server uses a proxy or a custom route, paste that URL here.", isPirateMode: isPirateMode)
+                    ]
+                )
+
+                guideSection(
+                    title: settingsCopy("3. Add a key only when needed", pirate: "3. Add a key only when needed", isPirateMode: isPirateMode),
+                    lines: [
+                        settingsCopy("Hosted cloud models usually need an API key stored in Keychain.", pirate: "Hosted cloud models usually need an API key stored in Keychain.", isPirateMode: isPirateMode),
+                        settingsCopy("Local Ollama setups do not need a key.", pirate: "Local Ollama setups do not need a key.", isPirateMode: isPirateMode),
+                        settingsCopy("LM Studio or another local proxy may or may not require a token.", pirate: "LM Studio or another local proxy may or may not require a token.", isPirateMode: isPirateMode)
+                    ]
+                )
+
+                guideSection(
+                    title: settingsCopy("4. What Anchored expects back", pirate: "4. What Anchored expects back", isPirateMode: isPirateMode),
+                    lines: [
+                        settingsCopy("Best case: structured JSON with a productive, distracting, or neutral label.", pirate: "Best case: structured JSON with a productive, distracting, or neutral label.", isPirateMode: isPirateMode),
+                        settingsCopy("Legacy yes / no replies still work, but free-form prose does not.", pirate: "Legacy yes / no replies still work, but free-form prose does not.", isPirateMode: isPirateMode),
+                        settingsCopy("Cloud results never override explicit app or domain rules.", pirate: "Cloud results never override explicit app or domain rules.", isPirateMode: isPirateMode)
+                    ]
+                )
+            }
+            .padding(16)
+        }
+        .frame(width: 370, height: 320)
+    }
+
+    @ViewBuilder
+    private func guideSection(title: String, lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(SettingsTheme.textPrimary)
+            ForEach(lines, id: \.self) { line in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("•")
+                        .foregroundColor(SettingsTheme.accent)
+                    Text(line)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(SettingsTheme.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 // MARK: - General Settings
 
 struct GeneralSettingsPane: View {
@@ -704,8 +796,6 @@ struct GeneralSettingsPane: View {
     @Binding var scrollTarget: SettingsScrollTarget?
     @StateObject private var prefs = PreferencesManager.shared
     @ObservedObject private var langManager = LanguageManager.shared
-
-    @State private var apiKey: String = ""
 
     private let thresholds: [(Double, String)] = [
         (300.0, "5 min"), (600.0, "10 min"), (900.0, "15 min"), (1800.0, "30 min")
@@ -740,30 +830,6 @@ struct GeneralSettingsPane: View {
         }
 
         return "\(mins)m \(secs)s"
-    }
-
-    private func loadApiKey() {
-        let providerName: String
-        switch prefs.cloudProvider {
-        case 1: providerName = "openai"
-        case 2: providerName = "anthropic"
-        default: providerName = "gemini"
-        }
-        apiKey = KeychainHelper.loadKey(forProvider: providerName) ?? ""
-    }
-
-    private func saveApiKey() {
-        let providerName: String
-        switch prefs.cloudProvider {
-        case 1: providerName = "openai"
-        case 2: providerName = "anthropic"
-        default: providerName = "gemini"
-        }
-        if apiKey.isEmpty {
-            try? KeychainHelper.deleteKey(forProvider: providerName)
-        } else {
-            try? KeychainHelper.saveKey(apiKey, forProvider: providerName)
-        }
     }
 
     private var scheduleReferenceDate: Date {
@@ -1191,75 +1257,173 @@ struct GeneralSettingsPane: View {
                     SettingsRow(
                         label: settingsCopy("Focus Alerts", pirate: "Anchor Bells", isPirateMode: isPirateMode),
                         description: settingsCopy("Show an alert when a focus session auto-starts.", pirate: "Show a warning when a focus session auto-starts.", isPirateMode: isPirateMode),
-                        showDivider: true
+                        showDivider: false
                     ) {
                         Toggle("", isOn: $prefs.enableSmartNudges)
                     }
+                }
+            }
+            .id(SettingsScrollTarget.generalSystem)
+        }
+    }
+}
 
-                    SettingsRow(
-                        label: settingsCopy("Experimental Visual Fallback", pirate: "Experimental Visual Spyglass", isPirateMode: isPirateMode),
-                        description: settingsCopy("Optional local screen analysis used only after deterministic, local-text, and cloud classification remain neutral. It can only promote a current neutral context to focus; distracting results stay advisory. Disabled by default.", pirate: "Optional local screen analysis used only after all structured checks stay neutral. It can only steer a current neutral sight to focus; distracting results stay advisory. Off by default.", isPirateMode: isPirateMode),
-                        showDivider: true
-                    ) {
-                        Toggle("", isOn: $prefs.enableImageClassification)
+// MARK: - Productivity Intelligence Settings
+
+struct ProductivityIntelligenceSettingsPane: View {
+    let isPirateMode: Bool
+    @Binding var scrollTarget: SettingsScrollTarget?
+    @StateObject private var prefs = PreferencesManager.shared
+
+    @State private var apiKeyDraft: String = ""
+    @State private var isEditingApiKey = false
+    @State private var showCloudModelGuide = false
+
+    private func providerName() -> String {
+        switch prefs.cloudProvider {
+        case 1: return "openai"
+        case 2: return "anthropic"
+        case 3: return "ollama"
+        default: return "gemini"
+        }
+    }
+
+    private func saveApiKey() {
+        let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            try? KeychainHelper.deleteKey(forProvider: providerName())
+            apiKeyDraft = ""
+        } else {
+            try? KeychainHelper.saveKey(trimmed, forProvider: providerName())
+            apiKeyDraft = trimmed
+        }
+    }
+
+    private func beginEditingApiKey() {
+        apiKeyDraft = KeychainHelper.loadKey(forProvider: providerName()) ?? ""
+        isEditingApiKey = true
+    }
+
+    private func cancelEditingApiKey() {
+        apiKeyDraft = ""
+        isEditingApiKey = false
+    }
+
+    private func clearApiKey() {
+        try? KeychainHelper.deleteKey(forProvider: providerName())
+        cancelEditingApiKey()
+    }
+
+    var body: some View {
+        SettingsPane(
+            title: settingsCopy("Productivity Intelligence", pirate: "Rigging Intelligence", isPirateMode: isPirateMode),
+            subtitle: settingsCopy("Choose how Anchored reads the current site: local text, visual fallback, and cloud models now live together.", pirate: "Choose how Anchored reads the current site: local text, visual spyglass, and cloud winds now live together.", isPirateMode: isPirateMode),
+            scrollTarget: $scrollTarget
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsGroup {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(settingsCopy("How the stack works", pirate: "How the stack works", isPirateMode: isPirateMode))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(SettingsTheme.textPrimary)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            intelligenceBullet(
+                                title: settingsCopy("Rules first", pirate: "Rules first", isPirateMode: isPirateMode),
+                                detail: settingsCopy("Explicit app and domain rules always win before any model gets a say.", pirate: "Explicit app and domain rules always win before any model gets a say.", isPirateMode: isPirateMode)
+                            )
+                            intelligenceBullet(
+                                title: settingsCopy("Local checks", pirate: "Local checks", isPirateMode: isPirateMode),
+                                detail: settingsCopy("On-device text and visual analysis can promote a neutral context without sending raw context off the Mac.", pirate: "On-deck text and visual analysis can promote a neutral context without sending raw context off the Mac.", isPirateMode: isPirateMode)
+                            )
+                            intelligenceBullet(
+                                title: settingsCopy("Cloud checks", pirate: "Cloud checks", isPirateMode: isPirateMode),
+                                detail: settingsCopy("Cloud AI is optional and can point to hosted providers or a local server like Ollama or LM Studio.", pirate: "Cloud winds are optional and can point to hosted providers or a local server like Ollama or LM Studio.", isPirateMode: isPirateMode)
+                            )
+                        }
                     }
+                    .padding(16)
+                }
+                .id(SettingsScrollTarget.intelligenceOverview)
 
-                    if prefs.enableImageClassification {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(settingsCopy("On-Device Checks", pirate: "On-Deck Checks", isPirateMode: isPirateMode))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(SettingsTheme.textSecondary)
+                        .padding(.leading, 2)
+
+                    SettingsGroup {
                         SettingsRow(
-                            label: settingsCopy("Use SmolVLM 256M (Local VLM)", pirate: "Call SmolVLM 256M (Local VLM)", isPirateMode: isPirateMode),
-                            description: settingsCopy("Queries a local SmolVLM 4-bit vision model (only 145 MB).", pirate: "Steer visual checks to local SmolVLM 4-bit model.", isPirateMode: isPirateMode),
+                            label: settingsCopy("Local Productivity Check", pirate: "Local Productivity Check", isPirateMode: isPirateMode),
+                            description: settingsCopy("Runs a fully on-device text scorer over the bundle ID, title, URL, and visible OCR text. Turning this on disables cloud AI. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a fully on-deck text scorer over the bundle, title, URL, and visible OCR text. Turning this on disables cloud AI. Only strong productive results may promote a neutral context; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
                             showDivider: true
                         ) {
-                            Toggle("", isOn: $prefs.useLocalGemma)
+                            Toggle("", isOn: $prefs.enableLocalTextClassification)
                         }
 
-                        if prefs.useLocalGemma {
-                            HStack {
-                                Spacer()
-                                Button(action: {
-                                    prefs.downloadGemmaModel()
-                                }) {
-                                    Text(makeSettingsStatus(prefs.gemmaDownloadStatus, isPirateMode: isPirateMode))
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(SettingsTheme.surface)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4)
-                                        .background(SettingsTheme.accent)
-                                        .cornerRadius(5)
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." || prefs.gemmaDownloadStatus == "Downloaded")
-                                
-                                if prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." {
-                                    ProgressView()
-                                        .scaleEffect(0.5)
-                                        .frame(width: 14, height: 14)
-                                }
+                        SettingsRow(
+                            label: settingsCopy("Experimental Visual Fallback", pirate: "Experimental Visual Spyglass", isPirateMode: isPirateMode),
+                            description: settingsCopy("Optional local screen analysis used only after deterministic, local-text, and cloud classification remain neutral. It can only promote a current neutral context to focus; distracting results stay advisory. Disabled by default.", pirate: "Optional local screen analysis used only after all structured checks stay neutral. It can only steer a current neutral sight to focus; distracting results stay advisory. Off by default.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            Toggle("", isOn: $prefs.enableImageClassification)
+                        }
+
+                        if prefs.enableImageClassification {
+                            SettingsRow(
+                                label: settingsCopy("Use SmolVLM 256M (Local VLM)", pirate: "Call SmolVLM 256M (Local VLM)", isPirateMode: isPirateMode),
+                                description: settingsCopy("Queries a local SmolVLM 4-bit vision model (only 145 MB).", pirate: "Steer visual checks to local SmolVLM 4-bit model.", isPirateMode: isPirateMode),
+                                showDivider: false
+                            ) {
+                                Toggle("", isOn: $prefs.useLocalGemma)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-                            
-                            Divider().padding(.leading, 16).overlay(SettingsTheme.border.opacity(0.55))
+
+                            if prefs.useLocalGemma {
+                                HStack {
+                                    Spacer()
+                                    Button(action: {
+                                        prefs.downloadGemmaModel()
+                                    }) {
+                                        Text(makeSettingsStatus(prefs.gemmaDownloadStatus, isPirateMode: isPirateMode))
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(SettingsTheme.surface)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 4)
+                                            .background(SettingsTheme.accent)
+                                            .cornerRadius(5)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." || prefs.gemmaDownloadStatus == "Downloaded")
+                                    
+                                    if prefs.gemmaDownloadStatus == "Downloading..." || prefs.gemmaDownloadStatus == "Installing mlx-lm..." {
+                                        ProgressView()
+                                            .scaleEffect(0.5)
+                                            .frame(width: 14, height: 14)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 8)
+                            }
                         }
                     }
+                }
+                .id(SettingsScrollTarget.intelligenceLocal)
 
-                    SettingsRow(
-                        label: settingsCopy("Local Productivity Check", pirate: "Local Productivity Check", isPirateMode: isPirateMode),
-                        description: settingsCopy("Runs a fully on-device text scorer over the bundle ID, title, URL, and visible OCR text. Turning this on disables cloud AI. Only high-confidence productive results may promote a neutral context; blocked rules still win. Disabled by default.", pirate: "Runs a fully on-deck text scorer over the bundle, title, URL, and visible OCR text. Turning this on disables cloud AI. Only strong productive results may clear a neutral sight; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
-                        showDivider: true
-                    ) {
-                        Toggle("", isOn: $prefs.enableLocalTextClassification)
-                    }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(settingsCopy("Cloud Model Connection", pirate: "Cloud Model Connection", isPirateMode: isPirateMode))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(SettingsTheme.textSecondary)
+                        .padding(.leading, 2)
 
-                    SettingsRow(
-                        label: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
-                        description: settingsCopy("Use cloud AI classification for high-precision focus validation. Turning this on disables the local on-device check.", pirate: "Ask the cloud winds if yer context be productive. Turning this on disables the local on-deck check.", isPirateMode: isPirateMode),
-                        showDivider: prefs.enableCloudClassification
-                    ) {
-                        Toggle("", isOn: $prefs.enableCloudClassification)
-                    }
+                    SettingsGroup {
+                        SettingsRow(
+                            label: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
+                            description: settingsCopy("Use cloud AI classification for high-precision focus validation. Turning this on disables the local on-device check.", pirate: "Ask the cloud winds if yer context be productive. Turning this on disables the local on-deck check.", isPirateMode: isPirateMode),
+                            showDivider: true
+                        ) {
+                            Toggle("", isOn: $prefs.enableCloudClassification)
+                        }
 
-                    if prefs.enableCloudClassification {
                         SettingsRow(
                             label: settingsCopy("Cloud Provider", pirate: "Cloud Provider", isPirateMode: isPirateMode),
                             description: settingsCopy("Choose which cloud LLM service to query.", pirate: "Choose which cloud LLM service to query.", isPirateMode: isPirateMode),
@@ -1269,6 +1433,7 @@ struct GeneralSettingsPane: View {
                                 Text("Gemini").tag(0)
                                 Text("OpenAI").tag(1)
                                 Text("Anthropic").tag(2)
+                                Text("Ollama").tag(3)
                             }
                             .pickerStyle(.menu)
                             .frame(width: 180)
@@ -1276,14 +1441,55 @@ struct GeneralSettingsPane: View {
 
                         SettingsRow(
                             label: settingsCopy("API Key", pirate: "Letters of Marque (API Key)", isPirateMode: isPirateMode),
-                            description: settingsCopy("Enter your personal API key. Stored securely in Keychain.", pirate: "Enter your personal API key. Stored securely in Keychain.", isPirateMode: isPirateMode),
+                            description: prefs.cloudProvider == 3
+                                ? settingsCopy("Ollama runs locally and does not require an API key.", pirate: "Ollama runs locally and does not require an API key.", isPirateMode: isPirateMode)
+                                : settingsCopy("Stored securely in Keychain. Use Edit Key to replace or clear it.", pirate: "Stored securely in Keychain. Use Edit Key to replace or clear it.", isPirateMode: isPirateMode),
                             showDivider: true
                         ) {
-                            SecureField("API Key", text: $apiKey, onCommit: {
-                                saveApiKey()
-                            })
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 180)
+                            if prefs.cloudProvider == 3 {
+                                Text(settingsCopy("No API key required.", pirate: "No API key required.", isPirateMode: isPirateMode))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(SettingsTheme.textSecondary)
+                                    .frame(width: 180, alignment: .trailing)
+                            } else if isEditingApiKey {
+                                VStack(alignment: .trailing, spacing: 8) {
+                                    SecureField("API Key", text: $apiKeyDraft, onCommit: {
+                                        saveApiKey()
+                                        isEditingApiKey = false
+                                    })
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 180)
+
+                                    HStack(spacing: 8) {
+                                        Button(settingsCopy("Save", pirate: "Save", isPirateMode: isPirateMode)) {
+                                            saveApiKey()
+                                            isEditingApiKey = false
+                                        }
+                                        .buttonStyle(.borderless)
+
+                                        Button(settingsCopy("Cancel", pirate: "Abandon", isPirateMode: isPirateMode), role: .cancel) {
+                                            cancelEditingApiKey()
+                                        }
+                                        .buttonStyle(.borderless)
+
+                                        Button(settingsCopy("Clear", pirate: "Clear", isPirateMode: isPirateMode), role: .destructive) {
+                                            clearApiKey()
+                                        }
+                                        .buttonStyle(.borderless)
+                                    }
+                                }
+                            } else {
+                                VStack(alignment: .trailing, spacing: 6) {
+                                    Text(settingsCopy("Key stored securely.", pirate: "Key stored securely.", isPirateMode: isPirateMode))
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(SettingsTheme.textSecondary)
+
+                                    Button(settingsCopy("Edit Key", pirate: "Edit Key", isPirateMode: isPirateMode)) {
+                                        beginEditingApiKey()
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            }
                         }
 
                         SettingsRow(
@@ -1306,18 +1512,63 @@ struct GeneralSettingsPane: View {
                                 .frame(width: 250)
                         }
                     }
+
+                    SettingsRow(
+                        label: settingsCopy("Custom Model Guide", pirate: "Custom Model Guide", isPirateMode: isPirateMode),
+                        description: settingsCopy("Use the info button for setup steps for local or hosted models.", pirate: "Use the info button fer setup steps fer local or hosted models.", isPirateMode: isPirateMode),
+                        showDivider: false
+                    ) {
+                        Button {
+                            showCloudModelGuide.toggle()
+                        } label: {
+                            Text("ⓘ")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(SettingsTheme.accent)
+                                .frame(width: 24, height: 24)
+                                .background(SettingsTheme.accent.opacity(0.12))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(settingsCopy("Show setup steps for local or hosted models", pirate: "Show setup steps for local or hosted models", isPirateMode: isPirateMode))
+                        .help(settingsCopy("Show setup steps for local or hosted models", pirate: "Show setup steps for local or hosted models", isPirateMode: isPirateMode))
+                        .popover(isPresented: $showCloudModelGuide, arrowEdge: .trailing) {
+                            CloudModelGuidePopover(isPirateMode: isPirateMode)
+                        }
+                    }
                 }
+                .id(SettingsScrollTarget.intelligenceCloud)
             }
-            .id(SettingsScrollTarget.generalSystem)
-        }
-        .onAppear {
-            loadApiKey()
         }
         .onChange(of: prefs.cloudProvider) { _ in
-            loadApiKey()
+            if isEditingApiKey {
+                cancelEditingApiKey()
+            }
         }
         .onDisappear {
-            saveApiKey()
+            if isEditingApiKey {
+                saveApiKey()
+                isEditingApiKey = false
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func intelligenceBullet(title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(SettingsTheme.accent)
+                .frame(width: 6, height: 6)
+                .padding(.top, 6)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(SettingsTheme.textPrimary)
+                Text(detail)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundColor(SettingsTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
@@ -1558,24 +1809,6 @@ struct PrivacySettingsPane: View {
                 }
             }
             .id(SettingsScrollTarget.privacyClassificationFeedback)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(settingsCopy("Cloud AI", pirate: "Cloud Winds", isPirateMode: isPirateMode))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(SettingsTheme.textSecondary)
-                    .padding(.leading, 2)
-
-                SettingsGroup {
-                    SettingsRow(
-                        label: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
-                        description: settingsCopy("When enabled, context may be sent to your selected cloud provider for classification. Disable to keep all analysis on-device.", pirate: "When on, context may be sent to cloud winds. Keep off for local-only analysis.", isPirateMode: isPirateMode),
-                        showDivider: false
-                    ) {
-                        Toggle("", isOn: $prefs.enableCloudClassification)
-                    }
-                }
-            }
-            .id(SettingsScrollTarget.privacyCloudAI)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(settingsCopy("Diagnostics", pirate: "Diagnostics", isPirateMode: isPirateMode))
@@ -2478,12 +2711,20 @@ struct AboutSettingsPane: View {
 
             SettingsGroup {
                 SettingsRow(label: settingsCopy("Check for Updates", pirate: "Scan for Upgrades", isPirateMode: isPirateMode), showDivider: true) {
-                    Button(settingsCopy("Check Now", pirate: "Scan Now", isPirateMode: isPirateMode)) {
-                        onCheckForUpdates?()
-                    }
-                    .disabled(onCheckForUpdates == nil)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Button(settingsCopy("Check Now", pirate: "Scan Now", isPirateMode: isPirateMode)) {
+                            onCheckForUpdates?()
+                        }
+                        .disabled(onCheckForUpdates == nil)
                         .buttonStyle(.borderless)
                         .font(.system(size: 12))
+
+                        if onCheckForUpdates == nil {
+                            Text("Published release builds enable Sparkle update checks.")
+                                .font(.system(size: 11))
+                                .foregroundColor(SettingsTheme.textSecondary)
+                        }
+                    }
                 }
                 SettingsRow(label: settingsCopy("Privacy", pirate: "Pirate Code (Privacy)", isPirateMode: isPirateMode), showDivider: false) {
                     Image(systemName: "arrow.up.right")

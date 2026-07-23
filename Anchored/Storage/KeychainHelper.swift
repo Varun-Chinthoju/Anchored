@@ -56,6 +56,7 @@ public struct KeychainHelper {
         if useMockOnly {
             mockKeys[normalized] = key
             storeCachedKey(key, forProvider: provider)
+            notifyCloudAPIKeyDidChange(provider: provider, hasKey: true)
             return
         }
         mockKeys.removeValue(forKey: normalized)
@@ -74,6 +75,7 @@ public struct KeychainHelper {
                 throw KeychainError.unhandledError(status: updateStatus)
             }
             storeCachedKey(key, forProvider: provider)
+            notifyCloudAPIKeyDidChange(provider: provider, hasKey: true)
         } else if status == errSecItemNotFound {
             var newQuery = query
             newQuery[kSecValueData as String] = data
@@ -83,6 +85,7 @@ public struct KeychainHelper {
                 throw KeychainError.unhandledError(status: addStatus)
             }
             storeCachedKey(key, forProvider: provider)
+            notifyCloudAPIKeyDidChange(provider: provider, hasKey: true)
         } else {
             throw KeychainError.unhandledError(status: status)
         }
@@ -121,6 +124,7 @@ public struct KeychainHelper {
         if useMockOnly {
             mockKeys.removeValue(forKey: normalized)
             storeCachedKey(nil, forProvider: provider)
+            notifyCloudAPIKeyDidChange(provider: provider, hasKey: false)
             return
         }
 
@@ -136,6 +140,7 @@ public struct KeychainHelper {
             throw KeychainError.unhandledError(status: status)
         }
         storeCachedKey(nil, forProvider: provider)
+        notifyCloudAPIKeyDidChange(provider: provider, hasKey: false)
     }
 
     internal static func clearMockKeys() {
@@ -147,4 +152,19 @@ public struct KeychainHelper {
         cachedKeys.removeAll()
         cacheLock.unlock()
     }
+
+    private static func notifyCloudAPIKeyDidChange(provider: String, hasKey: Bool) {
+        NotificationCenter.default.post(
+            name: .anchoredCloudAPIKeyDidChange,
+            object: nil,
+            userInfo: [
+                "provider": normalizedProvider(provider),
+                "hasKey": hasKey
+            ]
+        )
+    }
+}
+
+extension Notification.Name {
+    static let anchoredCloudAPIKeyDidChange = Notification.Name("com.varun.Anchored.cloudAPIKeyDidChange")
 }

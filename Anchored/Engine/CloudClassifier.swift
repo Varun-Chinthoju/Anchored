@@ -52,18 +52,29 @@ public final class CloudClassifier {
         let providerIndex = preferences.cloudProvider
         let model = preferences.cloudModel
         let endpoint = preferences.cloudEndpoint
+        let endpointComponents = URLComponents(string: endpoint)
+        let endpointPath = endpointComponents?.path.lowercased() ?? ""
+        let usesInputPayload = endpointPath.hasSuffix("/api/v1/chat") || endpointPath.contains("/responses")
+        let usesOllamaChatPayload = providerIndex == 3 || endpointPath.hasSuffix("/api/chat")
         
         let providerName: String
         switch providerIndex {
         case 0: providerName = "gemini"
         case 1: providerName = "openai"
         case 2: providerName = "anthropic"
+        case 3: providerName = "ollama"
         default: providerName = "gemini"
         }
         
-        guard let apiKey = KeychainHelper.loadKey(forProvider: providerName), !apiKey.isEmpty else {
-            completion(.failure(CloudClassifierError.apiKeyMissing))
-            return
+        let apiKey: String?
+        if providerIndex == 3 {
+            apiKey = nil
+        } else {
+            guard let loadedKey = KeychainHelper.loadKey(forProvider: providerName), !loadedKey.isEmpty else {
+                completion(.failure(CloudClassifierError.apiKeyMissing))
+                return
+            }
+            apiKey = loadedKey
         }
         
         guard let structuredInputData = try? JSONEncoder().encode(input),
@@ -71,7 +82,7 @@ public final class CloudClassifier {
             completion(.failure(CloudClassifierError.invalidResponse("Unable to encode structured input")))
             return
         }
-        let structuredRequest = "{\"task\":\"productivity_classification\",\"input\":\(structuredInput),\"outputSchema\":{\"label\":\"productive|distracting|neutral\",\"confidence\":\"0..1\"}}"
+        let structuredRequest = "{\"task\":\"productivity_classification\",\"guidance\":\"For social domains, treat feeds/home/explore/trending as distracting and only return productive when the title features indicate coding, documentation, developer work, or learning.\",\"input\":\(structuredInput),\"outputSchema\":{\"label\":\"productive|distracting|neutral\",\"confidence\":\"0..1\"}}"
 
         guard let urlComponents = URLComponents(string: endpoint) else {
             completion(.failure(CloudClassifierError.invalidEndpoint))
@@ -93,14 +104,18 @@ public final class CloudClassifier {
                     return
                 }
                 request = URLRequest(url: requestURL)
-                request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+                if let apiKey {
+                    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+                }
             } else {
                 guard let requestURL = urlComponents.url else {
                     completion(.failure(CloudClassifierError.invalidEndpoint))
                     return
                 }
                 request = URLRequest(url: requestURL)
-                request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                if let apiKey {
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                }
             }
             
             request.httpMethod = "POST"
@@ -120,24 +135,68 @@ public final class CloudClassifier {
             }
             
         case 1:
-            // OpenAI
-            guard let requestURL = urlComponents.url else {
+            // OpenAI-compatible or LM Studio native chat.
+            guard let requestURL = endpointComponents?.url else {
+                completion(.failure(CloudClassifierError.invalidEndpoint))
+                return
+            }
+                request = URLRequest(url: requestURL)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if let apiKey {
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                }
+
+            do {
+                if usesInputPayload {
+                    let payload = InputPromptRequest(
+                        model: model,
+                        input: structuredRequest
+                    )
+                    request.httpBody = try JSONEncoder().encode(payload)
+                } else if usesOllamaChatPayload {
+                    let payload = OllamaChatRequest(
+                        model: model,
+                        messages: [
+                            OpenAIMessage(role: "user", content: structuredRequest)
+                        ],
+                        stream: false,
+                        format: "json"
+                    )
+                    request.httpBody = try JSONEncoder().encode(payload)
+                } else {
+                    let payload = OpenAIRequest(
+                        model: model,
+                        messages: [
+                            OpenAIMessage(role: "user", content: structuredRequest)
+                        ]
+                    )
+                        request.httpBody = try JSONEncoder().encode(payload)
+                    }
+                } catch {
+                    completion(.failure(error))
+                    return
+                }
+
+        case 3:
+            // Ollama native chat uses messages and returns a single assistant message.
+            guard let requestURL = endpointComponents?.url else {
                 completion(.failure(CloudClassifierError.invalidEndpoint))
                 return
             }
             request = URLRequest(url: requestURL)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            
-            let payload = OpenAIRequest(
-                model: model,
-                messages: [
-                    OpenAIMessage(role: "user", content: structuredRequest)
-                ]
-            )
-            
+
             do {
+                let payload = OllamaChatRequest(
+                    model: model,
+                    messages: [
+                        OpenAIMessage(role: "user", content: structuredRequest)
+                    ],
+                    stream: false,
+                    format: "json"
+                )
                 request.httpBody = try JSONEncoder().encode(payload)
             } catch {
                 completion(.failure(error))
@@ -146,7 +205,7 @@ public final class CloudClassifier {
             
         case 2:
             // Anthropic
-            guard let requestURL = urlComponents.url else {
+            guard let requestURL = endpointComponents?.url else {
                 completion(.failure(CloudClassifierError.invalidEndpoint))
                 return
             }
@@ -215,9 +274,31 @@ public final class CloudClassifier {
                     responseText = text
                     
                 case 1:
-                    let openAIResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
-                    guard let text = openAIResponse.choices?.first?.message?.content else {
-                        throw CloudClassifierError.invalidResponse("Missing choices.message.content")
+                    if usesInputPayload {
+                        let lmStudioResponse = try JSONDecoder().decode(InputPromptResponse.self, from: data)
+                        guard let text = lmStudioResponse.output?.first(where: { $0.type == "message" })?.content
+                                    ?? lmStudioResponse.output?.first?.content else {
+                            throw CloudClassifierError.invalidResponse("Missing output.message.content")
+                        }
+                        responseText = text
+                    } else if usesOllamaChatPayload {
+                        let ollamaResponse = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+                        guard let text = ollamaResponse.message?.content else {
+                            throw CloudClassifierError.invalidResponse("Missing message.content")
+                        }
+                        responseText = text
+                    } else {
+                        let openAIResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+                        guard let text = openAIResponse.choices?.first?.message?.content else {
+                            throw CloudClassifierError.invalidResponse("Missing choices.message.content")
+                        }
+                        responseText = text
+                    }
+                    
+                case 3:
+                    let ollamaResponse = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+                    guard let text = ollamaResponse.message?.content else {
+                        throw CloudClassifierError.invalidResponse("Missing message.content")
                     }
                     responseText = text
                     
@@ -343,6 +424,11 @@ struct OpenAIRequest: Codable {
     let messages: [OpenAIMessage]
 }
 
+struct InputPromptRequest: Codable {
+    let model: String
+    let input: String
+}
+
 struct OpenAIMessage: Codable {
     let role: String
     let content: String
@@ -356,6 +442,32 @@ struct OpenAIResponse: Codable {
         let message: Message?
     }
     let choices: [Choice]?
+}
+
+struct InputPromptResponse: Codable {
+    struct OutputItem: Codable {
+        let type: String?
+        let content: String?
+    }
+
+    let output: [OutputItem]?
+}
+
+// MARK: - Ollama API Request & Response Models
+struct OllamaChatRequest: Codable {
+    let model: String
+    let messages: [OpenAIMessage]
+    let stream: Bool
+    let format: String
+}
+
+struct OllamaChatResponse: Codable {
+    struct Message: Codable {
+        let role: String?
+        let content: String?
+    }
+
+    let message: Message?
 }
 
 // MARK: - Anthropic API Request & Response Models

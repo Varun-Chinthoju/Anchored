@@ -19,10 +19,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var contextualLearningStore: ContextualLearningStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        RuntimeTrace.event("startup_launch_received")
         setupMainMenu()
         if shouldShowOnboardingFlow() {
+            RuntimeTrace.event("startup_branch_selected", fields: ["mode": "onboarding"])
             showOnboardingFlow()
         } else {
+            RuntimeTrace.event("startup_branch_selected", fields: ["mode": "standard"])
             startStandardFlow()
         }
     }
@@ -33,12 +36,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func startStandardFlow() {
         NSApp.setActivationPolicy(.accessory)
+        RuntimeTrace.event("activation_policy_set", fields: ["mode": "accessory"])
         appSwitchMonitor = AppSwitchMonitor()
         let prefs = PreferencesManager.shared
         let diagnostics = DiagnosticsCenter.shared
+        let accessibilityTrusted = AXIsProcessTrusted()
+        let screenRecordingGranted = CGPreflightScreenCaptureAccess()
 
-        diagnostics.recordPermissionState(permission: .accessibility, granted: AXIsProcessTrusted())
-        diagnostics.recordPermissionState(permission: .screenRecording, granted: CGPreflightScreenCaptureAccess())
+        diagnostics.recordPermissionState(permission: .accessibility, granted: accessibilityTrusted)
+        diagnostics.recordPermissionState(permission: .screenRecording, granted: screenRecordingGranted)
+        RuntimeTrace.event("launch_permissions_state", fields: [
+            "accessibility": String(accessibilityTrusted),
+            "screenRecording": String(screenRecordingGranted),
+            "permissionGate": "deferred"
+        ])
 
         RuntimeTrace.event("standard_flow_start", fields: [
             "focusThreshold": String(prefs.effectiveFocusThreshold),
@@ -47,7 +58,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "localText": String(prefs.enableLocalTextClassification),
             "cloud": String(prefs.enableCloudClassification),
             "visual": String(prefs.enableImageClassification),
-            "accessibility": String(AXIsProcessTrusted())
+            "accessibility": String(accessibilityTrusted)
         ])
         
         let listManager = DistractionListManager.shared
@@ -195,10 +206,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Re-setup main menu with menuBarController target populated
         setupMainMenu()
+        RuntimeTrace.event("startup_ui_ready", fields: [
+            "mode": "standard",
+            "activationPolicy": "accessory",
+            "menuBarController": "ready"
+        ])
     }
     
     private func showOnboardingFlow() {
         NSApp.setActivationPolicy(.regular)
+        RuntimeTrace.event("activation_policy_set", fields: ["mode": "regular"])
         let window = OnboardingWindow { [weak self] in
             guard let self = self else { return }
             UserDefaults.standard.set(true, forKey: Self.onboardingCompletionKey)
@@ -209,6 +226,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        RuntimeTrace.event("startup_ui_ready", fields: [
+            "mode": "onboarding",
+            "activationPolicy": "regular",
+            "onboardingWindow": "ready"
+        ])
     }
     
     private func setupMainMenu() {
@@ -217,8 +239,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. App Menu ("Anchored")
         let appMenu = NSMenu(title: "Anchored")
         appMenu.addItem(withTitle: "About the Vessel (About Anchored)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        let updatesItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdatesClicked(_:)), keyEquivalent: "")
-        updatesItem.target = self
+        let updatesItem = NSMenuItem(title: "Check for Updates...", action: #selector(UpdateManager.checkForUpdates(_:)), keyEquivalent: "")
+        updatesItem.target = UpdateManager.shared
         appMenu.addItem(updatesItem)
         appMenu.addItem(NSMenuItem.separator())
         
@@ -304,10 +326,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         contextHistoryPipeline = nil
         contextHistoryStore = nil
         classificationOutcomeStore = nil
-    }
-
-    @objc private func checkForUpdatesClicked(_ sender: Any?) {
-        UpdateManager.shared.checkForUpdates()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

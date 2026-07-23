@@ -106,6 +106,7 @@ Choose one:
 - [ ] Store the stable signing certificate in `MACOS_CERTIFICATE_P12_BASE64` and `MACOS_CERTIFICATE_PASSWORD`.
 - [ ] Store notarization credentials in `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
 - [ ] Store the Sparkle Ed25519 private key in `SPARKLE_ED25519_PRIVATE_KEY` so the generated appcast stays signed.
+- [ ] Pass `SPARKLE_UPDATES_ENABLED=YES` when archiving the tagged release so only published release builds expose Sparkle update checks.
 - [ ] Upload the versioned app zip and `appcast.xml` together on every release so `releases/latest/download/appcast.xml` stays valid.
 
 ## Repository controls

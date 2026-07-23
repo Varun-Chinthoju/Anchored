@@ -49,7 +49,7 @@ public class ProfileManager: ObservableObject {
             "com.apple.Music"
         ].filter { DistractionListManager.defaultDistractions.contains($0) } + categorized.distractionApps)).sorted()
         
-        var codingAllowed = Array(Set(["com.apple.dt.Xcode", "com.microsoft.VSCode", "com.apple.Terminal", "com.figma.Desktop"] + categorized.codingApps))
+        let codingAllowed = Array(Set(["com.apple.dt.Xcode", "com.microsoft.VSCode", "com.apple.Terminal", "com.figma.Desktop"] + categorized.codingApps))
         
         var videoAllowed = categorized.videoApps
         if videoAllowed.isEmpty {
@@ -65,21 +65,21 @@ public class ProfileManager: ObservableObject {
             WorkProfile(
                 name: "Coding",
                 distractionApps: codingApps,
-                distractionDomains: ["youtube.com", "twitter.com", "x.com", "reddit.com", "instagram.com", "tiktok.com", "facebook.com", "twitch.tv", "netflix.com"],
+                distractionDomains: ["youtube.com", "twitter.com", "x.com", "reddit.com", "twitch.tv", "netflix.com"],
                 allowedApps: codingAllowed.sorted(),
                 allowedDomains: ["github.com", "stackoverflow.com", "developer.apple.com", "docs.python.org", "npmjs.com", "crates.io", "pkg.go.dev"]
             ),
             WorkProfile(
                 name: "Video",
                 distractionApps: videoApps,
-                distractionDomains: ["twitter.com", "x.com", "reddit.com", "instagram.com", "tiktok.com", "facebook.com", "netflix.com"],
+                distractionDomains: ["twitter.com", "x.com", "reddit.com", "netflix.com"],
                 allowedApps: videoAllowed.sorted(),
                 allowedDomains: ["youtube.com", "studio.youtube.com", "frame.io", "vimeo.com"]
             ),
             WorkProfile(
                 name: "Writing",
                 distractionApps: writingApps,
-                distractionDomains: ["youtube.com", "twitter.com", "x.com", "reddit.com", "instagram.com", "tiktok.com", "twitch.tv", "netflix.com"],
+                distractionDomains: ["youtube.com", "twitter.com", "x.com", "reddit.com", "twitch.tv", "netflix.com"],
                 allowedApps: writingAllowed.sorted(),
                 allowedDomains: ["docs.google.com", "wikipedia.org", "scholar.google.com", "notion.so", "medium.com"]
             )

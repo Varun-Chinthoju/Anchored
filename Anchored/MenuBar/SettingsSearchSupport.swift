@@ -7,11 +7,13 @@ enum SettingsScrollTarget: Hashable {
     case generalSessionReview
     case generalLanguageMode
     case generalSystem
+    case intelligenceOverview
+    case intelligenceLocal
+    case intelligenceCloud
     case privacyContextHistory
     case privacyLocalStorage
     case privacySessionSummaries
     case privacyClassificationFeedback
-    case privacyCloudAI
     case privacyDiagnostics
     case profileOverview
     case profileAllowedApps
@@ -24,6 +26,7 @@ enum SettingsScrollTarget: Hashable {
 
 enum SettingsSearchRoute: Hashable {
     case general(SettingsScrollTarget)
+    case intelligence(SettingsScrollTarget)
     case privacy(SettingsScrollTarget)
     case profile(SettingsScrollTarget)
     case captainsLog
@@ -33,6 +36,8 @@ enum SettingsSearchRoute: Hashable {
         switch self {
         case .general:
             return .general
+        case .intelligence:
+            return .intelligence
         case .privacy:
             return .privacy
         case .profile:
@@ -46,7 +51,7 @@ enum SettingsSearchRoute: Hashable {
 
     var scrollTarget: SettingsScrollTarget? {
         switch self {
-        case .general(let target), .privacy(let target), .profile(let target), .about(let target):
+        case .general(let target), .intelligence(let target), .privacy(let target), .profile(let target), .about(let target):
             return target
         case .captainsLog:
             return nil
@@ -187,6 +192,7 @@ enum SettingsSearchIndex {
     private static func group(_ results: [SettingsSearchResult]) -> [SettingsSearchSection] {
         let paneOrder = [
             "General",
+            "Productivity Intelligence",
             "Privacy & Data",
             "Profile",
             "Analytics",
@@ -381,68 +387,76 @@ enum SettingsSearchIndex {
                 route: .general(.generalSystem)
             ),
             result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
-                title: settingsCopy("Experimental Visual Fallback", pirate: "Experimental Visual Spyglass", isPirateMode: isPirateMode),
-                detail: settingsCopy("Optional local screen analysis used only after deterministic, local-text, and cloud classification remain neutral. It can only promote a current neutral context to focus; distracting results stay advisory. Disabled by default.", pirate: "Optional local screen analysis used only after all structured checks stay neutral. It can only steer a current neutral sight to focus; distracting results stay advisory. Off by default.", isPirateMode: isPirateMode),
-                aliases: ["visual", "screen", "fallback"],
-                route: .general(.generalSystem)
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("Overview", pirate: "Overview", isPirateMode: isPirateMode),
+                title: settingsCopy("Productivity Intelligence", pirate: "Rigging Intelligence", isPirateMode: isPirateMode),
+                detail: settingsCopy("One place for local text, visual fallback, and cloud model settings.", pirate: "One place for on-deck text, visual spyglass, and cloud model settings.", isPirateMode: isPirateMode),
+                aliases: ["intelligence", "ai", "models", "classification"],
+                route: .intelligence(.intelligenceOverview)
             ),
             result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
-                title: settingsCopy("Use SmolVLM 256M (Local VLM)", pirate: "Call SmolVLM 256M (Local VLM)", isPirateMode: isPirateMode),
-                detail: settingsCopy("Queries a local SmolVLM 4-bit vision model (only 145 MB).", pirate: "Steer visual checks to local SmolVLM 4-bit model.", isPirateMode: isPirateMode),
-                aliases: ["smolvlm", "local", "vision"],
-                route: .general(.generalSystem)
-            ),
-            result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("On-Device Checks", pirate: "On-Deck Checks", isPirateMode: isPirateMode),
                 title: settingsCopy("Local Productivity Check", pirate: "Local Productivity Check", isPirateMode: isPirateMode),
                 detail: settingsCopy("Runs a fully on-device text scorer over the bundle ID, title, URL, and visible OCR text. Turning this on disables cloud AI. Mixed-use pages can stay contextual until repeated page-specific corrections raise confidence; blocked rules still win. Disabled by default.", pirate: "Runs a fully on-deck text scorer over the bundle, title, URL, and visible OCR text. Turning this on disables cloud AI. Mixed-use pages can stay contextual until repeated page-specific corrections raise confidence; blocked rules still win. Off by default.", isPirateMode: isPirateMode),
                 aliases: ["local", "text", "productivity"],
-                route: .general(.generalSystem)
+                route: .intelligence(.intelligenceLocal)
             ),
             result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("On-Device Checks", pirate: "On-Deck Checks", isPirateMode: isPirateMode),
+                title: settingsCopy("Experimental Visual Fallback", pirate: "Experimental Visual Spyglass", isPirateMode: isPirateMode),
+                detail: settingsCopy("Optional local screen analysis used only after deterministic, local-text, and cloud classification remain neutral. It can only promote a current neutral context to focus; distracting results stay advisory. Disabled by default.", pirate: "Optional local screen analysis used only after all structured checks stay neutral. It can only steer a current neutral sight to focus; distracting results stay advisory. Off by default.", isPirateMode: isPirateMode),
+                aliases: ["visual", "screen", "fallback"],
+                route: .intelligence(.intelligenceLocal)
+            ),
+            result(
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("On-Device Checks", pirate: "On-Deck Checks", isPirateMode: isPirateMode),
+                title: settingsCopy("Use SmolVLM 256M (Local VLM)", pirate: "Call SmolVLM 256M (Local VLM)", isPirateMode: isPirateMode),
+                detail: settingsCopy("Queries a local SmolVLM 4-bit vision model (only 145 MB).", pirate: "Steer visual checks to local SmolVLM 4-bit model.", isPirateMode: isPirateMode),
+                aliases: ["smolvlm", "local", "vision"],
+                route: .intelligence(.intelligenceLocal)
+            ),
+            result(
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("Cloud Model Connection", pirate: "Cloud Model Connection", isPirateMode: isPirateMode),
                 title: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
                 detail: settingsCopy("Use cloud AI classification for high-precision focus validation. Turning this on disables the local on-device check.", pirate: "Ask the cloud winds if yer context be productive. Turning this on disables the local on-deck check.", isPirateMode: isPirateMode),
                 aliases: ["cloud", "ai", "classification"],
-                route: .general(.generalSystem)
+                route: .intelligence(.intelligenceCloud)
             ),
             result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("Cloud Model Connection", pirate: "Cloud Model Connection", isPirateMode: isPirateMode),
                 title: settingsCopy("Cloud Provider", pirate: "Cloud Provider", isPirateMode: isPirateMode),
                 detail: settingsCopy("Choose which cloud LLM service to query.", pirate: "Choose which cloud LLM service to query.", isPirateMode: isPirateMode),
-                aliases: ["cloud", "provider", "model"],
-                route: .general(.generalSystem)
+                aliases: ["cloud", "provider", "model", "ollama", "lm studio"],
+                route: .intelligence(.intelligenceCloud)
             ),
             result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("Cloud Model Connection", pirate: "Cloud Model Connection", isPirateMode: isPirateMode),
                 title: settingsCopy("API Key", pirate: "Letters of Marque (API Key)", isPirateMode: isPirateMode),
                 detail: settingsCopy("Enter your personal API key. Stored securely in Keychain.", pirate: "Enter your personal API key. Stored securely in Keychain.", isPirateMode: isPirateMode),
                 aliases: ["key", "api", "cloud"],
-                route: .general(.generalSystem)
+                route: .intelligence(.intelligenceCloud)
             ),
             result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("Cloud Model Connection", pirate: "Cloud Model Connection", isPirateMode: isPirateMode),
                 title: settingsCopy("Model Name", pirate: "Model Name", isPirateMode: isPirateMode),
                 detail: settingsCopy("The identifier of the cloud model to use.", pirate: "The identifier of the cloud model to use.", isPirateMode: isPirateMode),
                 aliases: ["model", "cloud"],
-                route: .general(.generalSystem)
+                route: .intelligence(.intelligenceCloud)
             ),
             result(
-                paneTitle: "General",
-                sectionTitle: settingsCopy("System", pirate: "Ship Deck", isPirateMode: isPirateMode),
+                paneTitle: "Productivity Intelligence",
+                sectionTitle: settingsCopy("Cloud Model Connection", pirate: "Cloud Model Connection", isPirateMode: isPirateMode),
                 title: settingsCopy("Endpoint URL", pirate: "Endpoint URL", isPirateMode: isPirateMode),
                 detail: settingsCopy("The API base URL or custom reverse proxy endpoint.", pirate: "The API base URL or custom reverse proxy endpoint.", isPirateMode: isPirateMode),
                 aliases: ["endpoint", "url", "cloud"],
-                route: .general(.generalSystem)
+                route: .intelligence(.intelligenceCloud)
             ),
 
             // Privacy
@@ -501,14 +515,6 @@ enum SettingsSearchIndex {
                 detail: settingsCopy("Correction examples and page-scoped learning records are automatically pruned with the selected retention period.", pirate: "Correction examples and page-scoped learning records are automatically pruned with the selected retention horizon.", isPirateMode: isPirateMode),
                 aliases: ["corrections", "feedback", "privacy"],
                 route: .privacy(.privacyClassificationFeedback)
-            ),
-            result(
-                paneTitle: "Privacy & Data",
-                sectionTitle: settingsCopy("Cloud AI", pirate: "Cloud Winds", isPirateMode: isPirateMode),
-                title: settingsCopy("Cloud AI Productivity Check", pirate: "Cloud AI Productivity Check", isPirateMode: isPirateMode),
-                detail: settingsCopy("When enabled, context may be sent to your selected cloud provider for classification. Disable to keep all analysis on-device.", pirate: "When on, context may be sent to cloud winds. Keep off for local-only analysis.", isPirateMode: isPirateMode),
-                aliases: ["cloud", "ai", "privacy"],
-                route: .privacy(.privacyCloudAI)
             ),
             result(
                 paneTitle: "Privacy & Data",

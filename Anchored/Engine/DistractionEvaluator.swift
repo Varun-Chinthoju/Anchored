@@ -56,6 +56,9 @@ final class DistractionEvaluator {
 
         if BrowserStrategyFactory.isSupportedBrowser(bundleID), url != nil {
             let isMixedUseContext = ContextualSiteHeuristic.isMixedUseContext(url: url, title: title)
+            let isEducationalVideo = BrowserContentHeuristic.isEducationalContent(url: url, title: title)
+            let pageCategory = ContextualSiteHeuristic.pageCategory(for: url, title: title)
+
             if isMixedUseContext {
                 evidence.append(ClassificationEvidence(
                     label: .contextual,
@@ -65,9 +68,39 @@ final class DistractionEvaluator {
                 ))
             }
 
-            if BrowserContentHeuristic.isEducationalContent(url: url, title: title) {
+            if pageCategory == .social {
+                switch SocialContentHeuristic.signal(url: url, title: title) {
+                case .productive:
+                    evidence.append(ClassificationEvidence(
+                        label: .productive,
+                        source: .deterministicRule,
+                        confidence: 0.85,
+                        reason: .deterministicHeuristic
+                    ))
+                case .distracting:
+                    evidence.append(ClassificationEvidence(
+                        label: .distracting,
+                        source: .deterministicRule,
+                        confidence: 0.90,
+                        reason: .deterministicHeuristic
+                    ))
+                case .unknown:
+                    break
+                }
+            }
+
+            if isEducationalVideo {
                 // Educational video content should stay neutral unless another
                 // explicit rule or stronger intent signal says otherwise.
+            } else if BrowserContentHeuristic.isVideoPlatform(url: url) {
+                // Generic video browsing should still be treated as a real
+                // distraction even when the page is mixed-use.
+                evidence.append(ClassificationEvidence(
+                    label: .distracting,
+                    source: .deterministicRule,
+                    confidence: 0.90,
+                    reason: .deterministicHeuristic
+                ))
             } else if !isMixedUseContext, BrowserContentHeuristic.isEntertainment(url: url) {
                 evidence.append(ClassificationEvidence(
                     label: .distracting,
@@ -124,7 +157,13 @@ private enum BrowserContentHeuristic {
         "disneyplus.com",
         "steampowered.com",
         "store.steampowered.com",
-        "epicgames.com"
+        "epicgames.com",
+        "x.com",
+        "twitter.com",
+        "facebook.com",
+        "instagram.com",
+        "tiktok.com",
+        "linkedin.com"
     ]
 
     private static let entertainmentTerms = [
@@ -139,6 +178,12 @@ private enum BrowserContentHeuristic {
         "twitch"
     ]
 
+    static func isVideoPlatform(url: URL?) -> Bool {
+        guard let url else { return false }
+        let host = url.host?.lowercased() ?? ""
+        return host.contains("youtube.com") || host.contains("youtu.be") || host.contains("vimeo.com")
+    }
+
     static func isEntertainment(url: URL?) -> Bool {
         guard let url else { return false }
         let host = url.host?.lowercased() ?? ""
@@ -151,11 +196,10 @@ private enum BrowserContentHeuristic {
     }
 
     static func isEducationalContent(url: URL?, title: String) -> Bool {
-        guard let url else { return false }
-        let host = url.host?.lowercased() ?? ""
-        guard host.contains("youtube.com") || host.contains("youtu.be") || host.contains("vimeo.com") else {
+        guard let url, isVideoPlatform(url: url) else {
             return false
         }
+        let host = url.host?.lowercased() ?? ""
 
         let searchable = [
             host,
@@ -165,5 +209,71 @@ private enum BrowserContentHeuristic {
         .joined(separator: " ")
 
         return educationalTerms.contains(where: searchable.contains)
+    }
+}
+
+private enum SocialContentHeuristic {
+    private static let productiveTerms = [
+        "code",
+        "coding",
+        "programming",
+        "software",
+        "developer",
+        "development",
+        "swift",
+        "xcode",
+        "tutorial",
+        "documentation",
+        "docs",
+        "learn",
+        "build",
+        "api",
+        "stack overflow",
+        "github",
+        "open source"
+    ]
+
+    private static let distractingTerms = [
+        "home",
+        "feed",
+        "for you",
+        "explore",
+        "trending",
+        "following",
+        "notifications",
+        "bookmarks",
+        "messages",
+        "inbox",
+        "reels",
+        "shorts",
+        "watch",
+        "discover",
+        "popular",
+        "recommended",
+        "suggested"
+    ]
+
+    enum Signal {
+        case productive
+        case distracting
+        case unknown
+    }
+
+    static func signal(url: URL?, title: String) -> Signal {
+        let searchable = [
+            url?.absoluteString.lowercased() ?? "",
+            ContextSanitizer.sanitizeTitle(title).lowercased()
+        ]
+        .joined(separator: " ")
+
+        if productiveTerms.contains(where: searchable.contains) {
+            return .productive
+        }
+
+        if distractingTerms.contains(where: searchable.contains) {
+            return .distracting
+        }
+
+        return .unknown
     }
 }

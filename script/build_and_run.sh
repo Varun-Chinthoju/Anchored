@@ -77,6 +77,7 @@ for path in \
   "$INSTALL_PATH/Contents/Frameworks/libXCTestSwiftSupport.dylib"; do
   /bin/rm -rf "$path"
 done
+find "$INSTALL_PATH/Contents/Frameworks" -name "*PackageProduct.framework" -exec /bin/rm -rf {} + 2>/dev/null || true
 
 open_app() {
   /usr/bin/open -n "$INSTALL_PATH"
